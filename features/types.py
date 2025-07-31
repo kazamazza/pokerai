@@ -91,15 +91,6 @@ MULTIWAY_CONTEXTS = [
     "4WAY_PLUS", # 4 or more players
 ]
 
-PRE_ACTION_CONTEXTS = [
-    "OPEN",         # Hero is first-in
-    "VS_LIMP",      # Hero isolates a limper
-    "VS_OPEN",      # Hero facing a standard raise
-    "VS_ISO",       # Hero facing isolation raise
-    "VS_3BET",      # Hero opened, facing a 3-bet
-    "VS_4BET",      # Hero 3-bet, now facing 4-bet
-]
-
 EXPLOIT_SETTINGS = [
     "GTO",              # Play default solver strategy
     "EXPLOIT_LIGHT",    # Slight deviation to exploit tendencies

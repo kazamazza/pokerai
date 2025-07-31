@@ -1,10 +1,17 @@
 import os
 import json
+import sys
+from pathlib import Path
+
 import boto3
 import time
 import traceback
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT_DIR))
+
 from preflop.generate_ranges import generate_single_range
 
 # Load AWS credentials and config
@@ -37,8 +44,8 @@ def poll_and_process():
             response = sqs.receive_message(
                 QueueUrl=QUEUE_URL,
                 MaxNumberOfMessages=1,
-                WaitTimeSeconds=20,        # Long polling
-                VisibilityTimeout=300       # 5 min for safety
+                WaitTimeSeconds=20,
+                VisibilityTimeout=300
             )
 
             messages = response.get("Messages", [])
@@ -55,7 +62,6 @@ def poll_and_process():
                 try:
                     config = json.loads(body)
                     generate_single_range(config)
-                    # Delete from queue only on success
                     sqs.delete_message(
                         QueueUrl=QUEUE_URL,
                         ReceiptHandle=receipt_handle
