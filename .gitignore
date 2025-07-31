@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+*.log
+*.sqlite3
+.DS_Store
+/tmp/
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Terraform (if added later)
+*.tfstate
+*.tfstate.*
+.terraform/

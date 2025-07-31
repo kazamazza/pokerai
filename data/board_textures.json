@@ -1,0 +1,5936 @@
+{
+  "2-2-2:triplet:rainbow": [
+    "2h,2d,2c",
+    "2s,2h,2c",
+    "2s,2h,2d",
+    "2h,2d,2s"
+  ],
+  "2-2-3:paired:twotone": [
+    "2s,2h,3h",
+    "2h,2c,3c",
+    "2s,2d,3s"
+  ],
+  "2-2-3:paired:rainbow": [
+    "2h,2c,3d",
+    "2s,2d,3c",
+    "2s,2h,3d"
+  ],
+  "2-2-4:paired:twotone": [
+    "2d,2c,4c",
+    "2s,2c,4s",
+    "2s,2h,4s"
+  ],
+  "2-2-4:paired:rainbow": [
+    "2h,2d,4s",
+    "2h,2d,4c",
+    "2s,2c,4d"
+  ],
+  "2-2-5:paired:twotone": [
+    "2s,2d,5s",
+    "2h,2d,5d",
+    "2s,2d,5d"
+  ],
+  "2-2-5:paired:rainbow": [
+    "2s,2h,5c",
+    "2s,2c,5h",
+    "2h,2c,5d"
+  ],
+  "2-2-6:paired:twotone": [
+    "2s,2h,6s",
+    "2s,2c,6c",
+    "2h,2d,6d"
+  ],
+  "2-2-6:paired:rainbow": [
+    "2s,2d,6c",
+    "2h,2d,6s",
+    "2s,2c,6d"
+  ],
+  "2-2-7:paired:twotone": [
+    "2s,2h,7s",
+    "2h,2c,7h",
+    "2h,2d,7h"
+  ],
+  "2-2-7:paired:rainbow": [
+    "2h,2c,7d",
+    "2h,2c,7s",
+    "2d,2c,7h"
+  ],
+  "2-2-8:paired:twotone": [
+    "2h,2d,8h",
+    "2d,2c,8d",
+    "2d,2c,8c"
+  ],
+  "2-2-8:paired:rainbow": [
+    "2s,2c,8h",
+    "2s,2h,8d",
+    "2d,2c,8s"
+  ],
+  "2-2-9:paired:twotone": [
+    "2s,2c,9s",
+    "2d,2c,9d",
+    "2s,2d,9s"
+  ],
+  "2-2-9:paired:rainbow": [
+    "2s,2c,9d",
+    "2s,2h,9c",
+    "2h,2c,9s"
+  ],
+  "2-2-T:paired:twotone": [
+    "2s,2h,Th",
+    "2h,2d,Th",
+    "2s,2d,Td"
+  ],
+  "2-2-T:paired:rainbow": [
+    "2d,2c,Ts",
+    "2h,2d,Ts",
+    "2d,2c,Th"
+  ],
+  "2-2-J:paired:twotone": [
+    "2h,2d,Jd",
+    "2h,2c,Jh",
+    "2d,2c,Jc"
+  ],
+  "2-2-J:paired:rainbow": [
+    "2s,2d,Jc",
+    "2h,2d,Js",
+    "2s,2d,Jh"
+  ],
+  "2-2-Q:paired:twotone": [
+    "2d,2c,Qc",
+    "2s,2d,Qd",
+    "2s,2c,Qs"
+  ],
+  "2-2-Q:paired:rainbow": [
+    "2s,2h,Qc",
+    "2s,2h,Qd",
+    "2s,2d,Qh"
+  ],
+  "2-2-K:paired:twotone": [
+    "2d,2c,Kc",
+    "2d,2c,Kd",
+    "2s,2c,Ks"
+  ],
+  "2-2-K:paired:rainbow": [
+    "2d,2c,Ks",
+    "2d,2c,Kh",
+    "2h,2d,Kc"
+  ],
+  "2-2-A:paired:twotone": [
+    "2d,2c,Ad",
+    "2d,2c,Ac",
+    "2h,2d,Ad"
+  ],
+  "2-2-A:paired:rainbow": [
+    "2s,2c,Ah",
+    "2h,2d,Ac",
+    "2s,2h,Ac"
+  ],
+  "2-3-3:paired:twotone": [
+    "2d,3h,3d",
+    "2h,3h,3d",
+    "2s,3s,3d"
+  ],
+  "2-3-4:connected:monotone": [
+    "2h,3h,4h",
+    "2c,3c,4c",
+    "2d,3d,4d"
+  ],
+  "2-3-4:connected:twotone": [
+    "2d,3s,4d",
+    "2h,3d,4h",
+    "2c,3d,4c"
+  ],
+  "2-3-5:connected:monotone": [
+    "2s,3s,5s",
+    "2d,3d,5d",
+    "2c,3c,5c"
+  ],
+  "2-3-5:connected:twotone": [
+    "2d,3d,5c",
+    "2s,3d,5s",
+    "2s,3c,5s"
+  ],
+  "2-3-6:connected:monotone": [
+    "2d,3d,6d",
+    "2h,3h,6h",
+    "2s,3s,6s"
+  ],
+  "2-3-6:connected:twotone": [
+    "2s,3c,6s",
+    "2s,3s,6d",
+    "2d,3h,6h"
+  ],
+  "2-3-7:low:monotone": [
+    "2c,3c,7c",
+    "2s,3s,7s",
+    "2h,3h,7h"
+  ],
+  "2-3-7:low:twotone": [
+    "2s,3h,7s",
+    "2h,3h,7c",
+    "2c,3c,7s"
+  ],
+  "2-3-8:uncoordinated:monotone": [
+    "2s,3s,8s",
+    "2d,3d,8d",
+    "2c,3c,8c"
+  ],
+  "2-3-8:uncoordinated:twotone": [
+    "2c,3h,8c",
+    "2d,3d,8s",
+    "2s,3d,8d"
+  ],
+  "2-3-9:uncoordinated:monotone": [
+    "2d,3d,9d",
+    "2s,3s,9s",
+    "2c,3c,9c"
+  ],
+  "2-3-9:uncoordinated:twotone": [
+    "2h,3h,9s",
+    "2c,3s,9s",
+    "2h,3s,9h"
+  ],
+  "2-3-T:uncoordinated:monotone": [
+    "2s,3s,Ts",
+    "2d,3d,Td",
+    "2h,3h,Th"
+  ],
+  "2-3-T:uncoordinated:twotone": [
+    "2d,3c,Td",
+    "2h,3s,Th",
+    "2d,3d,Th"
+  ],
+  "2-3-J:uncoordinated:monotone": [
+    "2c,3c,Jc",
+    "2h,3h,Jh",
+    "2d,3d,Jd"
+  ],
+  "2-3-J:uncoordinated:twotone": [
+    "2h,3c,Jc",
+    "2c,3h,Jh",
+    "2h,3c,Jh"
+  ],
+  "2-3-Q:uncoordinated:monotone": [
+    "2c,3c,Qc",
+    "2h,3h,Qh",
+    "2d,3d,Qd"
+  ],
+  "2-3-Q:uncoordinated:twotone": [
+    "2c,3c,Qd",
+    "2h,3h,Qc",
+    "2c,3c,Qs"
+  ],
+  "2-3-K:uncoordinated:monotone": [
+    "2d,3d,Kd",
+    "2c,3c,Kc",
+    "2h,3h,Kh"
+  ],
+  "2-3-K:uncoordinated:twotone": [
+    "2d,3c,Kd",
+    "2c,3s,Kc",
+    "2s,3h,Kh"
+  ],
+  "2-3-A:uncoordinated:monotone": [
+    "2c,3c,Ac",
+    "2d,3d,Ad",
+    "2s,3s,As"
+  ],
+  "2-3-A:uncoordinated:twotone": [
+    "2s,3c,Ac",
+    "2c,3s,Ac",
+    "2s,3d,As"
+  ],
+  "2-3-3:paired:rainbow": [
+    "2s,3d,3c",
+    "2s,3h,3c",
+    "2h,3d,3c"
+  ],
+  "2-3-4:connected:rainbow": [
+    "2s,3c,4d",
+    "2h,3s,4d",
+    "2s,3h,4d"
+  ],
+  "2-3-5:connected:rainbow": [
+    "2d,3s,5c",
+    "2d,3h,5s",
+    "2s,3d,5h"
+  ],
+  "2-3-6:connected:rainbow": [
+    "2d,3h,6s",
+    "2h,3c,6d",
+    "2h,3s,6d"
+  ],
+  "2-3-7:low:rainbow": [
+    "2h,3s,7c",
+    "2c,3s,7h",
+    "2s,3h,7d"
+  ],
+  "2-3-8:uncoordinated:rainbow": [
+    "2c,3d,8h",
+    "2d,3s,8h",
+    "2h,3d,8s"
+  ],
+  "2-3-9:uncoordinated:rainbow": [
+    "2d,3c,9h",
+    "2h,3d,9c",
+    "2d,3c,9s"
+  ],
+  "2-3-T:uncoordinated:rainbow": [
+    "2c,3s,Td",
+    "2c,3s,Th",
+    "2c,3h,Ts"
+  ],
+  "2-3-J:uncoordinated:rainbow": [
+    "2s,3c,Jh",
+    "2h,3c,Jd",
+    "2h,3d,Jc"
+  ],
+  "2-3-Q:uncoordinated:rainbow": [
+    "2s,3h,Qd",
+    "2c,3s,Qh",
+    "2h,3c,Qd"
+  ],
+  "2-3-K:uncoordinated:rainbow": [
+    "2c,3s,Kh",
+    "2h,3d,Kc",
+    "2s,3h,Kd"
+  ],
+  "2-3-A:uncoordinated:rainbow": [
+    "2c,3d,As",
+    "2s,3h,Ac",
+    "2c,3s,Ad"
+  ],
+  "2-4-4:paired:twotone": [
+    "2c,4h,4c",
+    "2c,4d,4c",
+    "2h,4h,4d"
+  ],
+  "2-4-5:connected:monotone": [
+    "2h,4h,5h",
+    "2s,4s,5s",
+    "2c,4c,5c"
+  ],
+  "2-4-5:connected:twotone": [
+    "2h,4s,5s",
+    "2c,4h,5c",
+    "2h,4d,5h"
+  ],
+  "2-4-6:connected:monotone": [
+    "2h,4h,6h",
+    "2d,4d,6d",
+    "2c,4c,6c"
+  ],
+  "2-4-6:connected:twotone": [
+    "2s,4h,6s",
+    "2d,4s,6d",
+    "2d,4c,6c"
+  ],
+  "2-4-7:low:monotone": [
+    "2h,4h,7h",
+    "2s,4s,7s",
+    "2d,4d,7d"
+  ],
+  "2-4-7:low:twotone": [
+    "2d,4h,7d",
+    "2s,4c,7s",
+    "2c,4c,7d"
+  ],
+  "2-4-8:uncoordinated:monotone": [
+    "2s,4s,8s",
+    "2h,4h,8h",
+    "2c,4c,8c"
+  ],
+  "2-4-8:uncoordinated:twotone": [
+    "2d,4h,8d",
+    "2h,4h,8d",
+    "2s,4d,8s"
+  ],
+  "2-4-9:uncoordinated:monotone": [
+    "2c,4c,9c",
+    "2s,4s,9s",
+    "2h,4h,9h"
+  ],
+  "2-4-9:uncoordinated:twotone": [
+    "2s,4d,9d",
+    "2d,4c,9c",
+    "2c,4h,9c"
+  ],
+  "2-4-T:uncoordinated:monotone": [
+    "2h,4h,Th",
+    "2s,4s,Ts",
+    "2c,4c,Tc"
+  ],
+  "2-4-T:uncoordinated:twotone": [
+    "2d,4h,Td",
+    "2s,4d,Ts",
+    "2h,4c,Th"
+  ],
+  "2-4-J:uncoordinated:monotone": [
+    "2d,4d,Jd",
+    "2h,4h,Jh",
+    "2s,4s,Js"
+  ],
+  "2-4-J:uncoordinated:twotone": [
+    "2h,4s,Jh",
+    "2h,4c,Jc",
+    "2h,4h,Jd"
+  ],
+  "2-4-Q:uncoordinated:monotone": [
+    "2s,4s,Qs",
+    "2d,4d,Qd",
+    "2c,4c,Qc"
+  ],
+  "2-4-Q:uncoordinated:twotone": [
+    "2h,4h,Qs",
+    "2c,4c,Qs",
+    "2s,4s,Qh"
+  ],
+  "2-4-K:uncoordinated:monotone": [
+    "2s,4s,Ks",
+    "2d,4d,Kd",
+    "2h,4h,Kh"
+  ],
+  "2-4-K:uncoordinated:twotone": [
+    "2d,4d,Kc",
+    "2c,4c,Kd",
+    "2s,4c,Ks"
+  ],
+  "2-4-A:uncoordinated:monotone": [
+    "2d,4d,Ad",
+    "2s,4s,As",
+    "2c,4c,Ac"
+  ],
+  "2-4-A:uncoordinated:twotone": [
+    "2d,4c,Ad",
+    "2d,4d,Ac",
+    "2d,4s,As"
+  ],
+  "2-4-4:paired:rainbow": [
+    "2h,4d,4c",
+    "2h,4s,4d",
+    "2s,4h,4c"
+  ],
+  "2-4-5:connected:rainbow": [
+    "2c,4d,5h",
+    "2c,4s,5d",
+    "2h,4c,5s"
+  ],
+  "2-4-6:connected:rainbow": [
+    "2d,4c,6s",
+    "2d,4h,6c",
+    "2s,4d,6c"
+  ],
+  "2-4-7:low:rainbow": [
+    "2d,4s,7c",
+    "2s,4d,7c",
+    "2s,4c,7d"
+  ],
+  "2-4-8:uncoordinated:rainbow": [
+    "2h,4c,8d",
+    "2c,4h,8s",
+    "2c,4d,8s"
+  ],
+  "2-4-9:uncoordinated:rainbow": [
+    "2d,4c,9h",
+    "2d,4h,9s",
+    "2d,4s,9c"
+  ],
+  "2-4-T:uncoordinated:rainbow": [
+    "2c,4s,Th",
+    "2h,4s,Td",
+    "2h,4d,Tc"
+  ],
+  "2-4-J:uncoordinated:rainbow": [
+    "2s,4c,Jd",
+    "2s,4h,Jc",
+    "2d,4h,Js"
+  ],
+  "2-4-Q:uncoordinated:rainbow": [
+    "2c,4s,Qh",
+    "2s,4c,Qh",
+    "2d,4h,Qs"
+  ],
+  "2-4-K:uncoordinated:rainbow": [
+    "2h,4d,Ks",
+    "2h,4s,Kd",
+    "2s,4c,Kh"
+  ],
+  "2-4-A:uncoordinated:rainbow": [
+    "2d,4h,Ac",
+    "2s,4h,Ad",
+    "2h,4d,As"
+  ],
+  "2-5-5:paired:twotone": [
+    "2c,5d,5c",
+    "2h,5s,5h",
+    "2h,5h,5d"
+  ],
+  "2-5-6:connected:monotone": [
+    "2c,5c,6c",
+    "2h,5h,6h",
+    "2s,5s,6s"
+  ],
+  "2-5-6:connected:twotone": [
+    "2c,5d,6d",
+    "2s,5s,6c",
+    "2h,5c,6c"
+  ],
+  "2-5-7:low:monotone": [
+    "2h,5h,7h",
+    "2d,5d,7d",
+    "2s,5s,7s"
+  ],
+  "2-5-7:low:twotone": [
+    "2d,5h,7h",
+    "2s,5s,7d",
+    "2h,5h,7s"
+  ],
+  "2-5-8:uncoordinated:monotone": [
+    "2h,5h,8h",
+    "2s,5s,8s",
+    "2c,5c,8c"
+  ],
+  "2-5-8:uncoordinated:twotone": [
+    "2d,5d,8h",
+    "2c,5c,8h",
+    "2s,5d,8s"
+  ],
+  "2-5-9:uncoordinated:monotone": [
+    "2d,5d,9d",
+    "2s,5s,9s",
+    "2c,5c,9c"
+  ],
+  "2-5-9:uncoordinated:twotone": [
+    "2c,5c,9h",
+    "2d,5c,9d",
+    "2h,5d,9h"
+  ],
+  "2-5-T:uncoordinated:monotone": [
+    "2d,5d,Td",
+    "2s,5s,Ts",
+    "2c,5c,Tc"
+  ],
+  "2-5-T:uncoordinated:twotone": [
+    "2d,5s,Ts",
+    "2c,5d,Td",
+    "2d,5s,Td"
+  ],
+  "2-5-J:uncoordinated:monotone": [
+    "2h,5h,Jh",
+    "2c,5c,Jc",
+    "2s,5s,Js"
+  ],
+  "2-5-J:uncoordinated:twotone": [
+    "2h,5h,Jd",
+    "2s,5c,Js",
+    "2c,5d,Jd"
+  ],
+  "2-5-Q:uncoordinated:monotone": [
+    "2h,5h,Qh",
+    "2s,5s,Qs",
+    "2d,5d,Qd"
+  ],
+  "2-5-Q:uncoordinated:twotone": [
+    "2c,5s,Qc",
+    "2h,5s,Qs",
+    "2h,5h,Qs"
+  ],
+  "2-5-K:uncoordinated:monotone": [
+    "2c,5c,Kc",
+    "2h,5h,Kh",
+    "2d,5d,Kd"
+  ],
+  "2-5-K:uncoordinated:twotone": [
+    "2c,5s,Kc",
+    "2h,5c,Kc",
+    "2s,5s,Kh"
+  ],
+  "2-5-A:uncoordinated:monotone": [
+    "2c,5c,Ac",
+    "2h,5h,Ah",
+    "2d,5d,Ad"
+  ],
+  "2-5-A:uncoordinated:twotone": [
+    "2s,5c,Ac",
+    "2h,5d,Ah",
+    "2c,5s,As"
+  ],
+  "2-5-5:paired:rainbow": [
+    "2d,5s,5h",
+    "2s,5d,5c",
+    "2s,5h,5d"
+  ],
+  "2-5-6:connected:rainbow": [
+    "2h,5s,6d",
+    "2d,5s,6h",
+    "2d,5h,6s"
+  ],
+  "2-5-7:low:rainbow": [
+    "2s,5c,7d",
+    "2h,5d,7c",
+    "2h,5c,7s"
+  ],
+  "2-5-8:uncoordinated:rainbow": [
+    "2h,5s,8c",
+    "2d,5c,8s",
+    "2s,5c,8d"
+  ],
+  "2-5-9:uncoordinated:rainbow": [
+    "2s,5d,9h",
+    "2s,5h,9c",
+    "2c,5s,9h"
+  ],
+  "2-5-T:uncoordinated:rainbow": [
+    "2c,5s,Td",
+    "2c,5h,Td",
+    "2s,5h,Td"
+  ],
+  "2-5-J:uncoordinated:rainbow": [
+    "2d,5c,Js",
+    "2s,5d,Jc",
+    "2c,5d,Js"
+  ],
+  "2-5-Q:uncoordinated:rainbow": [
+    "2h,5s,Qc",
+    "2d,5s,Qh",
+    "2c,5h,Qd"
+  ],
+  "2-5-K:uncoordinated:rainbow": [
+    "2h,5d,Ks",
+    "2c,5d,Ks",
+    "2c,5s,Kd"
+  ],
+  "2-5-A:uncoordinated:rainbow": [
+    "2h,5c,Ad",
+    "2h,5c,As",
+    "2c,5s,Ah"
+  ],
+  "2-6-6:paired:twotone": [
+    "2d,6s,6d",
+    "2c,6h,6c",
+    "2d,6d,6c"
+  ],
+  "2-6-7:low:monotone": [
+    "2c,6c,7c",
+    "2h,6h,7h",
+    "2d,6d,7d"
+  ],
+  "2-6-7:low:twotone": [
+    "2d,6d,7c",
+    "2d,6c,7d",
+    "2s,6s,7h"
+  ],
+  "2-6-8:uncoordinated:monotone": [
+    "2h,6h,8h",
+    "2s,6s,8s",
+    "2c,6c,8c"
+  ],
+  "2-6-8:uncoordinated:twotone": [
+    "2s,6d,8d",
+    "2d,6c,8c",
+    "2h,6d,8d"
+  ],
+  "2-6-9:uncoordinated:monotone": [
+    "2c,6c,9c",
+    "2s,6s,9s",
+    "2h,6h,9h"
+  ],
+  "2-6-9:uncoordinated:twotone": [
+    "2d,6h,9h",
+    "2d,6c,9d",
+    "2c,6s,9s"
+  ],
+  "2-6-T:uncoordinated:monotone": [
+    "2s,6s,Ts",
+    "2d,6d,Td",
+    "2c,6c,Tc"
+  ],
+  "2-6-T:uncoordinated:twotone": [
+    "2d,6d,Th",
+    "2h,6d,Td",
+    "2d,6s,Ts"
+  ],
+  "2-6-J:uncoordinated:monotone": [
+    "2s,6s,Js",
+    "2c,6c,Jc",
+    "2d,6d,Jd"
+  ],
+  "2-6-J:uncoordinated:twotone": [
+    "2d,6d,Jc",
+    "2s,6h,Jh",
+    "2h,6c,Jc"
+  ],
+  "2-6-Q:uncoordinated:monotone": [
+    "2s,6s,Qs",
+    "2c,6c,Qc",
+    "2h,6h,Qh"
+  ],
+  "2-6-Q:uncoordinated:twotone": [
+    "2c,6c,Qd",
+    "2c,6d,Qc",
+    "2s,6h,Qs"
+  ],
+  "2-6-K:uncoordinated:monotone": [
+    "2h,6h,Kh",
+    "2d,6d,Kd",
+    "2s,6s,Ks"
+  ],
+  "2-6-K:uncoordinated:twotone": [
+    "2d,6s,Kd",
+    "2d,6h,Kh",
+    "2d,6s,Ks"
+  ],
+  "2-6-A:uncoordinated:monotone": [
+    "2h,6h,Ah",
+    "2s,6s,As",
+    "2d,6d,Ad"
+  ],
+  "2-6-A:uncoordinated:twotone": [
+    "2c,6d,Ac",
+    "2c,6s,As",
+    "2h,6h,Ac"
+  ],
+  "2-6-6:paired:rainbow": [
+    "2d,6s,6h",
+    "2s,6h,6d",
+    "2c,6s,6d"
+  ],
+  "2-6-7:low:rainbow": [
+    "2d,6h,7s",
+    "2c,6h,7d",
+    "2c,6s,7d"
+  ],
+  "2-6-8:uncoordinated:rainbow": [
+    "2s,6d,8h",
+    "2h,6s,8d",
+    "2d,6c,8s"
+  ],
+  "2-6-9:uncoordinated:rainbow": [
+    "2h,6d,9c",
+    "2s,6c,9d",
+    "2d,6h,9s"
+  ],
+  "2-6-T:uncoordinated:rainbow": [
+    "2h,6c,Ts",
+    "2h,6s,Tc",
+    "2h,6c,Td"
+  ],
+  "2-6-J:uncoordinated:rainbow": [
+    "2h,6s,Jc",
+    "2d,6c,Js",
+    "2s,6h,Jd"
+  ],
+  "2-6-Q:uncoordinated:rainbow": [
+    "2c,6h,Qs",
+    "2s,6h,Qd",
+    "2d,6h,Qc"
+  ],
+  "2-6-K:uncoordinated:rainbow": [
+    "2c,6d,Ks",
+    "2d,6c,Ks",
+    "2s,6h,Kd"
+  ],
+  "2-6-A:uncoordinated:rainbow": [
+    "2s,6h,Ac",
+    "2h,6s,Ad",
+    "2d,6s,Ah"
+  ],
+  "2-7-7:paired:twotone": [
+    "2s,7s,7d",
+    "2d,7s,7d",
+    "2h,7h,7d"
+  ],
+  "2-7-8:uncoordinated:monotone": [
+    "2c,7c,8c",
+    "2d,7d,8d",
+    "2h,7h,8h"
+  ],
+  "2-7-8:uncoordinated:twotone": [
+    "2s,7h,8h",
+    "2c,7c,8s",
+    "2d,7d,8s"
+  ],
+  "2-7-9:uncoordinated:monotone": [
+    "2h,7h,9h",
+    "2c,7c,9c",
+    "2s,7s,9s"
+  ],
+  "2-7-9:uncoordinated:twotone": [
+    "2c,7c,9h",
+    "2c,7h,9h",
+    "2h,7h,9d"
+  ],
+  "2-7-T:uncoordinated:monotone": [
+    "2d,7d,Td",
+    "2h,7h,Th",
+    "2c,7c,Tc"
+  ],
+  "2-7-T:uncoordinated:twotone": [
+    "2d,7d,Tc",
+    "2c,7d,Td",
+    "2d,7h,Th"
+  ],
+  "2-7-J:uncoordinated:monotone": [
+    "2c,7c,Jc",
+    "2s,7s,Js",
+    "2d,7d,Jd"
+  ],
+  "2-7-J:uncoordinated:twotone": [
+    "2d,7h,Jh",
+    "2s,7c,Jc",
+    "2h,7d,Jh"
+  ],
+  "2-7-Q:uncoordinated:monotone": [
+    "2d,7d,Qd",
+    "2h,7h,Qh",
+    "2s,7s,Qs"
+  ],
+  "2-7-Q:uncoordinated:twotone": [
+    "2h,7h,Qd",
+    "2s,7c,Qc",
+    "2d,7s,Qs"
+  ],
+  "2-7-K:uncoordinated:monotone": [
+    "2d,7d,Kd",
+    "2h,7h,Kh",
+    "2c,7c,Kc"
+  ],
+  "2-7-K:uncoordinated:twotone": [
+    "2s,7s,Kc",
+    "2d,7d,Kh",
+    "2h,7c,Kh"
+  ],
+  "2-7-A:uncoordinated:monotone": [
+    "2c,7c,Ac",
+    "2h,7h,Ah",
+    "2s,7s,As"
+  ],
+  "2-7-A:uncoordinated:twotone": [
+    "2d,7s,As",
+    "2d,7h,Ah",
+    "2c,7d,Ac"
+  ],
+  "2-7-7:paired:rainbow": [
+    "2h,7d,7c",
+    "2s,7h,7d",
+    "2s,7d,7c"
+  ],
+  "2-7-8:uncoordinated:rainbow": [
+    "2c,7h,8d",
+    "2h,7c,8s",
+    "2h,7d,8s"
+  ],
+  "2-7-9:uncoordinated:rainbow": [
+    "2s,7d,9h",
+    "2h,7c,9s",
+    "2c,7d,9h"
+  ],
+  "2-7-T:uncoordinated:rainbow": [
+    "2h,7c,Ts",
+    "2s,7c,Td",
+    "2c,7d,Th"
+  ],
+  "2-7-J:uncoordinated:rainbow": [
+    "2d,7h,Js",
+    "2s,7d,Jh",
+    "2d,7c,Js"
+  ],
+  "2-7-Q:uncoordinated:rainbow": [
+    "2c,7h,Qd",
+    "2d,7c,Qh",
+    "2h,7c,Qd"
+  ],
+  "2-7-K:uncoordinated:rainbow": [
+    "2c,7d,Ks",
+    "2d,7s,Kh",
+    "2d,7h,Kc"
+  ],
+  "2-7-A:uncoordinated:rainbow": [
+    "2c,7s,Ad",
+    "2d,7s,Ah",
+    "2d,7c,Ah"
+  ],
+  "2-8-8:paired:twotone": [
+    "2s,8s,8c",
+    "2d,8d,8c",
+    "2c,8s,8c"
+  ],
+  "2-8-9:uncoordinated:monotone": [
+    "2c,8c,9c",
+    "2s,8s,9s",
+    "2h,8h,9h"
+  ],
+  "2-8-9:uncoordinated:twotone": [
+    "2s,8c,9c",
+    "2d,8h,9d",
+    "2s,8h,9h"
+  ],
+  "2-8-T:uncoordinated:monotone": [
+    "2d,8d,Td",
+    "2s,8s,Ts",
+    "2h,8h,Th"
+  ],
+  "2-8-T:uncoordinated:twotone": [
+    "2s,8d,Ts",
+    "2d,8d,Th",
+    "2s,8c,Ts"
+  ],
+  "2-8-J:uncoordinated:monotone": [
+    "2h,8h,Jh",
+    "2s,8s,Js",
+    "2d,8d,Jd"
+  ],
+  "2-8-J:uncoordinated:twotone": [
+    "2s,8s,Jd",
+    "2c,8h,Jh",
+    "2h,8s,Js"
+  ],
+  "2-8-Q:uncoordinated:monotone": [
+    "2c,8c,Qc",
+    "2h,8h,Qh",
+    "2d,8d,Qd"
+  ],
+  "2-8-Q:uncoordinated:twotone": [
+    "2c,8c,Qh",
+    "2h,8s,Qh",
+    "2c,8h,Qh"
+  ],
+  "2-8-K:uncoordinated:monotone": [
+    "2s,8s,Ks",
+    "2h,8h,Kh",
+    "2d,8d,Kd"
+  ],
+  "2-8-K:uncoordinated:twotone": [
+    "2c,8s,Ks",
+    "2h,8c,Kc",
+    "2d,8s,Ks"
+  ],
+  "2-8-A:uncoordinated:monotone": [
+    "2s,8s,As",
+    "2d,8d,Ad",
+    "2h,8h,Ah"
+  ],
+  "2-8-A:uncoordinated:twotone": [
+    "2h,8h,Ac",
+    "2h,8s,As",
+    "2d,8d,Ah"
+  ],
+  "2-8-8:paired:rainbow": [
+    "2c,8h,8d",
+    "2h,8s,8d",
+    "2c,8s,8d"
+  ],
+  "2-8-9:uncoordinated:rainbow": [
+    "2d,8h,9c",
+    "2d,8s,9c",
+    "2d,8h,9s"
+  ],
+  "2-8-T:uncoordinated:rainbow": [
+    "2s,8h,Td",
+    "2s,8c,Td",
+    "2h,8s,Td"
+  ],
+  "2-8-J:uncoordinated:rainbow": [
+    "2c,8d,Js",
+    "2c,8h,Jd",
+    "2c,8h,Js"
+  ],
+  "2-8-Q:uncoordinated:rainbow": [
+    "2c,8d,Qh",
+    "2h,8s,Qc",
+    "2h,8d,Qc"
+  ],
+  "2-8-K:uncoordinated:rainbow": [
+    "2s,8d,Kc",
+    "2d,8h,Ks",
+    "2c,8d,Kh"
+  ],
+  "2-8-A:uncoordinated:rainbow": [
+    "2c,8d,Ah",
+    "2h,8d,Ac",
+    "2d,8c,As"
+  ],
+  "2-9-9:paired:twotone": [
+    "2s,9s,9d",
+    "2d,9h,9d",
+    "2h,9h,9d"
+  ],
+  "2-9-T:uncoordinated:monotone": [
+    "2c,9c,Tc",
+    "2h,9h,Th",
+    "2s,9s,Ts"
+  ],
+  "2-9-T:uncoordinated:twotone": [
+    "2c,9c,Td",
+    "2s,9h,Ts",
+    "2d,9c,Tc"
+  ],
+  "2-9-J:uncoordinated:monotone": [
+    "2d,9d,Jd",
+    "2s,9s,Js",
+    "2h,9h,Jh"
+  ],
+  "2-9-J:uncoordinated:twotone": [
+    "2s,9h,Js",
+    "2c,9d,Jc",
+    "2h,9s,Jh"
+  ],
+  "2-9-Q:uncoordinated:monotone": [
+    "2d,9d,Qd",
+    "2s,9s,Qs",
+    "2h,9h,Qh"
+  ],
+  "2-9-Q:uncoordinated:twotone": [
+    "2s,9s,Qc",
+    "2c,9d,Qc",
+    "2h,9c,Qh"
+  ],
+  "2-9-K:uncoordinated:monotone": [
+    "2h,9h,Kh",
+    "2d,9d,Kd",
+    "2c,9c,Kc"
+  ],
+  "2-9-K:uncoordinated:twotone": [
+    "2c,9h,Kc",
+    "2d,9c,Kd",
+    "2s,9h,Kh"
+  ],
+  "2-9-A:uncoordinated:monotone": [
+    "2d,9d,Ad",
+    "2s,9s,As",
+    "2h,9h,Ah"
+  ],
+  "2-9-A:uncoordinated:twotone": [
+    "2h,9h,As",
+    "2d,9c,Ac",
+    "2c,9d,Ad"
+  ],
+  "2-9-9:paired:rainbow": [
+    "2d,9h,9c",
+    "2s,9h,9d",
+    "2h,9s,9d"
+  ],
+  "2-9-T:uncoordinated:rainbow": [
+    "2s,9d,Th",
+    "2h,9s,Tc",
+    "2c,9h,Ts"
+  ],
+  "2-9-J:uncoordinated:rainbow": [
+    "2c,9s,Jd",
+    "2d,9c,Js",
+    "2d,9s,Jc"
+  ],
+  "2-9-Q:uncoordinated:rainbow": [
+    "2s,9c,Qh",
+    "2h,9s,Qc",
+    "2d,9s,Qc"
+  ],
+  "2-9-K:uncoordinated:rainbow": [
+    "2d,9h,Ks",
+    "2d,9c,Ks",
+    "2s,9c,Kh"
+  ],
+  "2-9-A:uncoordinated:rainbow": [
+    "2s,9c,Ad",
+    "2s,9h,Ad",
+    "2h,9d,Ac"
+  ],
+  "2-T-T:paired:twotone": [
+    "2h,Ts,Th",
+    "2d,Ts,Td",
+    "2d,Th,Td"
+  ],
+  "2-T-J:uncoordinated:monotone": [
+    "2s,Ts,Js",
+    "2c,Tc,Jc",
+    "2d,Td,Jd"
+  ],
+  "2-T-J:uncoordinated:twotone": [
+    "2h,Th,Jc",
+    "2d,Tc,Jc",
+    "2d,Td,Js"
+  ],
+  "2-T-Q:uncoordinated:monotone": [
+    "2s,Ts,Qs",
+    "2d,Td,Qd",
+    "2h,Th,Qh"
+  ],
+  "2-T-Q:uncoordinated:twotone": [
+    "2s,Ts,Qd",
+    "2s,Tc,Qc",
+    "2c,Td,Qc"
+  ],
+  "2-T-K:uncoordinated:monotone": [
+    "2s,Ts,Ks",
+    "2d,Td,Kd",
+    "2h,Th,Kh"
+  ],
+  "2-T-K:uncoordinated:twotone": [
+    "2h,Th,Ks",
+    "2s,Td,Ks",
+    "2d,Td,Kh"
+  ],
+  "2-T-A:uncoordinated:monotone": [
+    "2c,Tc,Ac",
+    "2d,Td,Ad",
+    "2s,Ts,As"
+  ],
+  "2-T-A:uncoordinated:twotone": [
+    "2s,Tc,As",
+    "2h,Ts,Ah",
+    "2s,Th,As"
+  ],
+  "2-T-T:paired:rainbow": [
+    "2d,Ts,Tc",
+    "2c,Ts,Th",
+    "2s,Th,Td"
+  ],
+  "2-T-J:uncoordinated:rainbow": [
+    "2s,Th,Jd",
+    "2d,Ts,Jh",
+    "2h,Td,Jc"
+  ],
+  "2-T-Q:uncoordinated:rainbow": [
+    "2s,Th,Qd",
+    "2h,Ts,Qc",
+    "2s,Tc,Qd"
+  ],
+  "2-T-K:uncoordinated:rainbow": [
+    "2s,Td,Kh",
+    "2c,Th,Kd",
+    "2c,Ts,Kd"
+  ],
+  "2-T-A:uncoordinated:rainbow": [
+    "2s,Th,Ac",
+    "2d,Tc,Ah",
+    "2s,Td,Ac"
+  ],
+  "2-J-J:paired:twotone": [
+    "2h,Js,Jh",
+    "2c,Jd,Jc",
+    "2s,Js,Jh"
+  ],
+  "2-J-Q:uncoordinated:monotone": [
+    "2s,Js,Qs",
+    "2c,Jc,Qc",
+    "2h,Jh,Qh"
+  ],
+  "2-J-Q:uncoordinated:twotone": [
+    "2h,Jh,Qs",
+    "2c,Jh,Qc",
+    "2d,Js,Qd"
+  ],
+  "2-J-K:uncoordinated:monotone": [
+    "2d,Jd,Kd",
+    "2s,Js,Ks",
+    "2c,Jc,Kc"
+  ],
+  "2-J-K:uncoordinated:twotone": [
+    "2d,Js,Ks",
+    "2d,Jd,Kh",
+    "2c,Jd,Kc"
+  ],
+  "2-J-A:uncoordinated:monotone": [
+    "2s,Js,As",
+    "2h,Jh,Ah",
+    "2c,Jc,Ac"
+  ],
+  "2-J-A:uncoordinated:twotone": [
+    "2s,Js,Ah",
+    "2s,Jd,As",
+    "2d,Js,Ad"
+  ],
+  "2-J-J:paired:rainbow": [
+    "2c,Js,Jd",
+    "2c,Js,Jh",
+    "2s,Jd,Jc"
+  ],
+  "2-J-Q:uncoordinated:rainbow": [
+    "2h,Jd,Qs",
+    "2s,Jh,Qc",
+    "2d,Jc,Qh"
+  ],
+  "2-J-K:uncoordinated:rainbow": [
+    "2s,Jd,Kc",
+    "2c,Jd,Ks",
+    "2s,Jc,Kh"
+  ],
+  "2-J-A:uncoordinated:rainbow": [
+    "2c,Jh,As",
+    "2d,Js,Ac",
+    "2s,Jh,Ac"
+  ],
+  "2-Q-Q:paired:twotone": [
+    "2s,Qs,Qh",
+    "2d,Qh,Qd",
+    "2h,Qh,Qd"
+  ],
+  "2-Q-K:uncoordinated:monotone": [
+    "2s,Qs,Ks",
+    "2d,Qd,Kd",
+    "2h,Qh,Kh"
+  ],
+  "2-Q-K:uncoordinated:twotone": [
+    "2h,Qh,Kc",
+    "2h,Qs,Ks",
+    "2s,Qs,Kh"
+  ],
+  "2-Q-A:uncoordinated:monotone": [
+    "2h,Qh,Ah",
+    "2s,Qs,As",
+    "2d,Qd,Ad"
+  ],
+  "2-Q-A:uncoordinated:twotone": [
+    "2h,Qc,Ah",
+    "2d,Qd,Ac",
+    "2s,Qh,As"
+  ],
+  "2-Q-Q:paired:rainbow": [
+    "2d,Qs,Qh",
+    "2c,Qs,Qd",
+    "2d,Qs,Qc"
+  ],
+  "2-Q-K:uncoordinated:rainbow": [
+    "2h,Qd,Kc",
+    "2c,Qd,Ks",
+    "2s,Qc,Kh"
+  ],
+  "2-Q-A:uncoordinated:rainbow": [
+    "2c,Qs,Ah",
+    "2h,Qc,As",
+    "2h,Qc,Ad"
+  ],
+  "2-K-K:paired:twotone": [
+    "2s,Ks,Kc",
+    "2c,Kd,Kc",
+    "2d,Ks,Kd"
+  ],
+  "2-K-A:uncoordinated:monotone": [
+    "2c,Kc,Ac",
+    "2d,Kd,Ad",
+    "2s,Ks,As"
+  ],
+  "2-K-A:uncoordinated:twotone": [
+    "2d,Ks,As",
+    "2d,Kd,Ah",
+    "2d,Kd,Ac"
+  ],
+  "2-K-K:paired:rainbow": [
+    "2c,Ks,Kd",
+    "2c,Ks,Kh",
+    "2c,Kh,Kd"
+  ],
+  "2-K-A:uncoordinated:rainbow": [
+    "2d,Ks,Ah",
+    "2c,Kd,Ah",
+    "2d,Kh,Ac"
+  ],
+  "2-A-A:paired:twotone": [
+    "2c,Ad,Ac",
+    "2d,As,Ad",
+    "2c,As,Ac"
+  ],
+  "2-A-A:paired:rainbow": [
+    "2c,Ah,Ad",
+    "2d,As,Ah",
+    "2d,As,Ac"
+  ],
+  "3-3-3:triplet:rainbow": [
+    "3s,3h,3c",
+    "3h,3d,3c",
+    "3s,3h,3d"
+  ],
+  "3-3-4:paired:twotone": [
+    "3s,3h,4h",
+    "3h,3c,4h",
+    "3s,3c,4c"
+  ],
+  "3-3-4:paired:rainbow": [
+    "3d,3c,4s",
+    "3d,3c,4h",
+    "3s,3c,4h"
+  ],
+  "3-3-5:paired:twotone": [
+    "3h,3d,5h",
+    "3s,3c,5s",
+    "3s,3h,5h"
+  ],
+  "3-3-5:paired:rainbow": [
+    "3s,3d,5h",
+    "3h,3c,5s",
+    "3s,3c,5d"
+  ],
+  "3-3-6:paired:twotone": [
+    "3s,3h,6h",
+    "3s,3c,6s",
+    "3s,3c,6c"
+  ],
+  "3-3-6:paired:rainbow": [
+    "3s,3c,6h",
+    "3d,3c,6s",
+    "3s,3d,6c"
+  ],
+  "3-3-7:paired:twotone": [
+    "3s,3c,7c",
+    "3h,3c,7h",
+    "3s,3h,7s"
+  ],
+  "3-3-7:paired:rainbow": [
+    "3s,3d,7h",
+    "3d,3c,7s",
+    "3s,3d,7c"
+  ],
+  "3-3-8:paired:twotone": [
+    "3h,3c,8h",
+    "3h,3d,8h",
+    "3s,3d,8s"
+  ],
+  "3-3-8:paired:rainbow": [
+    "3s,3d,8h",
+    "3s,3c,8h",
+    "3h,3c,8s"
+  ],
+  "3-3-9:paired:twotone": [
+    "3s,3d,9s",
+    "3d,3c,9c",
+    "3d,3c,9d"
+  ],
+  "3-3-9:paired:rainbow": [
+    "3d,3c,9s",
+    "3h,3d,9c",
+    "3s,3h,9d"
+  ],
+  "3-3-T:paired:twotone": [
+    "3h,3d,Td",
+    "3h,3c,Tc",
+    "3s,3h,Th"
+  ],
+  "3-3-T:paired:rainbow": [
+    "3h,3c,Td",
+    "3s,3d,Th",
+    "3h,3c,Ts"
+  ],
+  "3-3-J:paired:twotone": [
+    "3s,3d,Js",
+    "3s,3h,Jh",
+    "3h,3d,Jd"
+  ],
+  "3-3-J:paired:rainbow": [
+    "3s,3c,Jh",
+    "3h,3d,Jc",
+    "3d,3c,Jh"
+  ],
+  "3-3-Q:paired:twotone": [
+    "3s,3h,Qs",
+    "3s,3d,Qs",
+    "3h,3d,Qh"
+  ],
+  "3-3-Q:paired:rainbow": [
+    "3s,3h,Qd",
+    "3s,3h,Qc",
+    "3d,3c,Qh"
+  ],
+  "3-3-K:paired:twotone": [
+    "3s,3c,Kc",
+    "3d,3c,Kd",
+    "3d,3c,Kc"
+  ],
+  "3-3-K:paired:rainbow": [
+    "3s,3h,Kd",
+    "3h,3d,Ks",
+    "3s,3d,Kh"
+  ],
+  "3-3-A:paired:twotone": [
+    "3h,3d,Ad",
+    "3s,3c,As",
+    "3s,3h,Ah"
+  ],
+  "3-3-A:paired:rainbow": [
+    "3s,3c,Ad",
+    "3h,3c,Ad",
+    "3s,3c,Ah"
+  ],
+  "3-4-4:paired:twotone": [
+    "3s,4s,4h",
+    "3h,4h,4c",
+    "3h,4s,4h"
+  ],
+  "3-4-5:connected:monotone": [
+    "3h,4h,5h",
+    "3c,4c,5c",
+    "3s,4s,5s"
+  ],
+  "3-4-5:connected:twotone": [
+    "3c,4s,5s",
+    "3c,4s,5c",
+    "3s,4s,5d"
+  ],
+  "3-4-6:connected:monotone": [
+    "3s,4s,6s",
+    "3h,4h,6h",
+    "3c,4c,6c"
+  ],
+  "3-4-6:connected:twotone": [
+    "3c,4c,6s",
+    "3h,4s,6h",
+    "3s,4s,6c"
+  ],
+  "3-4-7:connected:monotone": [
+    "3d,4d,7d",
+    "3s,4s,7s",
+    "3h,4h,7h"
+  ],
+  "3-4-7:connected:twotone": [
+    "3h,4d,7d",
+    "3d,4h,7h",
+    "3s,4d,7s"
+  ],
+  "3-4-8:uncoordinated:monotone": [
+    "3h,4h,8h",
+    "3s,4s,8s",
+    "3d,4d,8d"
+  ],
+  "3-4-8:uncoordinated:twotone": [
+    "3c,4d,8d",
+    "3s,4d,8d",
+    "3d,4c,8d"
+  ],
+  "3-4-9:uncoordinated:monotone": [
+    "3c,4c,9c",
+    "3s,4s,9s",
+    "3h,4h,9h"
+  ],
+  "3-4-9:uncoordinated:twotone": [
+    "3c,4c,9s",
+    "3c,4d,9c",
+    "3c,4s,9s"
+  ],
+  "3-4-T:uncoordinated:monotone": [
+    "3s,4s,Ts",
+    "3c,4c,Tc",
+    "3d,4d,Td"
+  ],
+  "3-4-T:uncoordinated:twotone": [
+    "3d,4d,Th",
+    "3c,4h,Tc",
+    "3d,4d,Ts"
+  ],
+  "3-4-J:uncoordinated:monotone": [
+    "3h,4h,Jh",
+    "3s,4s,Js",
+    "3d,4d,Jd"
+  ],
+  "3-4-J:uncoordinated:twotone": [
+    "3c,4c,Jd",
+    "3h,4c,Jh",
+    "3d,4d,Jh"
+  ],
+  "3-4-Q:uncoordinated:monotone": [
+    "3d,4d,Qd",
+    "3h,4h,Qh",
+    "3c,4c,Qc"
+  ],
+  "3-4-Q:uncoordinated:twotone": [
+    "3s,4s,Qh",
+    "3c,4h,Qc",
+    "3d,4h,Qh"
+  ],
+  "3-4-K:uncoordinated:monotone": [
+    "3s,4s,Ks",
+    "3h,4h,Kh",
+    "3c,4c,Kc"
+  ],
+  "3-4-K:uncoordinated:twotone": [
+    "3s,4h,Ks",
+    "3h,4s,Kh",
+    "3d,4h,Kd"
+  ],
+  "3-4-A:uncoordinated:monotone": [
+    "3h,4h,Ah",
+    "3s,4s,As",
+    "3d,4d,Ad"
+  ],
+  "3-4-A:uncoordinated:twotone": [
+    "3h,4c,Ac",
+    "3s,4d,As",
+    "3h,4h,Ad"
+  ],
+  "3-4-4:paired:rainbow": [
+    "3s,4h,4c",
+    "3c,4s,4h",
+    "3d,4s,4h"
+  ],
+  "3-4-5:connected:rainbow": [
+    "3s,4h,5d",
+    "3d,4c,5h",
+    "3c,4d,5h"
+  ],
+  "3-4-6:connected:rainbow": [
+    "3s,4d,6c",
+    "3s,4c,6h",
+    "3c,4d,6s"
+  ],
+  "3-4-7:connected:rainbow": [
+    "3d,4c,7h",
+    "3d,4h,7c",
+    "3d,4s,7h"
+  ],
+  "3-4-8:uncoordinated:rainbow": [
+    "3d,4h,8c",
+    "3s,4h,8c",
+    "3s,4c,8h"
+  ],
+  "3-4-9:uncoordinated:rainbow": [
+    "3c,4d,9s",
+    "3c,4h,9d",
+    "3h,4s,9d"
+  ],
+  "3-4-T:uncoordinated:rainbow": [
+    "3h,4d,Ts",
+    "3d,4s,Tc",
+    "3h,4c,Ts"
+  ],
+  "3-4-J:uncoordinated:rainbow": [
+    "3h,4d,Jc",
+    "3d,4c,Jh",
+    "3s,4c,Jh"
+  ],
+  "3-4-Q:uncoordinated:rainbow": [
+    "3c,4d,Qh",
+    "3c,4s,Qd",
+    "3d,4h,Qc"
+  ],
+  "3-4-K:uncoordinated:rainbow": [
+    "3s,4h,Kc",
+    "3d,4c,Ks",
+    "3c,4h,Kd"
+  ],
+  "3-4-A:uncoordinated:rainbow": [
+    "3c,4s,Ad",
+    "3d,4h,As",
+    "3s,4h,Ad"
+  ],
+  "3-5-5:paired:twotone": [
+    "3c,5h,5c",
+    "3h,5s,5h",
+    "3s,5s,5c"
+  ],
+  "3-5-6:connected:monotone": [
+    "3h,5h,6h",
+    "3s,5s,6s",
+    "3d,5d,6d"
+  ],
+  "3-5-6:connected:twotone": [
+    "3s,5h,6h",
+    "3h,5d,6d",
+    "3d,5c,6c"
+  ],
+  "3-5-7:connected:monotone": [
+    "3d,5d,7d",
+    "3s,5s,7s",
+    "3h,5h,7h"
+  ],
+  "3-5-7:connected:twotone": [
+    "3s,5d,7s",
+    "3d,5c,7d",
+    "3c,5s,7c"
+  ],
+  "3-5-8:uncoordinated:monotone": [
+    "3h,5h,8h",
+    "3d,5d,8d",
+    "3s,5s,8s"
+  ],
+  "3-5-8:uncoordinated:twotone": [
+    "3c,5s,8c",
+    "3d,5s,8d",
+    "3d,5d,8s"
+  ],
+  "3-5-9:uncoordinated:monotone": [
+    "3c,5c,9c",
+    "3s,5s,9s",
+    "3h,5h,9h"
+  ],
+  "3-5-9:uncoordinated:twotone": [
+    "3h,5s,9h",
+    "3c,5c,9s",
+    "3c,5h,9h"
+  ],
+  "3-5-T:uncoordinated:monotone": [
+    "3c,5c,Tc",
+    "3h,5h,Th",
+    "3s,5s,Ts"
+  ],
+  "3-5-T:uncoordinated:twotone": [
+    "3h,5s,Ts",
+    "3d,5c,Td",
+    "3c,5s,Ts"
+  ],
+  "3-5-J:uncoordinated:monotone": [
+    "3d,5d,Jd",
+    "3h,5h,Jh",
+    "3s,5s,Js"
+  ],
+  "3-5-J:uncoordinated:twotone": [
+    "3s,5c,Jc",
+    "3c,5d,Jc",
+    "3d,5c,Jd"
+  ],
+  "3-5-Q:uncoordinated:monotone": [
+    "3d,5d,Qd",
+    "3c,5c,Qc",
+    "3s,5s,Qs"
+  ],
+  "3-5-Q:uncoordinated:twotone": [
+    "3s,5s,Qd",
+    "3h,5s,Qh",
+    "3d,5d,Qc"
+  ],
+  "3-5-K:uncoordinated:monotone": [
+    "3c,5c,Kc",
+    "3d,5d,Kd",
+    "3s,5s,Ks"
+  ],
+  "3-5-K:uncoordinated:twotone": [
+    "3h,5c,Kh",
+    "3d,5h,Kh",
+    "3s,5c,Kc"
+  ],
+  "3-5-A:uncoordinated:monotone": [
+    "3h,5h,Ah",
+    "3c,5c,Ac",
+    "3d,5d,Ad"
+  ],
+  "3-5-A:uncoordinated:twotone": [
+    "3c,5c,Ah",
+    "3c,5c,Ad",
+    "3s,5d,As"
+  ],
+  "3-5-5:paired:rainbow": [
+    "3h,5d,5c",
+    "3c,5s,5h",
+    "3d,5s,5c"
+  ],
+  "3-5-6:connected:rainbow": [
+    "3s,5c,6h",
+    "3d,5h,6s",
+    "3s,5h,6d"
+  ],
+  "3-5-7:connected:rainbow": [
+    "3d,5s,7c",
+    "3c,5h,7d",
+    "3h,5d,7c"
+  ],
+  "3-5-8:uncoordinated:rainbow": [
+    "3h,5d,8c",
+    "3c,5d,8s",
+    "3c,5h,8s"
+  ],
+  "3-5-9:uncoordinated:rainbow": [
+    "3d,5c,9s",
+    "3c,5d,9h",
+    "3s,5d,9c"
+  ],
+  "3-5-T:uncoordinated:rainbow": [
+    "3c,5d,Ts",
+    "3s,5d,Tc",
+    "3s,5c,Th"
+  ],
+  "3-5-J:uncoordinated:rainbow": [
+    "3d,5c,Js",
+    "3s,5h,Jc",
+    "3s,5d,Jc"
+  ],
+  "3-5-Q:uncoordinated:rainbow": [
+    "3h,5s,Qd",
+    "3h,5d,Qs",
+    "3h,5c,Qs"
+  ],
+  "3-5-K:uncoordinated:rainbow": [
+    "3h,5d,Ks",
+    "3h,5c,Kd",
+    "3d,5s,Kc"
+  ],
+  "3-5-A:uncoordinated:rainbow": [
+    "3d,5h,As",
+    "3h,5d,As",
+    "3c,5s,Ah"
+  ],
+  "3-6-6:paired:twotone": [
+    "3c,6d,6c",
+    "3d,6h,6d",
+    "3c,6s,6c"
+  ],
+  "3-6-7:connected:monotone": [
+    "3h,6h,7h",
+    "3s,6s,7s",
+    "3c,6c,7c"
+  ],
+  "3-6-7:connected:twotone": [
+    "3c,6c,7s",
+    "3d,6h,7d",
+    "3d,6d,7c"
+  ],
+  "3-6-8:uncoordinated:monotone": [
+    "3h,6h,8h",
+    "3d,6d,8d",
+    "3c,6c,8c"
+  ],
+  "3-6-8:uncoordinated:twotone": [
+    "3h,6h,8c",
+    "3d,6d,8s",
+    "3c,6h,8h"
+  ],
+  "3-6-9:uncoordinated:monotone": [
+    "3s,6s,9s",
+    "3d,6d,9d",
+    "3h,6h,9h"
+  ],
+  "3-6-9:uncoordinated:twotone": [
+    "3s,6s,9d",
+    "3c,6c,9s",
+    "3h,6h,9c"
+  ],
+  "3-6-T:uncoordinated:monotone": [
+    "3d,6d,Td",
+    "3c,6c,Tc",
+    "3h,6h,Th"
+  ],
+  "3-6-T:uncoordinated:twotone": [
+    "3h,6d,Td",
+    "3c,6h,Tc",
+    "3d,6d,Ts"
+  ],
+  "3-6-J:uncoordinated:monotone": [
+    "3s,6s,Js",
+    "3d,6d,Jd",
+    "3h,6h,Jh"
+  ],
+  "3-6-J:uncoordinated:twotone": [
+    "3d,6h,Jd",
+    "3d,6c,Jd",
+    "3h,6c,Jc"
+  ],
+  "3-6-Q:uncoordinated:monotone": [
+    "3c,6c,Qc",
+    "3h,6h,Qh",
+    "3s,6s,Qs"
+  ],
+  "3-6-Q:uncoordinated:twotone": [
+    "3s,6s,Qh",
+    "3d,6d,Qs",
+    "3d,6h,Qd"
+  ],
+  "3-6-K:uncoordinated:monotone": [
+    "3s,6s,Ks",
+    "3d,6d,Kd",
+    "3h,6h,Kh"
+  ],
+  "3-6-K:uncoordinated:twotone": [
+    "3c,6d,Kc",
+    "3d,6s,Kd",
+    "3s,6h,Kh"
+  ],
+  "3-6-A:uncoordinated:monotone": [
+    "3c,6c,Ac",
+    "3h,6h,Ah",
+    "3s,6s,As"
+  ],
+  "3-6-A:uncoordinated:twotone": [
+    "3c,6c,Ad",
+    "3h,6s,Ah",
+    "3d,6h,Ah"
+  ],
+  "3-6-6:paired:rainbow": [
+    "3h,6d,6c",
+    "3c,6s,6d",
+    "3c,6h,6d"
+  ],
+  "3-6-7:connected:rainbow": [
+    "3c,6s,7d",
+    "3h,6s,7d",
+    "3d,6h,7c"
+  ],
+  "3-6-8:uncoordinated:rainbow": [
+    "3c,6d,8h",
+    "3h,6s,8d",
+    "3h,6d,8c"
+  ],
+  "3-6-9:uncoordinated:rainbow": [
+    "3c,6d,9s",
+    "3h,6s,9d",
+    "3h,6d,9c"
+  ],
+  "3-6-T:uncoordinated:rainbow": [
+    "3h,6d,Ts",
+    "3h,6d,Tc",
+    "3d,6h,Ts"
+  ],
+  "3-6-J:uncoordinated:rainbow": [
+    "3s,6h,Jd",
+    "3c,6s,Jd",
+    "3h,6s,Jc"
+  ],
+  "3-6-Q:uncoordinated:rainbow": [
+    "3h,6s,Qc",
+    "3d,6s,Qh",
+    "3s,6c,Qh"
+  ],
+  "3-6-K:uncoordinated:rainbow": [
+    "3s,6d,Kh",
+    "3c,6d,Ks",
+    "3d,6h,Ks"
+  ],
+  "3-6-A:uncoordinated:rainbow": [
+    "3c,6h,As",
+    "3c,6d,Ah",
+    "3d,6h,Ac"
+  ],
+  "3-7-7:paired:twotone": [
+    "3c,7h,7c",
+    "3d,7d,7c",
+    "3h,7s,7h"
+  ],
+  "3-7-8:uncoordinated:monotone": [
+    "3h,7h,8h",
+    "3s,7s,8s",
+    "3d,7d,8d"
+  ],
+  "3-7-8:uncoordinated:twotone": [
+    "3s,7d,8s",
+    "3h,7h,8s",
+    "3h,7d,8d"
+  ],
+  "3-7-9:uncoordinated:monotone": [
+    "3c,7c,9c",
+    "3h,7h,9h",
+    "3d,7d,9d"
+  ],
+  "3-7-9:uncoordinated:twotone": [
+    "3s,7h,9s",
+    "3c,7h,9c",
+    "3h,7h,9s"
+  ],
+  "3-7-T:uncoordinated:monotone": [
+    "3c,7c,Tc",
+    "3h,7h,Th",
+    "3s,7s,Ts"
+  ],
+  "3-7-T:uncoordinated:twotone": [
+    "3c,7c,Ts",
+    "3h,7h,Ts",
+    "3h,7c,Th"
+  ],
+  "3-7-J:uncoordinated:monotone": [
+    "3c,7c,Jc",
+    "3h,7h,Jh",
+    "3d,7d,Jd"
+  ],
+  "3-7-J:uncoordinated:twotone": [
+    "3h,7c,Jc",
+    "3h,7c,Jh",
+    "3c,7h,Jc"
+  ],
+  "3-7-Q:uncoordinated:monotone": [
+    "3s,7s,Qs",
+    "3d,7d,Qd",
+    "3h,7h,Qh"
+  ],
+  "3-7-Q:uncoordinated:twotone": [
+    "3d,7c,Qd",
+    "3s,7s,Qd",
+    "3h,7h,Qd"
+  ],
+  "3-7-K:uncoordinated:monotone": [
+    "3s,7s,Ks",
+    "3d,7d,Kd",
+    "3h,7h,Kh"
+  ],
+  "3-7-K:uncoordinated:twotone": [
+    "3s,7d,Ks",
+    "3c,7h,Kh",
+    "3s,7c,Ks"
+  ],
+  "3-7-A:uncoordinated:monotone": [
+    "3d,7d,Ad",
+    "3h,7h,Ah",
+    "3c,7c,Ac"
+  ],
+  "3-7-A:uncoordinated:twotone": [
+    "3h,7s,Ah",
+    "3h,7h,As",
+    "3d,7d,Ah"
+  ],
+  "3-7-7:paired:rainbow": [
+    "3d,7s,7h",
+    "3s,7h,7c",
+    "3d,7h,7c"
+  ],
+  "3-7-8:uncoordinated:rainbow": [
+    "3c,7d,8h",
+    "3s,7c,8h",
+    "3s,7h,8d"
+  ],
+  "3-7-9:uncoordinated:rainbow": [
+    "3c,7d,9h",
+    "3h,7d,9s",
+    "3c,7d,9s",
+    "3h,7c,9s"
+  ],
+  "3-7-T:uncoordinated:rainbow": [
+    "3h,7d,Tc",
+    "3d,7c,Th",
+    "3c,7h,Td"
+  ],
+  "3-7-J:uncoordinated:rainbow": [
+    "3h,7c,Js",
+    "3h,7s,Jc",
+    "3h,7d,Js"
+  ],
+  "3-7-Q:uncoordinated:rainbow": [
+    "3s,7h,Qc",
+    "3s,7c,Qh",
+    "3s,7d,Qc"
+  ],
+  "3-7-K:uncoordinated:rainbow": [
+    "3s,7h,Kd",
+    "3s,7d,Kh",
+    "3s,7h,Kc"
+  ],
+  "3-7-A:uncoordinated:rainbow": [
+    "3s,7d,Ah",
+    "3d,7h,As",
+    "3c,7s,Ad"
+  ],
+  "3-8-8:paired:twotone": [
+    "3c,8d,8c",
+    "3s,8s,8h",
+    "3c,8h,8c"
+  ],
+  "3-8-9:uncoordinated:monotone": [
+    "3d,8d,9d",
+    "3c,8c,9c",
+    "3h,8h,9h"
+  ],
+  "3-8-9:uncoordinated:twotone": [
+    "3h,8c,9c",
+    "3h,8s,9s",
+    "3c,8c,9h"
+  ],
+  "3-8-T:uncoordinated:monotone": [
+    "3s,8s,Ts",
+    "3c,8c,Tc",
+    "3h,8h,Th"
+  ],
+  "3-8-T:uncoordinated:twotone": [
+    "3d,8s,Td",
+    "3c,8s,Ts",
+    "3c,8d,Tc"
+  ],
+  "3-8-J:uncoordinated:monotone": [
+    "3d,8d,Jd",
+    "3c,8c,Jc",
+    "3s,8s,Js"
+  ],
+  "3-8-J:uncoordinated:twotone": [
+    "3h,8c,Jh",
+    "3h,8h,Jc",
+    "3s,8s,Jh"
+  ],
+  "3-8-Q:uncoordinated:monotone": [
+    "3c,8c,Qc",
+    "3h,8h,Qh",
+    "3d,8d,Qd"
+  ],
+  "3-8-Q:uncoordinated:twotone": [
+    "3c,8s,Qc",
+    "3d,8c,Qd",
+    "3s,8c,Qs"
+  ],
+  "3-8-K:uncoordinated:monotone": [
+    "3h,8h,Kh",
+    "3c,8c,Kc",
+    "3s,8s,Ks"
+  ],
+  "3-8-K:uncoordinated:twotone": [
+    "3c,8d,Kd",
+    "3d,8c,Kc",
+    "3d,8h,Kd"
+  ],
+  "3-8-A:uncoordinated:monotone": [
+    "3s,8s,As",
+    "3c,8c,Ac",
+    "3h,8h,Ah"
+  ],
+  "3-8-A:uncoordinated:twotone": [
+    "3d,8d,Ah",
+    "3d,8s,Ad",
+    "3d,8c,Ac"
+  ],
+  "3-8-8:paired:rainbow": [
+    "3h,8s,8d",
+    "3h,8s,8c",
+    "3c,8s,8d"
+  ],
+  "3-8-9:uncoordinated:rainbow": [
+    "3d,8c,9h",
+    "3s,8h,9c",
+    "3c,8s,9h"
+  ],
+  "3-8-T:uncoordinated:rainbow": [
+    "3c,8d,Ts",
+    "3h,8c,Td",
+    "3s,8d,Th"
+  ],
+  "3-8-J:uncoordinated:rainbow": [
+    "3s,8h,Jc",
+    "3s,8c,Jh",
+    "3h,8d,Js"
+  ],
+  "3-8-Q:uncoordinated:rainbow": [
+    "3h,8c,Qd",
+    "3d,8h,Qc",
+    "3c,8d,Qh"
+  ],
+  "3-8-K:uncoordinated:rainbow": [
+    "3d,8h,Kc",
+    "3d,8s,Kh",
+    "3d,8h,Ks"
+  ],
+  "3-8-A:uncoordinated:rainbow": [
+    "3h,8s,Ad",
+    "3d,8c,As",
+    "3h,8s,Ac"
+  ],
+  "3-9-9:paired:twotone": [
+    "3h,9h,9d",
+    "3s,9s,9c",
+    "3h,9h,9c"
+  ],
+  "3-9-T:uncoordinated:monotone": [
+    "3c,9c,Tc",
+    "3s,9s,Ts",
+    "3h,9h,Th"
+  ],
+  "3-9-T:uncoordinated:twotone": [
+    "3s,9s,Th",
+    "3h,9c,Tc",
+    "3s,9h,Th"
+  ],
+  "3-9-J:uncoordinated:monotone": [
+    "3s,9s,Js",
+    "3d,9d,Jd",
+    "3h,9h,Jh"
+  ],
+  "3-9-J:uncoordinated:twotone": [
+    "3s,9s,Jc",
+    "3c,9d,Jc",
+    "3d,9c,Jc"
+  ],
+  "3-9-Q:uncoordinated:monotone": [
+    "3h,9h,Qh",
+    "3c,9c,Qc",
+    "3s,9s,Qs"
+  ],
+  "3-9-Q:uncoordinated:twotone": [
+    "3c,9c,Qs",
+    "3s,9c,Qs",
+    "3c,9d,Qc"
+  ],
+  "3-9-K:uncoordinated:monotone": [
+    "3s,9s,Ks",
+    "3c,9c,Kc",
+    "3d,9d,Kd"
+  ],
+  "3-9-K:uncoordinated:twotone": [
+    "3d,9d,Kh",
+    "3h,9c,Kc",
+    "3h,9d,Kh"
+  ],
+  "3-9-A:uncoordinated:monotone": [
+    "3d,9d,Ad",
+    "3h,9h,Ah",
+    "3c,9c,Ac"
+  ],
+  "3-9-A:uncoordinated:twotone": [
+    "3c,9c,Ah",
+    "3c,9c,As",
+    "3c,9d,Ac"
+  ],
+  "3-9-9:paired:rainbow": [
+    "3c,9s,9h",
+    "3c,9s,9d",
+    "3d,9s,9h"
+  ],
+  "3-9-T:uncoordinated:rainbow": [
+    "3h,9s,Td",
+    "3h,9s,Tc",
+    "3s,9h,Td"
+  ],
+  "3-9-J:uncoordinated:rainbow": [
+    "3d,9s,Jc",
+    "3h,9c,Jd",
+    "3h,9s,Jc"
+  ],
+  "3-9-Q:uncoordinated:rainbow": [
+    "3c,9s,Qd",
+    "3h,9c,Qd",
+    "3d,9h,Qs"
+  ],
+  "3-9-K:uncoordinated:rainbow": [
+    "3s,9d,Kc",
+    "3c,9s,Kd",
+    "3h,9d,Ks"
+  ],
+  "3-9-A:uncoordinated:rainbow": [
+    "3h,9c,Ad",
+    "3h,9d,As",
+    "3d,9h,As"
+  ],
+  "3-T-T:paired:twotone": [
+    "3s,Ts,Th",
+    "3s,Ts,Td",
+    "3d,Th,Td"
+  ],
+  "3-T-J:uncoordinated:monotone": [
+    "3d,Td,Jd",
+    "3c,Tc,Jc",
+    "3h,Th,Jh"
+  ],
+  "3-T-J:uncoordinated:twotone": [
+    "3c,Ts,Js",
+    "3d,Th,Jh",
+    "3c,Ts,Jc"
+  ],
+  "3-T-Q:uncoordinated:monotone": [
+    "3h,Th,Qh",
+    "3c,Tc,Qc",
+    "3d,Td,Qd"
+  ],
+  "3-T-Q:uncoordinated:twotone": [
+    "3c,Th,Qh",
+    "3c,Tc,Qs",
+    "3h,Ts,Qs"
+  ],
+  "3-T-K:uncoordinated:monotone": [
+    "3s,Ts,Ks",
+    "3h,Th,Kh",
+    "3c,Tc,Kc"
+  ],
+  "3-T-K:uncoordinated:twotone": [
+    "3s,Td,Ks",
+    "3d,Td,Kc",
+    "3s,Tc,Kc"
+  ],
+  "3-T-A:uncoordinated:monotone": [
+    "3c,Tc,Ac",
+    "3s,Ts,As",
+    "3d,Td,Ad"
+  ],
+  "3-T-A:uncoordinated:twotone": [
+    "3d,Ts,Ad",
+    "3c,Tc,Ah",
+    "3h,Tc,Ac"
+  ],
+  "3-T-T:paired:rainbow": [
+    "3h,Ts,Tc",
+    "3h,Td,Tc",
+    "3c,Ts,Td"
+  ],
+  "3-T-J:uncoordinated:rainbow": [
+    "3h,Ts,Jd",
+    "3h,Tc,Jd",
+    "3h,Td,Jc"
+  ],
+  "3-T-Q:uncoordinated:rainbow": [
+    "3s,Tc,Qd",
+    "3c,Td,Qh",
+    "3d,Tc,Qh"
+  ],
+  "3-T-K:uncoordinated:rainbow": [
+    "3s,Tc,Kh",
+    "3s,Tc,Kd",
+    "3d,Tc,Ks"
+  ],
+  "3-T-A:uncoordinated:rainbow": [
+    "3h,Tc,As",
+    "3s,Th,Ac",
+    "3h,Td,As"
+  ],
+  "3-J-J:paired:twotone": [
+    "3d,Js,Jd",
+    "3c,Jh,Jc",
+    "3s,Js,Jh"
+  ],
+  "3-J-Q:uncoordinated:monotone": [
+    "3h,Jh,Qh",
+    "3s,Js,Qs",
+    "3d,Jd,Qd"
+  ],
+  "3-J-Q:uncoordinated:twotone": [
+    "3s,Jd,Qd",
+    "3d,Jc,Qc",
+    "3h,Jh,Qs"
+  ],
+  "3-J-K:uncoordinated:monotone": [
+    "3c,Jc,Kc",
+    "3d,Jd,Kd",
+    "3h,Jh,Kh"
+  ],
+  "3-J-K:uncoordinated:twotone": [
+    "3d,Jh,Kh",
+    "3d,Jh,Kd",
+    "3h,Jh,Ks"
+  ],
+  "3-J-A:uncoordinated:monotone": [
+    "3c,Jc,Ac",
+    "3d,Jd,Ad",
+    "3s,Js,As"
+  ],
+  "3-J-A:uncoordinated:twotone": [
+    "3s,Jd,Ad",
+    "3s,Jc,As",
+    "3h,Js,As"
+  ],
+  "3-J-J:paired:rainbow": [
+    "3d,Js,Jh",
+    "3h,Jd,Jc",
+    "3c,Js,Jh"
+  ],
+  "3-J-Q:uncoordinated:rainbow": [
+    "3h,Jc,Qd",
+    "3s,Jh,Qc",
+    "3s,Jd,Qh"
+  ],
+  "3-J-K:uncoordinated:rainbow": [
+    "3d,Js,Kh",
+    "3h,Js,Kc",
+    "3c,Jd,Kh"
+  ],
+  "3-J-A:uncoordinated:rainbow": [
+    "3h,Js,Ad",
+    "3s,Jh,Ac",
+    "3h,Jc,As"
+  ],
+  "3-Q-Q:paired:twotone": [
+    "3s,Qs,Qh",
+    "3h,Qh,Qc",
+    "3s,Qs,Qc"
+  ],
+  "3-Q-K:uncoordinated:monotone": [
+    "3h,Qh,Kh",
+    "3c,Qc,Kc",
+    "3d,Qd,Kd"
+  ],
+  "3-Q-K:uncoordinated:twotone": [
+    "3c,Qd,Kc",
+    "3c,Qc,Ks",
+    "3c,Qs,Kc"
+  ],
+  "3-Q-A:uncoordinated:monotone": [
+    "3d,Qd,Ad",
+    "3h,Qh,Ah",
+    "3c,Qc,Ac"
+  ],
+  "3-Q-A:uncoordinated:twotone": [
+    "3s,Qh,As",
+    "3d,Qc,Ad",
+    "3c,Qc,Ah"
+  ],
+  "3-Q-Q:paired:rainbow": [
+    "3s,Qd,Qc",
+    "3d,Qh,Qc",
+    "3c,Qh,Qd"
+  ],
+  "3-Q-K:uncoordinated:rainbow": [
+    "3h,Qc,Ks",
+    "3c,Qs,Kh",
+    "3d,Qs,Kh"
+  ],
+  "3-Q-A:uncoordinated:rainbow": [
+    "3c,Qs,Ah",
+    "3h,Qd,Ac",
+    "3d,Qc,As"
+  ],
+  "3-K-K:paired:twotone": [
+    "3s,Ks,Kh",
+    "3c,Kd,Kc",
+    "3d,Kd,Kc"
+  ],
+  "3-K-A:uncoordinated:monotone": [
+    "3c,Kc,Ac",
+    "3d,Kd,Ad",
+    "3h,Kh,Ah"
+  ],
+  "3-K-A:uncoordinated:twotone": [
+    "3h,Ks,Ah",
+    "3s,Ks,Ad",
+    "3c,Kd,Ac"
+  ],
+  "3-K-K:paired:rainbow": [
+    "3h,Kd,Kc",
+    "3s,Kh,Kc",
+    "3s,Kh,Kd"
+  ],
+  "3-K-A:uncoordinated:rainbow": [
+    "3s,Kd,Ah",
+    "3c,Kh,As",
+    "3s,Kh,Ac"
+  ],
+  "3-A-A:paired:twotone": [
+    "3d,Ah,Ad",
+    "3h,Ah,Ad",
+    "3c,Ad,Ac"
+  ],
+  "3-A-A:paired:rainbow": [
+    "3d,As,Ac",
+    "3s,Ah,Ad",
+    "3d,As,Ah"
+  ],
+  "4-4-4:triplet:rainbow": [
+    "4s,4d,4c",
+    "4s,4h,4d",
+    "4s,4h,4c"
+  ],
+  "4-4-5:paired:twotone": [
+    "4h,4d,5h",
+    "4s,4c,5s",
+    "4h,4c,5c"
+  ],
+  "4-4-5:paired:rainbow": [
+    "4s,4d,5c",
+    "4d,4c,5h",
+    "4d,4c,5s"
+  ],
+  "4-4-6:paired:twotone": [
+    "4h,4c,6c",
+    "4s,4d,6s",
+    "4s,4h,6s"
+  ],
+  "4-4-6:paired:rainbow": [
+    "4h,4d,6c",
+    "4d,4c,6s",
+    "4s,4c,6d"
+  ],
+  "4-4-7:paired:twotone": [
+    "4h,4c,7c",
+    "4s,4h,7s",
+    "4s,4d,7d"
+  ],
+  "4-4-7:paired:rainbow": [
+    "4h,4c,7s",
+    "4s,4c,7d",
+    "4d,4c,7s"
+  ],
+  "4-4-8:paired:twotone": [
+    "4s,4d,8s",
+    "4d,4c,8c",
+    "4s,4c,8c"
+  ],
+  "4-4-8:paired:rainbow": [
+    "4s,4c,8d",
+    "4h,4d,8s",
+    "4d,4c,8s"
+  ],
+  "4-4-9:paired:twotone": [
+    "4s,4c,9c",
+    "4s,4h,9s",
+    "4h,4c,9c"
+  ],
+  "4-4-9:paired:rainbow": [
+    "4d,4c,9s",
+    "4s,4d,9h",
+    "4s,4c,9h"
+  ],
+  "4-4-T:paired:twotone": [
+    "4s,4d,Td",
+    "4s,4c,Ts",
+    "4d,4c,Tc"
+  ],
+  "4-4-T:paired:rainbow": [
+    "4s,4c,Th",
+    "4s,4h,Tc",
+    "4s,4d,Tc"
+  ],
+  "4-4-J:paired:twotone": [
+    "4s,4h,Js",
+    "4d,4c,Jc",
+    "4h,4d,Jd"
+  ],
+  "4-4-J:paired:rainbow": [
+    "4h,4d,Jc",
+    "4s,4h,Jd",
+    "4h,4c,Jd"
+  ],
+  "4-4-Q:paired:twotone": [
+    "4s,4h,Qh",
+    "4s,4c,Qc",
+    "4s,4h,Qs"
+  ],
+  "4-4-Q:paired:rainbow": [
+    "4s,4h,Qd",
+    "4h,4c,Qs",
+    "4h,4c,Qd"
+  ],
+  "4-4-K:paired:twotone": [
+    "4s,4h,Kh",
+    "4s,4d,Kd",
+    "4s,4c,Kc"
+  ],
+  "4-4-K:paired:rainbow": [
+    "4s,4h,Kc",
+    "4h,4d,Kc",
+    "4s,4d,Kc"
+  ],
+  "4-4-A:paired:twotone": [
+    "4s,4c,As",
+    "4d,4c,Ac",
+    "4h,4d,Ad"
+  ],
+  "4-4-A:paired:rainbow": [
+    "4s,4d,Ah",
+    "4d,4c,Ah",
+    "4s,4c,Ah"
+  ],
+  "4-5-5:paired:twotone": [
+    "4h,5h,5d",
+    "4c,5s,5c",
+    "4h,5h,5c"
+  ],
+  "4-5-6:connected:monotone": [
+    "4d,5d,6d",
+    "4c,5c,6c",
+    "4h,5h,6h"
+  ],
+  "4-5-6:connected:twotone": [
+    "4d,5h,6d",
+    "4h,5c,6c",
+    "4d,5c,6c"
+  ],
+  "4-5-7:connected:monotone": [
+    "4c,5c,7c",
+    "4s,5s,7s",
+    "4d,5d,7d"
+  ],
+  "4-5-7:connected:twotone": [
+    "4d,5c,7c",
+    "4d,5c,7d",
+    "4d,5s,7d"
+  ],
+  "4-5-8:connected:monotone": [
+    "4s,5s,8s",
+    "4c,5c,8c",
+    "4h,5h,8h"
+  ],
+  "4-5-8:connected:twotone": [
+    "4s,5d,8s",
+    "4h,5c,8h",
+    "4d,5d,8s"
+  ],
+  "4-5-9:uncoordinated:monotone": [
+    "4c,5c,9c",
+    "4s,5s,9s",
+    "4h,5h,9h"
+  ],
+  "4-5-9:uncoordinated:twotone": [
+    "4h,5s,9s",
+    "4s,5h,9s",
+    "4c,5h,9h"
+  ],
+  "4-5-T:uncoordinated:monotone": [
+    "4c,5c,Tc",
+    "4s,5s,Ts",
+    "4d,5d,Td"
+  ],
+  "4-5-T:uncoordinated:twotone": [
+    "4d,5d,Ts",
+    "4c,5d,Td",
+    "4d,5d,Th"
+  ],
+  "4-5-J:uncoordinated:monotone": [
+    "4h,5h,Jh",
+    "4c,5c,Jc",
+    "4s,5s,Js"
+  ],
+  "4-5-J:uncoordinated:twotone": [
+    "4d,5s,Js",
+    "4s,5c,Js",
+    "4h,5d,Jd"
+  ],
+  "4-5-Q:uncoordinated:monotone": [
+    "4h,5h,Qh",
+    "4d,5d,Qd",
+    "4s,5s,Qs"
+  ],
+  "4-5-Q:uncoordinated:twotone": [
+    "4s,5h,Qh",
+    "4d,5c,Qd",
+    "4d,5h,Qd"
+  ],
+  "4-5-K:uncoordinated:monotone": [
+    "4s,5s,Ks",
+    "4c,5c,Kc",
+    "4h,5h,Kh"
+  ],
+  "4-5-K:uncoordinated:twotone": [
+    "4c,5c,Kh",
+    "4h,5h,Kd",
+    "4d,5c,Kc"
+  ],
+  "4-5-A:uncoordinated:monotone": [
+    "4d,5d,Ad",
+    "4c,5c,Ac",
+    "4h,5h,Ah"
+  ],
+  "4-5-A:uncoordinated:twotone": [
+    "4c,5d,Ac",
+    "4s,5c,Ac",
+    "4s,5d,Ad"
+  ],
+  "4-5-5:paired:rainbow": [
+    "4s,5d,5c",
+    "4h,5s,5c",
+    "4h,5s,5d"
+  ],
+  "4-5-6:connected:rainbow": [
+    "4c,5h,6s",
+    "4h,5s,6d",
+    "4d,5c,6h"
+  ],
+  "4-5-7:connected:rainbow": [
+    "4c,5h,7s",
+    "4s,5d,7h",
+    "4c,5s,7d"
+  ],
+  "4-5-8:connected:rainbow": [
+    "4s,5d,8c",
+    "4s,5h,8d",
+    "4c,5d,8s"
+  ],
+  "4-5-9:uncoordinated:rainbow": [
+    "4d,5c,9s",
+    "4d,5s,9c",
+    "4h,5c,9d"
+  ],
+  "4-5-T:uncoordinated:rainbow": [
+    "4d,5s,Th",
+    "4h,5d,Tc",
+    "4c,5s,Th"
+  ],
+  "4-5-J:uncoordinated:rainbow": [
+    "4d,5h,Js",
+    "4s,5c,Jh",
+    "4c,5d,Jh"
+  ],
+  "4-5-Q:uncoordinated:rainbow": [
+    "4h,5s,Qd",
+    "4c,5d,Qh",
+    "4c,5h,Qd"
+  ],
+  "4-5-K:uncoordinated:rainbow": [
+    "4s,5h,Kd",
+    "4h,5c,Ks",
+    "4c,5s,Kd"
+  ],
+  "4-5-A:uncoordinated:rainbow": [
+    "4s,5c,Ad",
+    "4d,5h,Ac",
+    "4h,5d,Ac"
+  ],
+  "4-6-6:paired:twotone": [
+    "4h,6h,6c",
+    "4c,6s,6c",
+    "4d,6s,6d"
+  ],
+  "4-6-7:connected:monotone": [
+    "4s,6s,7s",
+    "4h,6h,7h",
+    "4d,6d,7d"
+  ],
+  "4-6-7:connected:twotone": [
+    "4c,6d,7c",
+    "4s,6h,7s",
+    "4h,6h,7c"
+  ],
+  "4-6-8:connected:monotone": [
+    "4c,6c,8c",
+    "4h,6h,8h",
+    "4d,6d,8d"
+  ],
+  "4-6-8:connected:twotone": [
+    "4c,6c,8h",
+    "4h,6c,8h",
+    "4c,6d,8c"
+  ],
+  "4-6-9:uncoordinated:monotone": [
+    "4h,6h,9h",
+    "4s,6s,9s",
+    "4d,6d,9d"
+  ],
+  "4-6-9:uncoordinated:twotone": [
+    "4d,6s,9s",
+    "4c,6d,9c",
+    "4h,6s,9s"
+  ],
+  "4-6-T:uncoordinated:monotone": [
+    "4h,6h,Th",
+    "4d,6d,Td",
+    "4c,6c,Tc"
+  ],
+  "4-6-T:uncoordinated:twotone": [
+    "4s,6c,Ts",
+    "4c,6h,Th",
+    "4c,6h,Tc"
+  ],
+  "4-6-J:uncoordinated:monotone": [
+    "4c,6c,Jc",
+    "4s,6s,Js",
+    "4d,6d,Jd"
+  ],
+  "4-6-J:uncoordinated:twotone": [
+    "4d,6d,Js",
+    "4c,6h,Jh",
+    "4h,6c,Jc"
+  ],
+  "4-6-Q:uncoordinated:monotone": [
+    "4h,6h,Qh",
+    "4s,6s,Qs",
+    "4c,6c,Qc"
+  ],
+  "4-6-Q:uncoordinated:twotone": [
+    "4h,6h,Qc",
+    "4d,6h,Qh",
+    "4h,6h,Qd"
+  ],
+  "4-6-K:uncoordinated:monotone": [
+    "4d,6d,Kd",
+    "4h,6h,Kh",
+    "4s,6s,Ks"
+  ],
+  "4-6-K:uncoordinated:twotone": [
+    "4d,6d,Ks",
+    "4s,6h,Kh",
+    "4c,6h,Kc"
+  ],
+  "4-6-A:uncoordinated:monotone": [
+    "4c,6c,Ac",
+    "4d,6d,Ad",
+    "4h,6h,Ah"
+  ],
+  "4-6-A:uncoordinated:twotone": [
+    "4d,6h,Ah",
+    "4c,6d,Ac",
+    "4d,6s,Ad"
+  ],
+  "4-6-6:paired:rainbow": [
+    "4h,6s,6c",
+    "4d,6s,6c",
+    "4h,6d,6c"
+  ],
+  "4-6-7:connected:rainbow": [
+    "4d,6c,7h",
+    "4s,6h,7d",
+    "4h,6c,7s"
+  ],
+  "4-6-8:connected:rainbow": [
+    "4s,6c,8d",
+    "4c,6h,8d",
+    "4c,6s,8h"
+  ],
+  "4-6-9:uncoordinated:rainbow": [
+    "4h,6c,9d",
+    "4s,6d,9h",
+    "4c,6d,9s"
+  ],
+  "4-6-T:uncoordinated:rainbow": [
+    "4h,6c,Td",
+    "4c,6d,Th",
+    "4c,6s,Td"
+  ],
+  "4-6-J:uncoordinated:rainbow": [
+    "4s,6c,Jh",
+    "4c,6d,Jh",
+    "4c,6d,Js"
+  ],
+  "4-6-Q:uncoordinated:rainbow": [
+    "4s,6c,Qd",
+    "4d,6h,Qs",
+    "4s,6d,Qc"
+  ],
+  "4-6-K:uncoordinated:rainbow": [
+    "4s,6c,Kd",
+    "4s,6d,Kc",
+    "4d,6h,Kc"
+  ],
+  "4-6-A:uncoordinated:rainbow": [
+    "4c,6d,Ah",
+    "4c,6s,Ad",
+    "4c,6s,Ah"
+  ],
+  "4-7-7:paired:twotone": [
+    "4d,7h,7d",
+    "4h,7h,7c",
+    "4c,7h,7c"
+  ],
+  "4-7-8:connected:monotone": [
+    "4d,7d,8d",
+    "4c,7c,8c",
+    "4h,7h,8h"
+  ],
+  "4-7-8:connected:twotone": [
+    "4s,7s,8c",
+    "4c,7s,8c",
+    "4s,7c,8s"
+  ],
+  "4-7-9:uncoordinated:monotone": [
+    "4d,7d,9d",
+    "4s,7s,9s",
+    "4h,7h,9h"
+  ],
+  "4-7-9:uncoordinated:twotone": [
+    "4c,7c,9d",
+    "4d,7s,9s",
+    "4d,7d,9h"
+  ],
+  "4-7-T:uncoordinated:monotone": [
+    "4c,7c,Tc",
+    "4d,7d,Td",
+    "4s,7s,Ts"
+  ],
+  "4-7-T:uncoordinated:twotone": [
+    "4h,7c,Th",
+    "4c,7c,Ts",
+    "4h,7d,Td"
+  ],
+  "4-7-J:uncoordinated:monotone": [
+    "4h,7h,Jh",
+    "4c,7c,Jc",
+    "4s,7s,Js"
+  ],
+  "4-7-J:uncoordinated:twotone": [
+    "4s,7d,Js",
+    "4d,7d,Jh",
+    "4c,7c,Js"
+  ],
+  "4-7-Q:uncoordinated:monotone": [
+    "4c,7c,Qc",
+    "4s,7s,Qs",
+    "4h,7h,Qh"
+  ],
+  "4-7-Q:uncoordinated:twotone": [
+    "4s,7c,Qc",
+    "4c,7d,Qc",
+    "4c,7c,Qh"
+  ],
+  "4-7-K:uncoordinated:monotone": [
+    "4d,7d,Kd",
+    "4s,7s,Ks",
+    "4h,7h,Kh"
+  ],
+  "4-7-K:uncoordinated:twotone": [
+    "4d,7s,Ks",
+    "4s,7d,Ks",
+    "4s,7s,Kh"
+  ],
+  "4-7-A:uncoordinated:monotone": [
+    "4c,7c,Ac",
+    "4s,7s,As",
+    "4d,7d,Ad"
+  ],
+  "4-7-A:uncoordinated:twotone": [
+    "4s,7h,As",
+    "4c,7c,Ad",
+    "4d,7c,Ac"
+  ],
+  "4-7-7:paired:rainbow": [
+    "4d,7s,7c",
+    "4c,7s,7h",
+    "4s,7h,7c"
+  ],
+  "4-7-8:connected:rainbow": [
+    "4c,7h,8s",
+    "4d,7h,8s",
+    "4d,7c,8s"
+  ],
+  "4-7-9:uncoordinated:rainbow": [
+    "4h,7c,9s",
+    "4d,7h,9c",
+    "4c,7h,9d"
+  ],
+  "4-7-T:uncoordinated:rainbow": [
+    "4d,7h,Ts",
+    "4s,7d,Tc",
+    "4h,7s,Td"
+  ],
+  "4-7-J:uncoordinated:rainbow": [
+    "4s,7h,Jc",
+    "4d,7c,Jh",
+    "4d,7s,Jc"
+  ],
+  "4-7-Q:uncoordinated:rainbow": [
+    "4h,7s,Qc",
+    "4h,7d,Qs",
+    "4d,7h,Qc"
+  ],
+  "4-7-K:uncoordinated:rainbow": [
+    "4d,7c,Ks",
+    "4c,7d,Kh",
+    "4d,7s,Kh"
+  ],
+  "4-7-A:uncoordinated:rainbow": [
+    "4h,7d,Ac",
+    "4d,7s,Ah",
+    "4d,7h,Ac"
+  ],
+  "4-8-8:paired:twotone": [
+    "4d,8d,8c",
+    "4s,8s,8h",
+    "4h,8s,8h"
+  ],
+  "4-8-9:uncoordinated:monotone": [
+    "4h,8h,9h",
+    "4s,8s,9s",
+    "4c,8c,9c"
+  ],
+  "4-8-9:uncoordinated:twotone": [
+    "4h,8h,9d",
+    "4d,8h,9h",
+    "4s,8c,9s"
+  ],
+  "4-8-T:uncoordinated:monotone": [
+    "4d,8d,Td",
+    "4s,8s,Ts",
+    "4h,8h,Th"
+  ],
+  "4-8-T:uncoordinated:twotone": [
+    "4s,8h,Ts",
+    "4s,8c,Ts",
+    "4h,8c,Tc"
+  ],
+  "4-8-J:uncoordinated:monotone": [
+    "4d,8d,Jd",
+    "4c,8c,Jc",
+    "4h,8h,Jh"
+  ],
+  "4-8-J:uncoordinated:twotone": [
+    "4h,8c,Jc",
+    "4d,8d,Jh",
+    "4s,8d,Jd"
+  ],
+  "4-8-Q:uncoordinated:monotone": [
+    "4d,8d,Qd",
+    "4s,8s,Qs",
+    "4h,8h,Qh"
+  ],
+  "4-8-Q:uncoordinated:twotone": [
+    "4d,8d,Qh",
+    "4s,8c,Qs",
+    "4d,8s,Qs"
+  ],
+  "4-8-K:uncoordinated:monotone": [
+    "4c,8c,Kc",
+    "4d,8d,Kd",
+    "4h,8h,Kh"
+  ],
+  "4-8-K:uncoordinated:twotone": [
+    "4c,8d,Kd",
+    "4d,8c,Kc",
+    "4c,8h,Kc"
+  ],
+  "4-8-A:uncoordinated:monotone": [
+    "4c,8c,Ac",
+    "4h,8h,Ah",
+    "4s,8s,As"
+  ],
+  "4-8-A:uncoordinated:twotone": [
+    "4d,8d,As",
+    "4d,8d,Ah",
+    "4c,8h,Ah"
+  ],
+  "4-8-8:paired:rainbow": [
+    "4c,8s,8d",
+    "4h,8s,8d",
+    "4s,8h,8d"
+  ],
+  "4-8-9:uncoordinated:rainbow": [
+    "4h,8c,9d",
+    "4s,8d,9h",
+    "4d,8h,9s"
+  ],
+  "4-8-T:uncoordinated:rainbow": [
+    "4d,8h,Ts",
+    "4h,8d,Tc",
+    "4c,8s,Th"
+  ],
+  "4-8-J:uncoordinated:rainbow": [
+    "4c,8d,Jh",
+    "4h,8s,Jd",
+    "4s,8c,Jd"
+  ],
+  "4-8-Q:uncoordinated:rainbow": [
+    "4s,8h,Qd",
+    "4d,8h,Qs",
+    "4d,8s,Qh"
+  ],
+  "4-8-K:uncoordinated:rainbow": [
+    "4s,8d,Kc",
+    "4d,8s,Kh",
+    "4c,8s,Kh"
+  ],
+  "4-8-A:uncoordinated:rainbow": [
+    "4c,8s,Ah",
+    "4c,8h,As",
+    "4h,8d,As"
+  ],
+  "4-9-9:paired:twotone": [
+    "4h,9s,9h",
+    "4s,9s,9c",
+    "4h,9h,9d"
+  ],
+  "4-9-T:uncoordinated:monotone": [
+    "4d,9d,Td",
+    "4c,9c,Tc",
+    "4h,9h,Th"
+  ],
+  "4-9-T:uncoordinated:twotone": [
+    "4h,9s,Ts",
+    "4d,9d,Th",
+    "4h,9h,Tc"
+  ],
+  "4-9-J:uncoordinated:monotone": [
+    "4s,9s,Js",
+    "4d,9d,Jd",
+    "4h,9h,Jh"
+  ],
+  "4-9-J:uncoordinated:twotone": [
+    "4d,9c,Jc",
+    "4d,9d,Jh",
+    "4s,9h,Jh"
+  ],
+  "4-9-Q:uncoordinated:monotone": [
+    "4d,9d,Qd",
+    "4h,9h,Qh",
+    "4c,9c,Qc"
+  ],
+  "4-9-Q:uncoordinated:twotone": [
+    "4c,9c,Qh",
+    "4h,9d,Qd",
+    "4d,9c,Qd"
+  ],
+  "4-9-K:uncoordinated:monotone": [
+    "4d,9d,Kd",
+    "4s,9s,Ks",
+    "4c,9c,Kc"
+  ],
+  "4-9-K:uncoordinated:twotone": [
+    "4s,9s,Kc",
+    "4h,9c,Kh",
+    "4s,9c,Ks"
+  ],
+  "4-9-A:uncoordinated:monotone": [
+    "4s,9s,As",
+    "4h,9h,Ah",
+    "4c,9c,Ac"
+  ],
+  "4-9-A:uncoordinated:twotone": [
+    "4c,9s,Ac",
+    "4s,9s,Ad",
+    "4d,9s,Ad"
+  ],
+  "4-9-9:paired:rainbow": [
+    "4c,9h,9d",
+    "4h,9d,9c",
+    "4d,9s,9h"
+  ],
+  "4-9-T:uncoordinated:rainbow": [
+    "4d,9h,Tc",
+    "4c,9s,Th",
+    "4s,9c,Td"
+  ],
+  "4-9-J:uncoordinated:rainbow": [
+    "4s,9c,Jd",
+    "4d,9s,Jh",
+    "4c,9s,Jd"
+  ],
+  "4-9-Q:uncoordinated:rainbow": [
+    "4d,9c,Qh",
+    "4h,9c,Qd",
+    "4c,9d,Qs"
+  ],
+  "4-9-K:uncoordinated:rainbow": [
+    "4h,9s,Kd",
+    "4d,9h,Kc",
+    "4s,9d,Kc"
+  ],
+  "4-9-A:uncoordinated:rainbow": [
+    "4h,9d,As",
+    "4c,9d,Ah",
+    "4c,9s,Ad"
+  ],
+  "4-T-T:paired:twotone": [
+    "4s,Ts,Tc",
+    "4h,Ts,Th",
+    "4d,Td,Tc"
+  ],
+  "4-T-J:uncoordinated:monotone": [
+    "4d,Td,Jd",
+    "4h,Th,Jh",
+    "4s,Ts,Js"
+  ],
+  "4-T-J:uncoordinated:twotone": [
+    "4h,Th,Js",
+    "4d,Td,Js",
+    "4c,Ts,Jc"
+  ],
+  "4-T-Q:uncoordinated:monotone": [
+    "4h,Th,Qh",
+    "4c,Tc,Qc",
+    "4s,Ts,Qs"
+  ],
+  "4-T-Q:uncoordinated:twotone": [
+    "4h,Ts,Qh",
+    "4d,Tc,Qc",
+    "4h,Td,Qd"
+  ],
+  "4-T-K:uncoordinated:monotone": [
+    "4h,Th,Kh",
+    "4d,Td,Kd",
+    "4s,Ts,Ks"
+  ],
+  "4-T-K:uncoordinated:twotone": [
+    "4s,Ts,Kh",
+    "4s,Th,Ks",
+    "4s,Tc,Kc"
+  ],
+  "4-T-A:uncoordinated:monotone": [
+    "4s,Ts,As",
+    "4d,Td,Ad",
+    "4c,Tc,Ac"
+  ],
+  "4-T-A:uncoordinated:twotone": [
+    "4d,Ts,As",
+    "4c,Td,Ad",
+    "4s,Td,As"
+  ],
+  "4-T-T:paired:rainbow": [
+    "4h,Td,Tc",
+    "4d,Ts,Th",
+    "4c,Ts,Td"
+  ],
+  "4-T-J:uncoordinated:rainbow": [
+    "4h,Td,Js",
+    "4s,Td,Jh",
+    "4s,Tc,Jd"
+  ],
+  "4-T-Q:uncoordinated:rainbow": [
+    "4d,Ts,Qc",
+    "4s,Tc,Qd",
+    "4s,Td,Qh"
+  ],
+  "4-T-K:uncoordinated:rainbow": [
+    "4d,Tc,Kh",
+    "4d,Th,Ks",
+    "4s,Th,Kd"
+  ],
+  "4-T-A:uncoordinated:rainbow": [
+    "4c,Ts,Ad",
+    "4c,Ts,Ah",
+    "4c,Td,Ah"
+  ],
+  "4-J-J:paired:twotone": [
+    "4h,Js,Jh",
+    "4c,Jh,Jc",
+    "4d,Jd,Jc"
+  ],
+  "4-J-Q:uncoordinated:monotone": [
+    "4d,Jd,Qd",
+    "4s,Js,Qs",
+    "4c,Jc,Qc"
+  ],
+  "4-J-Q:uncoordinated:twotone": [
+    "4h,Jd,Qd",
+    "4s,Js,Qh",
+    "4h,Jh,Qs"
+  ],
+  "4-J-K:uncoordinated:monotone": [
+    "4s,Js,Ks",
+    "4c,Jc,Kc",
+    "4d,Jd,Kd"
+  ],
+  "4-J-K:uncoordinated:twotone": [
+    "4c,Jh,Kc",
+    "4c,Jc,Kd",
+    "4h,Jc,Kc"
+  ],
+  "4-J-A:uncoordinated:monotone": [
+    "4s,Js,As",
+    "4c,Jc,Ac",
+    "4h,Jh,Ah"
+  ],
+  "4-J-A:uncoordinated:twotone": [
+    "4c,Js,As",
+    "4c,Js,Ac",
+    "4h,Jc,Ac"
+  ],
+  "4-J-J:paired:rainbow": [
+    "4s,Jd,Jc",
+    "4c,Js,Jh",
+    "4h,Js,Jc"
+  ],
+  "4-J-Q:uncoordinated:rainbow": [
+    "4d,Js,Qh",
+    "4c,Jh,Qd",
+    "4s,Jc,Qd"
+  ],
+  "4-J-K:uncoordinated:rainbow": [
+    "4c,Jd,Ks",
+    "4s,Jh,Kd",
+    "4s,Jd,Kh"
+  ],
+  "4-J-A:uncoordinated:rainbow": [
+    "4s,Jd,Ac",
+    "4d,Jh,Ac",
+    "4c,Jh,As"
+  ],
+  "4-Q-Q:paired:twotone": [
+    "4h,Qh,Qd",
+    "4s,Qs,Qd",
+    "4d,Qs,Qd"
+  ],
+  "4-Q-K:uncoordinated:monotone": [
+    "4c,Qc,Kc",
+    "4d,Qd,Kd",
+    "4s,Qs,Ks"
+  ],
+  "4-Q-K:uncoordinated:twotone": [
+    "4s,Qs,Kh",
+    "4c,Qc,Kd",
+    "4d,Qh,Kd"
+  ],
+  "4-Q-A:uncoordinated:monotone": [
+    "4h,Qh,Ah",
+    "4s,Qs,As",
+    "4d,Qd,Ad"
+  ],
+  "4-Q-A:uncoordinated:twotone": [
+    "4h,Qc,Ah",
+    "4h,Qc,Ac",
+    "4h,Qd,Ah"
+  ],
+  "4-Q-Q:paired:rainbow": [
+    "4d,Qs,Qc",
+    "4h,Qd,Qc",
+    "4h,Qs,Qd"
+  ],
+  "4-Q-K:uncoordinated:rainbow": [
+    "4d,Qc,Kh",
+    "4s,Qd,Kc",
+    "4c,Qd,Kh"
+  ],
+  "4-Q-A:uncoordinated:rainbow": [
+    "4h,Qd,Ac",
+    "4c,Qs,Ad",
+    "4c,Qd,As"
+  ],
+  "4-K-K:paired:twotone": [
+    "4s,Ks,Kh",
+    "4h,Ks,Kh",
+    "4d,Kh,Kd"
+  ],
+  "4-K-A:uncoordinated:monotone": [
+    "4s,Ks,As",
+    "4d,Kd,Ad",
+    "4c,Kc,Ac"
+  ],
+  "4-K-A:uncoordinated:twotone": [
+    "4h,Kh,Ad",
+    "4c,Kh,Ah",
+    "4s,Ks,Ah"
+  ],
+  "4-K-K:paired:rainbow": [
+    "4s,Kh,Kc",
+    "4h,Ks,Kd",
+    "4h,Ks,Kc"
+  ],
+  "4-K-A:uncoordinated:rainbow": [
+    "4h,Kc,Ad",
+    "4d,Kc,Ah",
+    "4c,Kh,Ad"
+  ],
+  "4-A-A:paired:twotone": [
+    "4c,As,Ac",
+    "4h,As,Ah",
+    "4s,As,Ad"
+  ],
+  "4-A-A:paired:rainbow": [
+    "4d,Ah,Ac",
+    "4h,As,Ac",
+    "4h,As,Ad"
+  ],
+  "5-5-5:triplet:rainbow": [
+    "5s,5h,5d",
+    "5h,5d,5c",
+    "5s,5h,5c"
+  ],
+  "5-5-6:paired:twotone": [
+    "5s,5c,6c",
+    "5s,5c,6s",
+    "5s,5h,6h"
+  ],
+  "5-5-6:paired:rainbow": [
+    "5s,5d,6c",
+    "5h,5d,6c",
+    "5d,5c,6s"
+  ],
+  "5-5-7:paired:twotone": [
+    "5s,5h,7s",
+    "5s,5c,7s",
+    "5d,5c,7d"
+  ],
+  "5-5-7:paired:rainbow": [
+    "5s,5c,7d",
+    "5h,5d,7c",
+    "5s,5h,7d"
+  ],
+  "5-5-8:paired:twotone": [
+    "5h,5d,8d",
+    "5d,5c,8d",
+    "5s,5c,8s"
+  ],
+  "5-5-8:paired:rainbow": [
+    "5h,5d,8c",
+    "5h,5c,8s",
+    "5s,5d,8c"
+  ],
+  "5-5-9:paired:twotone": [
+    "5s,5d,9s",
+    "5s,5c,9s",
+    "5h,5c,9h"
+  ],
+  "5-5-9:paired:rainbow": [
+    "5s,5d,9c",
+    "5h,5c,9s",
+    "5s,5c,9h"
+  ],
+  "5-5-T:paired:twotone": [
+    "5h,5c,Tc",
+    "5h,5d,Td",
+    "5d,5c,Td"
+  ],
+  "5-5-T:paired:rainbow": [
+    "5h,5c,Ts",
+    "5h,5c,Td",
+    "5h,5d,Tc"
+  ],
+  "5-5-J:paired:twotone": [
+    "5d,5c,Jd",
+    "5h,5c,Jc",
+    "5h,5d,Jd"
+  ],
+  "5-5-J:paired:rainbow": [
+    "5h,5d,Js",
+    "5s,5h,Jd",
+    "5h,5c,Jd"
+  ],
+  "5-5-Q:paired:twotone": [
+    "5s,5c,Qs",
+    "5s,5d,Qd",
+    "5h,5d,Qh"
+  ],
+  "5-5-Q:paired:rainbow": [
+    "5s,5h,Qc",
+    "5s,5c,Qd",
+    "5s,5d,Qc"
+  ],
+  "5-5-K:paired:twotone": [
+    "5h,5c,Kc",
+    "5h,5d,Kd",
+    "5s,5c,Kc"
+  ],
+  "5-5-K:paired:rainbow": [
+    "5s,5d,Kh",
+    "5s,5d,Kc",
+    "5d,5c,Ks"
+  ],
+  "5-5-A:paired:twotone": [
+    "5s,5d,Ad",
+    "5s,5c,Ac",
+    "5h,5d,Ad"
+  ],
+  "5-5-A:paired:rainbow": [
+    "5s,5h,Ad",
+    "5s,5d,Ac",
+    "5d,5c,As"
+  ],
+  "5-6-6:paired:twotone": [
+    "5d,6s,6d",
+    "5c,6h,6c",
+    "5h,6h,6d"
+  ],
+  "5-6-7:connected:monotone": [
+    "5d,6d,7d",
+    "5s,6s,7s",
+    "5h,6h,7h"
+  ],
+  "5-6-7:connected:twotone": [
+    "5d,6d,7c",
+    "5s,6d,7s",
+    "5h,6s,7s"
+  ],
+  "5-6-8:connected:monotone": [
+    "5s,6s,8s",
+    "5h,6h,8h",
+    "5d,6d,8d"
+  ],
+  "5-6-8:connected:twotone": [
+    "5c,6s,8c",
+    "5c,6c,8s",
+    "5s,6s,8c"
+  ],
+  "5-6-9:connected:monotone": [
+    "5d,6d,9d",
+    "5c,6c,9c",
+    "5s,6s,9s"
+  ],
+  "5-6-9:connected:twotone": [
+    "5d,6c,9d",
+    "5c,6h,9h",
+    "5h,6h,9d"
+  ],
+  "5-6-T:uncoordinated:monotone": [
+    "5c,6c,Tc",
+    "5d,6d,Td",
+    "5h,6h,Th"
+  ],
+  "5-6-T:uncoordinated:twotone": [
+    "5c,6h,Tc",
+    "5s,6h,Ts",
+    "5d,6h,Td"
+  ],
+  "5-6-J:uncoordinated:monotone": [
+    "5s,6s,Js",
+    "5c,6c,Jc",
+    "5h,6h,Jh"
+  ],
+  "5-6-J:uncoordinated:twotone": [
+    "5h,6s,Js",
+    "5h,6s,Jh",
+    "5c,6h,Jh"
+  ],
+  "5-6-Q:uncoordinated:monotone": [
+    "5s,6s,Qs",
+    "5d,6d,Qd",
+    "5h,6h,Qh"
+  ],
+  "5-6-Q:uncoordinated:twotone": [
+    "5c,6s,Qs",
+    "5s,6s,Qd",
+    "5d,6c,Qd"
+  ],
+  "5-6-K:uncoordinated:monotone": [
+    "5c,6c,Kc",
+    "5h,6h,Kh",
+    "5d,6d,Kd"
+  ],
+  "5-6-K:uncoordinated:twotone": [
+    "5c,6h,Kc",
+    "5d,6h,Kd",
+    "5c,6s,Ks"
+  ],
+  "5-6-A:uncoordinated:monotone": [
+    "5c,6c,Ac",
+    "5d,6d,Ad",
+    "5s,6s,As"
+  ],
+  "5-6-A:uncoordinated:twotone": [
+    "5s,6h,As",
+    "5d,6c,Ad",
+    "5c,6s,As"
+  ],
+  "5-6-6:paired:rainbow": [
+    "5h,6s,6c",
+    "5d,6h,6c",
+    "5c,6s,6h"
+  ],
+  "5-6-7:connected:rainbow": [
+    "5c,6s,7d",
+    "5c,6d,7h",
+    "5c,6h,7s",
+    "5s,6h,7d"
+  ],
+  "5-6-8:connected:rainbow": [
+    "5s,6c,8d",
+    "5s,6h,8d",
+    "5s,6d,8c"
+  ],
+  "5-6-9:connected:rainbow": [
+    "5s,6h,9d",
+    "5h,6s,9d",
+    "5d,6h,9s"
+  ],
+  "5-6-T:uncoordinated:rainbow": [
+    "5s,6d,Tc",
+    "5s,6d,Th",
+    "5s,6h,Td"
+  ],
+  "5-6-J:uncoordinated:rainbow": [
+    "5c,6s,Jd",
+    "5c,6s,Jh",
+    "5d,6h,Js"
+  ],
+  "5-6-Q:uncoordinated:rainbow": [
+    "5c,6h,Qs",
+    "5c,6d,Qh",
+    "5s,6h,Qd"
+  ],
+  "5-6-K:uncoordinated:rainbow": [
+    "5h,6d,Kc",
+    "5s,6c,Kd",
+    "5s,6h,Kd"
+  ],
+  "5-6-A:uncoordinated:rainbow": [
+    "5d,6s,Ah",
+    "5s,6c,Ad",
+    "5c,6h,Ad"
+  ],
+  "5-7-7:paired:twotone": [
+    "5s,7s,7h",
+    "5d,7d,7c",
+    "5c,7h,7c"
+  ],
+  "5-7-8:connected:monotone": [
+    "5h,7h,8h",
+    "5c,7c,8c",
+    "5s,7s,8s"
+  ],
+  "5-7-8:connected:twotone": [
+    "5c,7s,8s",
+    "5c,7c,8s",
+    "5s,7h,8s"
+  ],
+  "5-7-9:connected:monotone": [
+    "5d,7d,9d",
+    "5c,7c,9c",
+    "5h,7h,9h"
+  ],
+  "5-7-9:connected:twotone": [
+    "5h,7d,9h",
+    "5c,7s,9c",
+    "5h,7h,9s"
+  ],
+  "5-7-T:uncoordinated:monotone": [
+    "5s,7s,Ts",
+    "5c,7c,Tc",
+    "5h,7h,Th"
+  ],
+  "5-7-T:uncoordinated:twotone": [
+    "5d,7h,Td",
+    "5h,7s,Ts",
+    "5d,7s,Ts"
+  ],
+  "5-7-J:uncoordinated:monotone": [
+    "5h,7h,Jh",
+    "5s,7s,Js",
+    "5c,7c,Jc"
+  ],
+  "5-7-J:uncoordinated:twotone": [
+    "5c,7c,Jd",
+    "5s,7d,Jd",
+    "5s,7h,Js"
+  ],
+  "5-7-Q:uncoordinated:monotone": [
+    "5s,7s,Qs",
+    "5c,7c,Qc",
+    "5h,7h,Qh"
+  ],
+  "5-7-Q:uncoordinated:twotone": [
+    "5s,7h,Qs",
+    "5h,7d,Qh",
+    "5c,7s,Qs"
+  ],
+  "5-7-K:uncoordinated:monotone": [
+    "5d,7d,Kd",
+    "5s,7s,Ks",
+    "5c,7c,Kc"
+  ],
+  "5-7-K:uncoordinated:twotone": [
+    "5c,7c,Kh",
+    "5h,7c,Kh",
+    "5d,7h,Kh"
+  ],
+  "5-7-A:uncoordinated:monotone": [
+    "5d,7d,Ad",
+    "5c,7c,Ac",
+    "5h,7h,Ah"
+  ],
+  "5-7-A:uncoordinated:twotone": [
+    "5d,7d,Ac",
+    "5s,7c,As",
+    "5c,7c,Ah"
+  ],
+  "5-7-7:paired:rainbow": [
+    "5c,7s,7d",
+    "5d,7s,7h",
+    "5s,7h,7d"
+  ],
+  "5-7-8:connected:rainbow": [
+    "5c,7h,8d",
+    "5s,7h,8c",
+    "5d,7c,8s"
+  ],
+  "5-7-9:connected:rainbow": [
+    "5h,7s,9d",
+    "5c,7h,9d",
+    "5h,7c,9d"
+  ],
+  "5-7-T:uncoordinated:rainbow": [
+    "5c,7s,Td",
+    "5d,7h,Tc",
+    "5h,7s,Td"
+  ],
+  "5-7-J:uncoordinated:rainbow": [
+    "5d,7h,Jc",
+    "5d,7c,Js",
+    "5c,7d,Jh"
+  ],
+  "5-7-Q:uncoordinated:rainbow": [
+    "5d,7h,Qs",
+    "5c,7d,Qs",
+    "5h,7s,Qc"
+  ],
+  "5-7-K:uncoordinated:rainbow": [
+    "5h,7d,Kc",
+    "5s,7d,Kh",
+    "5h,7c,Kd"
+  ],
+  "5-7-A:uncoordinated:rainbow": [
+    "5d,7c,Ah",
+    "5d,7h,Ac",
+    "5s,7c,Ah"
+  ],
+  "5-8-8:paired:twotone": [
+    "5c,8h,8c",
+    "5d,8s,8d",
+    "5s,8s,8d"
+  ],
+  "5-8-9:connected:monotone": [
+    "5c,8c,9c",
+    "5s,8s,9s",
+    "5d,8d,9d"
+  ],
+  "5-8-9:connected:twotone": [
+    "5s,8d,9d",
+    "5h,8d,9d",
+    "5h,8h,9s"
+  ],
+  "5-8-T:uncoordinated:monotone": [
+    "5d,8d,Td",
+    "5s,8s,Ts",
+    "5c,8c,Tc"
+  ],
+  "5-8-T:uncoordinated:twotone": [
+    "5h,8d,Td",
+    "5c,8c,Ts",
+    "5c,8c,Td"
+  ],
+  "5-8-J:uncoordinated:monotone": [
+    "5s,8s,Js",
+    "5h,8h,Jh",
+    "5d,8d,Jd"
+  ],
+  "5-8-J:uncoordinated:twotone": [
+    "5d,8d,Jc",
+    "5h,8d,Jh",
+    "5s,8c,Js"
+  ],
+  "5-8-Q:uncoordinated:monotone": [
+    "5h,8h,Qh",
+    "5d,8d,Qd",
+    "5c,8c,Qc"
+  ],
+  "5-8-Q:uncoordinated:twotone": [
+    "5s,8s,Qh",
+    "5s,8d,Qd",
+    "5c,8h,Qc"
+  ],
+  "5-8-K:uncoordinated:monotone": [
+    "5c,8c,Kc",
+    "5s,8s,Ks",
+    "5d,8d,Kd"
+  ],
+  "5-8-K:uncoordinated:twotone": [
+    "5h,8d,Kh",
+    "5s,8s,Kd",
+    "5h,8c,Kh"
+  ],
+  "5-8-A:uncoordinated:monotone": [
+    "5d,8d,Ad",
+    "5c,8c,Ac",
+    "5s,8s,As"
+  ],
+  "5-8-A:uncoordinated:twotone": [
+    "5h,8s,Ah",
+    "5d,8s,Ad",
+    "5c,8c,As"
+  ],
+  "5-8-8:paired:rainbow": [
+    "5s,8h,8c",
+    "5h,8s,8c",
+    "5s,8h,8d"
+  ],
+  "5-8-9:connected:rainbow": [
+    "5d,8c,9h",
+    "5d,8h,9c",
+    "5s,8h,9d"
+  ],
+  "5-8-T:uncoordinated:rainbow": [
+    "5h,8s,Td",
+    "5c,8s,Th",
+    "5c,8d,Th"
+  ],
+  "5-8-J:uncoordinated:rainbow": [
+    "5h,8c,Js",
+    "5c,8s,Jh",
+    "5c,8d,Js"
+  ],
+  "5-8-Q:uncoordinated:rainbow": [
+    "5d,8s,Qc",
+    "5c,8d,Qh",
+    "5d,8c,Qs"
+  ],
+  "5-8-K:uncoordinated:rainbow": [
+    "5h,8d,Ks",
+    "5s,8d,Kh",
+    "5c,8h,Ks"
+  ],
+  "5-8-A:uncoordinated:rainbow": [
+    "5d,8h,Ac",
+    "5c,8h,As",
+    "5c,8s,Ad"
+  ],
+  "5-9-9:paired:twotone": [
+    "5c,9d,9c",
+    "5s,9s,9h",
+    "5c,9s,9c"
+  ],
+  "5-9-T:uncoordinated:monotone": [
+    "5s,9s,Ts",
+    "5h,9h,Th",
+    "5c,9c,Tc"
+  ],
+  "5-9-T:uncoordinated:twotone": [
+    "5c,9h,Th",
+    "5s,9c,Tc",
+    "5h,9s,Th"
+  ],
+  "5-9-J:uncoordinated:monotone": [
+    "5d,9d,Jd",
+    "5h,9h,Jh",
+    "5c,9c,Jc"
+  ],
+  "5-9-J:uncoordinated:twotone": [
+    "5h,9h,Jd",
+    "5h,9s,Js",
+    "5c,9h,Jc"
+  ],
+  "5-9-Q:uncoordinated:monotone": [
+    "5d,9d,Qd",
+    "5c,9c,Qc",
+    "5s,9s,Qs"
+  ],
+  "5-9-Q:uncoordinated:twotone": [
+    "5s,9s,Qd",
+    "5c,9d,Qd",
+    "5d,9d,Qh"
+  ],
+  "5-9-K:uncoordinated:monotone": [
+    "5c,9c,Kc",
+    "5h,9h,Kh",
+    "5d,9d,Kd"
+  ],
+  "5-9-K:uncoordinated:twotone": [
+    "5s,9s,Kh",
+    "5d,9s,Ks",
+    "5h,9d,Kd"
+  ],
+  "5-9-A:uncoordinated:monotone": [
+    "5s,9s,As",
+    "5c,9c,Ac",
+    "5h,9h,Ah"
+  ],
+  "5-9-A:uncoordinated:twotone": [
+    "5h,9d,Ad",
+    "5c,9h,Ac",
+    "5s,9s,Ac"
+  ],
+  "5-9-9:paired:rainbow": [
+    "5c,9s,9d",
+    "5d,9s,9h",
+    "5d,9h,9c"
+  ],
+  "5-9-T:uncoordinated:rainbow": [
+    "5d,9h,Tc",
+    "5d,9s,Tc",
+    "5c,9s,Th"
+  ],
+  "5-9-J:uncoordinated:rainbow": [
+    "5h,9s,Jc",
+    "5d,9c,Js",
+    "5d,9s,Jc"
+  ],
+  "5-9-Q:uncoordinated:rainbow": [
+    "5c,9h,Qd",
+    "5h,9c,Qd",
+    "5d,9s,Qh"
+  ],
+  "5-9-K:uncoordinated:rainbow": [
+    "5d,9c,Ks",
+    "5h,9s,Kc",
+    "5c,9s,Kh"
+  ],
+  "5-9-A:uncoordinated:rainbow": [
+    "5s,9h,Ac",
+    "5c,9d,As",
+    "5h,9c,Ad"
+  ],
+  "5-T-T:paired:twotone": [
+    "5h,Ts,Th",
+    "5c,Td,Tc",
+    "5d,Ts,Td"
+  ],
+  "5-T-J:uncoordinated:monotone": [
+    "5c,Tc,Jc",
+    "5d,Td,Jd",
+    "5s,Ts,Js"
+  ],
+  "5-T-J:uncoordinated:twotone": [
+    "5d,Th,Jd",
+    "5c,Ts,Jc",
+    "5s,Ts,Jd"
+  ],
+  "5-T-Q:uncoordinated:monotone": [
+    "5h,Th,Qh",
+    "5d,Td,Qd",
+    "5s,Ts,Qs"
+  ],
+  "5-T-Q:uncoordinated:twotone": [
+    "5s,Tc,Qc",
+    "5s,Th,Qs",
+    "5c,Td,Qc"
+  ],
+  "5-T-K:uncoordinated:monotone": [
+    "5h,Th,Kh",
+    "5c,Tc,Kc",
+    "5d,Td,Kd"
+  ],
+  "5-T-K:uncoordinated:twotone": [
+    "5h,Ts,Ks",
+    "5h,Tc,Kc",
+    "5c,Td,Kd"
+  ],
+  "5-T-A:uncoordinated:monotone": [
+    "5c,Tc,Ac",
+    "5h,Th,Ah",
+    "5s,Ts,As"
+  ],
+  "5-T-A:uncoordinated:twotone": [
+    "5h,Td,Ad",
+    "5s,Td,Ad",
+    "5d,Td,Ah"
+  ],
+  "5-T-T:paired:rainbow": [
+    "5h,Td,Tc",
+    "5s,Th,Tc",
+    "5d,Th,Tc"
+  ],
+  "5-T-J:uncoordinated:rainbow": [
+    "5s,Th,Jd",
+    "5s,Th,Jc",
+    "5c,Ts,Jh"
+  ],
+  "5-T-Q:uncoordinated:rainbow": [
+    "5d,Ts,Qh",
+    "5h,Tc,Qd",
+    "5s,Td,Qc"
+  ],
+  "5-T-K:uncoordinated:rainbow": [
+    "5c,Th,Ks",
+    "5s,Td,Kh",
+    "5c,Th,Kd"
+  ],
+  "5-T-A:uncoordinated:rainbow": [
+    "5d,Ts,Ah",
+    "5s,Th,Ac",
+    "5s,Tc,Ah"
+  ],
+  "5-J-J:paired:twotone": [
+    "5d,Js,Jd",
+    "5s,Js,Jh",
+    "5c,Jd,Jc"
+  ],
+  "5-J-Q:uncoordinated:monotone": [
+    "5c,Jc,Qc",
+    "5h,Jh,Qh",
+    "5s,Js,Qs"
+  ],
+  "5-J-Q:uncoordinated:twotone": [
+    "5c,Jh,Qh",
+    "5s,Jh,Qh",
+    "5c,Jd,Qc"
+  ],
+  "5-J-K:uncoordinated:monotone": [
+    "5h,Jh,Kh",
+    "5c,Jc,Kc",
+    "5s,Js,Ks"
+  ],
+  "5-J-K:uncoordinated:twotone": [
+    "5h,Js,Ks",
+    "5s,Jd,Ks",
+    "5s,Js,Kd"
+  ],
+  "5-J-A:uncoordinated:monotone": [
+    "5c,Jc,Ac",
+    "5h,Jh,Ah",
+    "5d,Jd,Ad"
+  ],
+  "5-J-A:uncoordinated:twotone": [
+    "5h,Jd,Ah",
+    "5s,Js,Ac",
+    "5h,Jc,Ac"
+  ],
+  "5-J-J:paired:rainbow": [
+    "5s,Jh,Jc",
+    "5s,Jh,Jd",
+    "5c,Js,Jd"
+  ],
+  "5-J-Q:uncoordinated:rainbow": [
+    "5s,Jc,Qd",
+    "5d,Js,Qh",
+    "5c,Js,Qh"
+  ],
+  "5-J-K:uncoordinated:rainbow": [
+    "5d,Jh,Ks",
+    "5h,Jd,Kc",
+    "5s,Jd,Kh"
+  ],
+  "5-J-A:uncoordinated:rainbow": [
+    "5h,Jd,As",
+    "5h,Jc,Ad",
+    "5c,Js,Ah"
+  ],
+  "5-Q-Q:paired:twotone": [
+    "5s,Qs,Qd",
+    "5s,Qs,Qh",
+    "5h,Qh,Qc"
+  ],
+  "5-Q-K:uncoordinated:monotone": [
+    "5s,Qs,Ks",
+    "5c,Qc,Kc",
+    "5h,Qh,Kh"
+  ],
+  "5-Q-K:uncoordinated:twotone": [
+    "5s,Qh,Kh",
+    "5d,Qh,Kh",
+    "5h,Qh,Kc"
+  ],
+  "5-Q-A:uncoordinated:monotone": [
+    "5d,Qd,Ad",
+    "5c,Qc,Ac",
+    "5s,Qs,As"
+  ],
+  "5-Q-A:uncoordinated:twotone": [
+    "5s,Qc,As",
+    "5s,Qs,Ah",
+    "5d,Qh,Ah"
+  ],
+  "5-Q-Q:paired:rainbow": [
+    "5d,Qs,Qh",
+    "5d,Qh,Qc",
+    "5h,Qd,Qc"
+  ],
+  "5-Q-K:uncoordinated:rainbow": [
+    "5d,Qc,Ks",
+    "5d,Qh,Ks",
+    "5h,Qd,Kc"
+  ],
+  "5-Q-A:uncoordinated:rainbow": [
+    "5d,Qc,As",
+    "5s,Qh,Ac",
+    "5c,Qd,Ah"
+  ],
+  "5-K-K:paired:twotone": [
+    "5s,Ks,Kd",
+    "5d,Kd,Kc",
+    "5d,Ks,Kd"
+  ],
+  "5-K-A:uncoordinated:monotone": [
+    "5c,Kc,Ac",
+    "5d,Kd,Ad",
+    "5s,Ks,As"
+  ],
+  "5-K-A:uncoordinated:twotone": [
+    "5s,Ks,Ah",
+    "5d,Kh,Ah",
+    "5s,Kd,As"
+  ],
+  "5-K-K:paired:rainbow": [
+    "5s,Kd,Kc",
+    "5h,Kd,Kc",
+    "5d,Kh,Kc"
+  ],
+  "5-K-A:uncoordinated:rainbow": [
+    "5h,Kc,Ad",
+    "5c,Kd,Ah",
+    "5c,Ks,Ad"
+  ],
+  "5-A-A:paired:twotone": [
+    "5d,Ad,Ac",
+    "5s,As,Ah",
+    "5d,Ah,Ad"
+  ],
+  "5-A-A:paired:rainbow": [
+    "5s,Ah,Ac",
+    "5c,As,Ad",
+    "5s,Ad,Ac"
+  ],
+  "6-6-6:triplet:rainbow": [
+    "6h,6d,6c",
+    "6s,6h,6d",
+    "6s,6h,6c"
+  ],
+  "6-6-7:paired:twotone": [
+    "6h,6c,7h",
+    "6s,6c,7s",
+    "6h,6d,7d"
+  ],
+  "6-6-7:paired:rainbow": [
+    "6s,6c,7d",
+    "6h,6d,7s",
+    "6s,6h,7d"
+  ],
+  "6-6-8:paired:twotone": [
+    "6h,6d,8h",
+    "6d,6c,8d",
+    "6d,6c,8c"
+  ],
+  "6-6-8:paired:rainbow": [
+    "6s,6d,8h",
+    "6s,6d,8c",
+    "6s,6h,8c"
+  ],
+  "6-6-9:paired:twotone": [
+    "6s,6d,9s",
+    "6d,6c,9d",
+    "6h,6d,9h"
+  ],
+  "6-6-9:paired:rainbow": [
+    "6h,6c,9d",
+    "6s,6d,9h",
+    "6s,6c,9d"
+  ],
+  "6-6-T:paired:twotone": [
+    "6h,6d,Th",
+    "6s,6c,Tc",
+    "6d,6c,Td"
+  ],
+  "6-6-T:paired:rainbow": [
+    "6h,6c,Ts",
+    "6s,6d,Th",
+    "6h,6c,Td"
+  ],
+  "6-6-J:paired:twotone": [
+    "6h,6c,Jh",
+    "6s,6d,Js",
+    "6s,6c,Js"
+  ],
+  "6-6-J:paired:rainbow": [
+    "6s,6c,Jh",
+    "6h,6d,Jc",
+    "6h,6c,Jd"
+  ],
+  "6-6-Q:paired:twotone": [
+    "6d,6c,Qc",
+    "6s,6h,Qs",
+    "6s,6h,Qh"
+  ],
+  "6-6-Q:paired:rainbow": [
+    "6h,6c,Qd",
+    "6s,6d,Qh",
+    "6d,6c,Qh"
+  ],
+  "6-6-K:paired:twotone": [
+    "6d,6c,Kc",
+    "6d,6c,Kd",
+    "6s,6d,Kd"
+  ],
+  "6-6-K:paired:rainbow": [
+    "6h,6d,Kc",
+    "6s,6c,Kd",
+    "6s,6h,Kc"
+  ],
+  "6-6-A:paired:twotone": [
+    "6d,6c,Ac",
+    "6s,6h,As",
+    "6h,6c,Ah"
+  ],
+  "6-6-A:paired:rainbow": [
+    "6h,6c,As",
+    "6s,6h,Ad",
+    "6h,6d,As"
+  ],
+  "6-7-7:paired:twotone": [
+    "6d,7d,7c",
+    "6s,7s,7h",
+    "6s,7s,7d"
+  ],
+  "6-7-8:connected:monotone": [
+    "6c,7c,8c",
+    "6s,7s,8s",
+    "6h,7h,8h",
+    "6d,7d,8d"
+  ],
+  "6-7-8:connected:twotone": [
+    "6c,7h,8h",
+    "6h,7h,8d",
+    "6d,7d,8h"
+  ],
+  "6-7-9:connected:monotone": [
+    "6d,7d,9d",
+    "6s,7s,9s",
+    "6c,7c,9c"
+  ],
+  "6-7-9:connected:twotone": [
+    "6d,7d,9h",
+    "6s,7h,9h",
+    "6h,7s,9h"
+  ],
+  "6-7-T:connected:monotone": [
+    "6s,7s,Ts",
+    "6c,7c,Tc",
+    "6h,7h,Th"
+  ],
+  "6-7-T:connected:twotone": [
+    "6c,7s,Tc",
+    "6d,7h,Td",
+    "6h,7h,Td"
+  ],
+  "6-7-J:uncoordinated:monotone": [
+    "6h,7h,Jh",
+    "6d,7d,Jd",
+    "6c,7c,Jc"
+  ],
+  "6-7-J:uncoordinated:twotone": [
+    "6d,7s,Js",
+    "6h,7s,Jh",
+    "6h,7d,Jd"
+  ],
+  "6-7-Q:uncoordinated:monotone": [
+    "6h,7h,Qh",
+    "6c,7c,Qc",
+    "6s,7s,Qs"
+  ],
+  "6-7-Q:uncoordinated:twotone": [
+    "6d,7s,Qs",
+    "6c,7d,Qc",
+    "6s,7h,Qs"
+  ],
+  "6-7-K:uncoordinated:monotone": [
+    "6h,7h,Kh",
+    "6d,7d,Kd",
+    "6c,7c,Kc"
+  ],
+  "6-7-K:uncoordinated:twotone": [
+    "6h,7d,Kh",
+    "6d,7s,Kd",
+    "6c,7c,Kh"
+  ],
+  "6-7-A:uncoordinated:monotone": [
+    "6d,7d,Ad",
+    "6h,7h,Ah",
+    "6c,7c,Ac"
+  ],
+  "6-7-A:uncoordinated:twotone": [
+    "6d,7s,Ad",
+    "6d,7c,Ac",
+    "6s,7s,Ad"
+  ],
+  "6-7-7:paired:rainbow": [
+    "6d,7s,7c",
+    "6h,7d,7c",
+    "6s,7h,7c"
+  ],
+  "6-7-8:connected:rainbow": [
+    "6s,7c,8d",
+    "6d,7c,8h",
+    "6h,7c,8d"
+  ],
+  "6-7-9:connected:rainbow": [
+    "6h,7d,9s",
+    "6s,7c,9d",
+    "6s,7h,9c"
+  ],
+  "6-7-T:connected:rainbow": [
+    "6d,7c,Ts",
+    "6h,7d,Tc",
+    "6h,7c,Ts"
+  ],
+  "6-7-J:uncoordinated:rainbow": [
+    "6c,7d,Js",
+    "6c,7d,Jh",
+    "6s,7c,Jh"
+  ],
+  "6-7-Q:uncoordinated:rainbow": [
+    "6h,7c,Qd",
+    "6c,7s,Qd",
+    "6c,7d,Qh"
+  ],
+  "6-7-K:uncoordinated:rainbow": [
+    "6d,7c,Kh",
+    "6d,7h,Ks",
+    "6h,7s,Kd"
+  ],
+  "6-7-A:uncoordinated:rainbow": [
+    "6d,7c,Ah",
+    "6d,7c,As",
+    "6d,7s,Ac"
+  ],
+  "6-8-8:paired:twotone": [
+    "6c,8d,8c",
+    "6c,8h,8c",
+    "6h,8h,8c"
+  ],
+  "6-8-9:connected:monotone": [
+    "6h,8h,9h",
+    "6c,8c,9c",
+    "6s,8s,9s"
+  ],
+  "6-8-9:connected:twotone": [
+    "6h,8s,9s",
+    "6h,8d,9h",
+    "6d,8c,9d"
+  ],
+  "6-8-T:connected:monotone": [
+    "6d,8d,Td",
+    "6c,8c,Tc",
+    "6s,8s,Ts"
+  ],
+  "6-8-T:connected:twotone": [
+    "6c,8c,Ts",
+    "6d,8s,Ts",
+    "6s,8h,Th"
+  ],
+  "6-8-J:uncoordinated:monotone": [
+    "6s,8s,Js",
+    "6c,8c,Jc",
+    "6h,8h,Jh"
+  ],
+  "6-8-J:uncoordinated:twotone": [
+    "6s,8c,Js",
+    "6c,8c,Jh",
+    "6s,8h,Jh"
+  ],
+  "6-8-Q:uncoordinated:monotone": [
+    "6d,8d,Qd",
+    "6s,8s,Qs",
+    "6c,8c,Qc"
+  ],
+  "6-8-Q:uncoordinated:twotone": [
+    "6c,8s,Qs",
+    "6s,8h,Qh",
+    "6h,8d,Qd"
+  ],
+  "6-8-K:uncoordinated:monotone": [
+    "6c,8c,Kc",
+    "6s,8s,Ks",
+    "6h,8h,Kh"
+  ],
+  "6-8-K:uncoordinated:twotone": [
+    "6c,8s,Ks",
+    "6c,8d,Kd",
+    "6d,8c,Kd"
+  ],
+  "6-8-A:uncoordinated:monotone": [
+    "6d,8d,Ad",
+    "6s,8s,As",
+    "6h,8h,Ah"
+  ],
+  "6-8-A:uncoordinated:twotone": [
+    "6h,8d,Ad",
+    "6d,8d,Ac",
+    "6d,8c,Ad"
+  ],
+  "6-8-8:paired:rainbow": [
+    "6c,8s,8h",
+    "6s,8d,8c",
+    "6c,8h,8d"
+  ],
+  "6-8-9:connected:rainbow": [
+    "6h,8s,9d",
+    "6d,8c,9h",
+    "6s,8c,9d"
+  ],
+  "6-8-T:connected:rainbow": [
+    "6h,8s,Tc",
+    "6s,8c,Th",
+    "6d,8h,Ts"
+  ],
+  "6-8-J:uncoordinated:rainbow": [
+    "6h,8c,Js",
+    "6s,8c,Jh",
+    "6d,8s,Jh"
+  ],
+  "6-8-Q:uncoordinated:rainbow": [
+    "6c,8d,Qs",
+    "6c,8h,Qs",
+    "6h,8s,Qd"
+  ],
+  "6-8-K:uncoordinated:rainbow": [
+    "6c,8s,Kh",
+    "6d,8c,Ks",
+    "6d,8s,Kh"
+  ],
+  "6-8-A:uncoordinated:rainbow": [
+    "6d,8s,Ah",
+    "6s,8c,Ad",
+    "6c,8d,Ah"
+  ],
+  "6-9-9:paired:twotone": [
+    "6h,9h,9c",
+    "6d,9s,9d",
+    "6d,9h,9d"
+  ],
+  "6-9-T:connected:monotone": [
+    "6s,9s,Ts",
+    "6h,9h,Th",
+    "6d,9d,Td"
+  ],
+  "6-9-T:connected:twotone": [
+    "6h,9h,Tc",
+    "6d,9d,Ts",
+    "6c,9d,Td"
+  ],
+  "6-9-J:uncoordinated:monotone": [
+    "6c,9c,Jc",
+    "6h,9h,Jh",
+    "6s,9s,Js"
+  ],
+  "6-9-J:uncoordinated:twotone": [
+    "6s,9d,Jd",
+    "6d,9h,Jd",
+    "6s,9d,Js"
+  ],
+  "6-9-Q:uncoordinated:monotone": [
+    "6c,9c,Qc",
+    "6h,9h,Qh",
+    "6s,9s,Qs"
+  ],
+  "6-9-Q:uncoordinated:twotone": [
+    "6d,9s,Qs",
+    "6d,9c,Qc",
+    "6c,9h,Qh"
+  ],
+  "6-9-K:uncoordinated:monotone": [
+    "6d,9d,Kd",
+    "6s,9s,Ks",
+    "6h,9h,Kh"
+  ],
+  "6-9-K:uncoordinated:twotone": [
+    "6s,9c,Ks",
+    "6d,9h,Kh",
+    "6c,9c,Kh"
+  ],
+  "6-9-A:uncoordinated:monotone": [
+    "6s,9s,As",
+    "6h,9h,Ah",
+    "6d,9d,Ad"
+  ],
+  "6-9-A:uncoordinated:twotone": [
+    "6c,9h,Ac",
+    "6d,9d,Ac",
+    "6c,9h,Ah"
+  ],
+  "6-9-9:paired:rainbow": [
+    "6d,9s,9c",
+    "6d,9h,9c",
+    "6c,9s,9h"
+  ],
+  "6-9-T:connected:rainbow": [
+    "6d,9h,Tc",
+    "6d,9c,Ts",
+    "6s,9c,Th"
+  ],
+  "6-9-J:uncoordinated:rainbow": [
+    "6h,9s,Jd",
+    "6c,9d,Js",
+    "6c,9s,Jh"
+  ],
+  "6-9-Q:uncoordinated:rainbow": [
+    "6h,9c,Qs",
+    "6s,9d,Qc",
+    "6c,9s,Qd"
+  ],
+  "6-9-K:uncoordinated:rainbow": [
+    "6c,9h,Ks",
+    "6c,9s,Kd",
+    "6c,9h,Kd"
+  ],
+  "6-9-A:uncoordinated:rainbow": [
+    "6c,9d,Ah",
+    "6c,9s,Ah",
+    "6s,9d,Ac"
+  ],
+  "6-T-T:paired:twotone": [
+    "6h,Th,Tc",
+    "6s,Ts,Th",
+    "6c,Th,Tc"
+  ],
+  "6-T-J:uncoordinated:monotone": [
+    "6h,Th,Jh",
+    "6s,Ts,Js",
+    "6d,Td,Jd"
+  ],
+  "6-T-J:uncoordinated:twotone": [
+    "6c,Th,Jc",
+    "6s,Ts,Jc",
+    "6h,Th,Js"
+  ],
+  "6-T-Q:uncoordinated:monotone": [
+    "6h,Th,Qh",
+    "6d,Td,Qd",
+    "6s,Ts,Qs"
+  ],
+  "6-T-Q:uncoordinated:twotone": [
+    "6d,Th,Qd",
+    "6s,Ts,Qc",
+    "6h,Ts,Qh"
+  ],
+  "6-T-K:uncoordinated:monotone": [
+    "6s,Ts,Ks",
+    "6c,Tc,Kc",
+    "6d,Td,Kd"
+  ],
+  "6-T-K:uncoordinated:twotone": [
+    "6s,Ts,Kd",
+    "6c,Tc,Ks",
+    "6d,Td,Kh"
+  ],
+  "6-T-A:uncoordinated:monotone": [
+    "6h,Th,Ah",
+    "6c,Tc,Ac",
+    "6s,Ts,As"
+  ],
+  "6-T-A:uncoordinated:twotone": [
+    "6s,Ts,Ad",
+    "6c,Tc,Ad",
+    "6s,Td,Ad"
+  ],
+  "6-T-T:paired:rainbow": [
+    "6s,Th,Tc",
+    "6h,Td,Tc",
+    "6d,Ts,Th"
+  ],
+  "6-T-J:uncoordinated:rainbow": [
+    "6d,Th,Js",
+    "6h,Tc,Jd",
+    "6d,Th,Jc"
+  ],
+  "6-T-Q:uncoordinated:rainbow": [
+    "6c,Th,Qs",
+    "6s,Th,Qd",
+    "6c,Ts,Qh"
+  ],
+  "6-T-K:uncoordinated:rainbow": [
+    "6s,Tc,Kh",
+    "6d,Ts,Kh",
+    "6h,Ts,Kd"
+  ],
+  "6-T-A:uncoordinated:rainbow": [
+    "6d,Th,Ac",
+    "6s,Th,Ad",
+    "6c,Ts,Ad"
+  ],
+  "6-J-J:paired:twotone": [
+    "6c,Jh,Jc",
+    "6c,Js,Jc",
+    "6d,Js,Jd"
+  ],
+  "6-J-Q:uncoordinated:monotone": [
+    "6s,Js,Qs",
+    "6d,Jd,Qd",
+    "6c,Jc,Qc"
+  ],
+  "6-J-Q:uncoordinated:twotone": [
+    "6c,Jc,Qd",
+    "6c,Jd,Qc",
+    "6c,Jh,Qc"
+  ],
+  "6-J-K:uncoordinated:monotone": [
+    "6s,Js,Ks",
+    "6h,Jh,Kh",
+    "6c,Jc,Kc"
+  ],
+  "6-J-K:uncoordinated:twotone": [
+    "6d,Jc,Kd",
+    "6c,Jc,Kd",
+    "6c,Jh,Kc"
+  ],
+  "6-J-A:uncoordinated:monotone": [
+    "6c,Jc,Ac",
+    "6h,Jh,Ah",
+    "6s,Js,As"
+  ],
+  "6-J-A:uncoordinated:twotone": [
+    "6d,Jc,Ac",
+    "6c,Js,As",
+    "6c,Jd,Ac"
+  ],
+  "6-J-J:paired:rainbow": [
+    "6s,Jh,Jd",
+    "6h,Jd,Jc",
+    "6h,Js,Jc"
+  ],
+  "6-J-Q:uncoordinated:rainbow": [
+    "6s,Jd,Qc",
+    "6d,Js,Qc",
+    "6c,Js,Qd"
+  ],
+  "6-J-K:uncoordinated:rainbow": [
+    "6s,Jh,Kc",
+    "6s,Jd,Kc",
+    "6d,Js,Kh"
+  ],
+  "6-J-A:uncoordinated:rainbow": [
+    "6d,Jh,As",
+    "6h,Js,Ad",
+    "6h,Jd,As"
+  ],
+  "6-Q-Q:paired:twotone": [
+    "6c,Qd,Qc",
+    "6s,Qs,Qd",
+    "6c,Qh,Qc"
+  ],
+  "6-Q-K:uncoordinated:monotone": [
+    "6d,Qd,Kd",
+    "6s,Qs,Ks",
+    "6h,Qh,Kh"
+  ],
+  "6-Q-K:uncoordinated:twotone": [
+    "6d,Qd,Ks",
+    "6h,Qc,Kc",
+    "6s,Qd,Kd"
+  ],
+  "6-Q-A:uncoordinated:monotone": [
+    "6c,Qc,Ac",
+    "6h,Qh,Ah",
+    "6s,Qs,As"
+  ],
+  "6-Q-A:uncoordinated:twotone": [
+    "6h,Qs,Ah",
+    "6c,Qs,As",
+    "6h,Qd,Ah"
+  ],
+  "6-Q-Q:paired:rainbow": [
+    "6d,Qs,Qh",
+    "6h,Qs,Qc",
+    "6c,Qh,Qd"
+  ],
+  "6-Q-K:uncoordinated:rainbow": [
+    "6h,Qs,Kc",
+    "6h,Qc,Ks",
+    "6h,Qs,Kd"
+  ],
+  "6-Q-A:uncoordinated:rainbow": [
+    "6h,Qs,Ac",
+    "6s,Qc,Ah",
+    "6s,Qd,Ac"
+  ],
+  "6-K-K:paired:twotone": [
+    "6s,Ks,Kc",
+    "6d,Ks,Kd",
+    "6s,Ks,Kh"
+  ],
+  "6-K-A:uncoordinated:monotone": [
+    "6s,Ks,As",
+    "6c,Kc,Ac",
+    "6d,Kd,Ad"
+  ],
+  "6-K-A:uncoordinated:twotone": [
+    "6s,Ks,Ac",
+    "6d,Kc,Ac",
+    "6s,Kh,As"
+  ],
+  "6-K-K:paired:rainbow": [
+    "6s,Kh,Kc",
+    "6d,Ks,Kc",
+    "6c,Ks,Kh"
+  ],
+  "6-K-A:uncoordinated:rainbow": [
+    "6c,Ks,Ah",
+    "6h,Kc,As",
+    "6d,Ks,Ah"
+  ],
+  "6-A-A:paired:twotone": [
+    "6h,Ah,Ac",
+    "6h,As,Ah",
+    "6d,Ah,Ad"
+  ],
+  "6-A-A:paired:rainbow": [
+    "6c,As,Ah",
+    "6d,As,Ah",
+    "6s,Ad,Ac"
+  ],
+  "7-7-7:triplet:rainbow": [
+    "7s,7h,7c",
+    "7s,7d,7c",
+    "7h,7d,7c"
+  ],
+  "7-7-8:paired:twotone": [
+    "7s,7h,8s",
+    "7s,7c,8c",
+    "7h,7d,8d"
+  ],
+  "7-7-8:paired:rainbow": [
+    "7h,7d,8c",
+    "7s,7d,8c",
+    "7h,7c,8s"
+  ],
+  "7-7-9:paired:twotone": [
+    "7d,7c,9c",
+    "7s,7h,9h",
+    "7s,7c,9c"
+  ],
+  "7-7-9:paired:rainbow": [
+    "7s,7c,9h",
+    "7s,7d,9h",
+    "7h,7d,9c"
+  ],
+  "7-7-T:paired:twotone": [
+    "7s,7c,Tc",
+    "7h,7c,Th",
+    "7h,7c,Tc"
+  ],
+  "7-7-T:paired:rainbow": [
+    "7s,7d,Tc",
+    "7h,7c,Ts",
+    "7h,7c,Td"
+  ],
+  "7-7-J:paired:twotone": [
+    "7s,7d,Js",
+    "7s,7h,Jh",
+    "7s,7c,Jc"
+  ],
+  "7-7-J:paired:rainbow": [
+    "7d,7c,Js",
+    "7h,7d,Js",
+    "7s,7c,Jd"
+  ],
+  "7-7-Q:paired:twotone": [
+    "7h,7c,Qc",
+    "7s,7d,Qs",
+    "7s,7h,Qh"
+  ],
+  "7-7-Q:paired:rainbow": [
+    "7s,7h,Qd",
+    "7s,7d,Qh",
+    "7s,7c,Qh"
+  ],
+  "7-7-K:paired:twotone": [
+    "7h,7c,Kc",
+    "7s,7d,Kd",
+    "7s,7h,Kh"
+  ],
+  "7-7-K:paired:rainbow": [
+    "7d,7c,Kh",
+    "7s,7c,Kd",
+    "7h,7c,Ks"
+  ],
+  "7-7-A:paired:twotone": [
+    "7s,7d,Ad",
+    "7h,7c,Ac",
+    "7s,7c,Ac"
+  ],
+  "7-7-A:paired:rainbow": [
+    "7s,7d,Ac",
+    "7s,7h,Ac",
+    "7s,7c,Ad"
+  ],
+  "7-8-8:paired:twotone": [
+    "7d,8s,8d",
+    "7s,8s,8d",
+    "7h,8h,8c"
+  ],
+  "7-8-9:connected:monotone": [
+    "7h,8h,9h",
+    "7c,8c,9c",
+    "7s,8s,9s"
+  ],
+  "7-8-9:connected:twotone": [
+    "7h,8c,9h",
+    "7h,8d,9d",
+    "7c,8s,9c"
+  ],
+  "7-8-T:connected:monotone": [
+    "7c,8c,Tc",
+    "7s,8s,Ts",
+    "7h,8h,Th"
+  ],
+  "7-8-T:connected:twotone": [
+    "7d,8s,Ts",
+    "7c,8h,Tc",
+    "7h,8h,Tc"
+  ],
+  "7-8-J:connected:monotone": [
+    "7s,8s,Js",
+    "7c,8c,Jc",
+    "7d,8d,Jd"
+  ],
+  "7-8-J:connected:twotone": [
+    "7s,8c,Js",
+    "7d,8h,Jh",
+    "7d,8c,Jc"
+  ],
+  "7-8-Q:uncoordinated:monotone": [
+    "7d,8d,Qd",
+    "7c,8c,Qc",
+    "7h,8h,Qh"
+  ],
+  "7-8-Q:uncoordinated:twotone": [
+    "7d,8h,Qh",
+    "7h,8h,Qc",
+    "7s,8s,Qd"
+  ],
+  "7-8-K:uncoordinated:monotone": [
+    "7s,8s,Ks",
+    "7c,8c,Kc",
+    "7d,8d,Kd"
+  ],
+  "7-8-K:uncoordinated:twotone": [
+    "7h,8d,Kd",
+    "7s,8d,Ks",
+    "7c,8d,Kd"
+  ],
+  "7-8-A:uncoordinated:monotone": [
+    "7c,8c,Ac",
+    "7h,8h,Ah",
+    "7d,8d,Ad"
+  ],
+  "7-8-A:uncoordinated:twotone": [
+    "7s,8s,Ah",
+    "7h,8s,Ah",
+    "7h,8h,Ac"
+  ],
+  "7-8-8:paired:rainbow": [
+    "7s,8h,8c",
+    "7h,8d,8c",
+    "7h,8s,8c"
+  ],
+  "7-8-9:connected:rainbow": [
+    "7c,8s,9d",
+    "7h,8c,9d",
+    "7d,8c,9s"
+  ],
+  "7-8-T:connected:rainbow": [
+    "7c,8s,Th",
+    "7c,8h,Td",
+    "7d,8c,Ts"
+  ],
+  "7-8-J:connected:rainbow": [
+    "7h,8s,Jc",
+    "7d,8h,Jc",
+    "7d,8h,Js"
+  ],
+  "7-8-Q:uncoordinated:rainbow": [
+    "7c,8s,Qd",
+    "7c,8s,Qh",
+    "7d,8c,Qh"
+  ],
+  "7-8-K:uncoordinated:rainbow": [
+    "7s,8c,Kh",
+    "7d,8s,Kc",
+    "7s,8d,Kh"
+  ],
+  "7-8-A:uncoordinated:rainbow": [
+    "7d,8h,Ac",
+    "7d,8h,As",
+    "7s,8c,Ad"
+  ],
+  "7-9-9:paired:twotone": [
+    "7h,9h,9d",
+    "7s,9s,9h",
+    "7s,9s,9d"
+  ],
+  "7-9-T:connected:monotone": [
+    "7s,9s,Ts",
+    "7h,9h,Th",
+    "7c,9c,Tc"
+  ],
+  "7-9-T:connected:twotone": [
+    "7d,9h,Td",
+    "7c,9c,Ts",
+    "7s,9d,Ts"
+  ],
+  "7-9-J:connected:monotone": [
+    "7d,9d,Jd",
+    "7c,9c,Jc",
+    "7h,9h,Jh"
+  ],
+  "7-9-J:connected:twotone": [
+    "7h,9d,Jd",
+    "7h,9h,Js",
+    "7h,9h,Jd"
+  ],
+  "7-9-Q:uncoordinated:monotone": [
+    "7h,9h,Qh",
+    "7d,9d,Qd",
+    "7s,9s,Qs"
+  ],
+  "7-9-Q:uncoordinated:twotone": [
+    "7h,9h,Qd",
+    "7d,9s,Qd",
+    "7s,9h,Qh"
+  ],
+  "7-9-K:uncoordinated:monotone": [
+    "7c,9c,Kc",
+    "7h,9h,Kh",
+    "7d,9d,Kd"
+  ],
+  "7-9-K:uncoordinated:twotone": [
+    "7h,9s,Kh",
+    "7s,9h,Ks",
+    "7d,9h,Kh"
+  ],
+  "7-9-A:uncoordinated:monotone": [
+    "7h,9h,Ah",
+    "7c,9c,Ac",
+    "7d,9d,Ad"
+  ],
+  "7-9-A:uncoordinated:twotone": [
+    "7d,9c,Ad",
+    "7h,9d,Ah",
+    "7s,9s,Ah"
+  ],
+  "7-9-9:paired:rainbow": [
+    "7h,9d,9c",
+    "7c,9s,9d",
+    "7d,9s,9c"
+  ],
+  "7-9-T:connected:rainbow": [
+    "7h,9c,Td",
+    "7s,9d,Tc",
+    "7s,9h,Tc"
+  ],
+  "7-9-J:connected:rainbow": [
+    "7d,9c,Js",
+    "7d,9h,Js",
+    "7c,9d,Jh"
+  ],
+  "7-9-Q:uncoordinated:rainbow": [
+    "7c,9s,Qh",
+    "7h,9c,Qs",
+    "7c,9h,Qs"
+  ],
+  "7-9-K:uncoordinated:rainbow": [
+    "7s,9h,Kc",
+    "7d,9s,Kc",
+    "7d,9h,Ks"
+  ],
+  "7-9-A:uncoordinated:rainbow": [
+    "7d,9c,As",
+    "7c,9s,Ad",
+    "7s,9d,Ah"
+  ],
+  "7-T-T:paired:twotone": [
+    "7h,Th,Td",
+    "7c,Ts,Tc",
+    "7h,Ts,Th"
+  ],
+  "7-T-J:connected:monotone": [
+    "7c,Tc,Jc",
+    "7s,Ts,Js",
+    "7h,Th,Jh"
+  ],
+  "7-T-J:connected:twotone": [
+    "7c,Td,Jd",
+    "7s,Ts,Jd",
+    "7c,Th,Jh"
+  ],
+  "7-T-Q:uncoordinated:monotone": [
+    "7h,Th,Qh",
+    "7c,Tc,Qc",
+    "7d,Td,Qd"
+  ],
+  "7-T-Q:uncoordinated:twotone": [
+    "7c,Tc,Qh",
+    "7c,Td,Qd",
+    "7d,Td,Qc"
+  ],
+  "7-T-K:uncoordinated:monotone": [
+    "7c,Tc,Kc",
+    "7h,Th,Kh",
+    "7s,Ts,Ks"
+  ],
+  "7-T-K:uncoordinated:twotone": [
+    "7s,Ts,Kh",
+    "7d,Tc,Kc",
+    "7h,Td,Kd"
+  ],
+  "7-T-A:uncoordinated:monotone": [
+    "7c,Tc,Ac",
+    "7h,Th,Ah",
+    "7d,Td,Ad"
+  ],
+  "7-T-A:uncoordinated:twotone": [
+    "7s,Td,Ad",
+    "7d,Ts,Ad",
+    "7c,Ts,As"
+  ],
+  "7-T-T:paired:rainbow": [
+    "7s,Th,Tc",
+    "7c,Ts,Th",
+    "7h,Td,Tc"
+  ],
+  "7-T-J:connected:rainbow": [
+    "7c,Ts,Jd",
+    "7s,Td,Jh",
+    "7d,Ts,Jc"
+  ],
+  "7-T-Q:uncoordinated:rainbow": [
+    "7d,Th,Qs",
+    "7h,Td,Qc",
+    "7s,Td,Qh"
+  ],
+  "7-T-K:uncoordinated:rainbow": [
+    "7s,Tc,Kh",
+    "7c,Ts,Kh",
+    "7h,Ts,Kd"
+  ],
+  "7-T-A:uncoordinated:rainbow": [
+    "7d,Ts,Ac",
+    "7s,Th,Ad",
+    "7h,Ts,Ac"
+  ],
+  "7-J-J:paired:twotone": [
+    "7d,Jd,Jc",
+    "7h,Js,Jh",
+    "7s,Js,Jd"
+  ],
+  "7-J-Q:uncoordinated:monotone": [
+    "7s,Js,Qs",
+    "7d,Jd,Qd",
+    "7h,Jh,Qh"
+  ],
+  "7-J-Q:uncoordinated:twotone": [
+    "7s,Jc,Qc",
+    "7d,Jh,Qd",
+    "7h,Jh,Qd"
+  ],
+  "7-J-K:uncoordinated:monotone": [
+    "7d,Jd,Kd",
+    "7c,Jc,Kc",
+    "7s,Js,Ks"
+  ],
+  "7-J-K:uncoordinated:twotone": [
+    "7s,Jd,Kd",
+    "7c,Js,Ks",
+    "7d,Js,Ks"
+  ],
+  "7-J-A:uncoordinated:monotone": [
+    "7d,Jd,Ad",
+    "7h,Jh,Ah",
+    "7c,Jc,Ac"
+  ],
+  "7-J-A:uncoordinated:twotone": [
+    "7h,Js,As",
+    "7d,Jc,Ad",
+    "7c,Jc,As"
+  ],
+  "7-J-J:paired:rainbow": [
+    "7h,Js,Jd",
+    "7s,Jd,Jc",
+    "7c,Js,Jh"
+  ],
+  "7-J-Q:uncoordinated:rainbow": [
+    "7d,Js,Qh",
+    "7d,Js,Qc",
+    "7h,Js,Qd"
+  ],
+  "7-J-K:uncoordinated:rainbow": [
+    "7c,Jh,Kd",
+    "7s,Jh,Kd",
+    "7d,Jc,Ks"
+  ],
+  "7-J-A:uncoordinated:rainbow": [
+    "7c,Js,Ah",
+    "7h,Js,Ad",
+    "7h,Jc,As"
+  ],
+  "7-Q-Q:paired:twotone": [
+    "7h,Qh,Qc",
+    "7d,Qd,Qc",
+    "7h,Qs,Qh"
+  ],
+  "7-Q-K:uncoordinated:monotone": [
+    "7h,Qh,Kh",
+    "7s,Qs,Ks",
+    "7d,Qd,Kd"
+  ],
+  "7-Q-K:uncoordinated:twotone": [
+    "7c,Qs,Ks",
+    "7s,Qc,Kc",
+    "7d,Qh,Kh"
+  ],
+  "7-Q-A:uncoordinated:monotone": [
+    "7h,Qh,Ah",
+    "7d,Qd,Ad",
+    "7s,Qs,As"
+  ],
+  "7-Q-A:uncoordinated:twotone": [
+    "7s,Qd,Ad",
+    "7s,Qc,As",
+    "7d,Qh,Ah"
+  ],
+  "7-Q-Q:paired:rainbow": [
+    "7c,Qh,Qd",
+    "7h,Qd,Qc",
+    "7d,Qs,Qh"
+  ],
+  "7-Q-K:uncoordinated:rainbow": [
+    "7d,Qc,Kh",
+    "7d,Qs,Kc",
+    "7h,Qs,Kd"
+  ],
+  "7-Q-A:uncoordinated:rainbow": [
+    "7d,Qs,Ah",
+    "7h,Qs,Ac",
+    "7c,Qd,As"
+  ],
+  "7-K-K:paired:twotone": [
+    "7c,Kd,Kc",
+    "7s,Ks,Kd",
+    "7d,Ks,Kd"
+  ],
+  "7-K-A:uncoordinated:monotone": [
+    "7d,Kd,Ad",
+    "7s,Ks,As",
+    "7c,Kc,Ac"
+  ],
+  "7-K-A:uncoordinated:twotone": [
+    "7c,Ks,Ac",
+    "7d,Kd,Ah",
+    "7d,Ks,As"
+  ],
+  "7-K-K:paired:rainbow": [
+    "7h,Ks,Kd",
+    "7d,Kh,Kc",
+    "7s,Kh,Kc"
+  ],
+  "7-K-A:uncoordinated:rainbow": [
+    "7h,Kc,As",
+    "7c,Kd,As",
+    "7h,Ks,Ac"
+  ],
+  "7-A-A:paired:twotone": [
+    "7h,Ah,Ac",
+    "7d,Ad,Ac",
+    "7d,As,Ad"
+  ],
+  "7-A-A:paired:rainbow": [
+    "7s,Ad,Ac",
+    "7h,As,Ac",
+    "7d,As,Ac"
+  ],
+  "8-8-8:triplet:rainbow": [
+    "8s,8h,8c",
+    "8s,8d,8c",
+    "8s,8h,8d"
+  ],
+  "8-8-9:paired:twotone": [
+    "8s,8d,9s",
+    "8h,8c,9c",
+    "8s,8h,9s"
+  ],
+  "8-8-9:paired:rainbow": [
+    "8s,8h,9d",
+    "8h,8c,9s",
+    "8h,8c,9d"
+  ],
+  "8-8-T:paired:twotone": [
+    "8h,8d,Th",
+    "8d,8c,Tc",
+    "8s,8c,Tc"
+  ],
+  "8-8-T:paired:rainbow": [
+    "8h,8c,Td",
+    "8d,8c,Ts",
+    "8h,8d,Ts"
+  ],
+  "8-8-J:paired:twotone": [
+    "8d,8c,Jc",
+    "8s,8h,Js",
+    "8s,8d,Js"
+  ],
+  "8-8-J:paired:rainbow": [
+    "8s,8c,Jd",
+    "8s,8d,Jh",
+    "8d,8c,Jh"
+  ],
+  "8-8-Q:paired:twotone": [
+    "8d,8c,Qc",
+    "8d,8c,Qd",
+    "8s,8h,Qh"
+  ],
+  "8-8-Q:paired:rainbow": [
+    "8s,8h,Qd",
+    "8h,8c,Qs",
+    "8s,8h,Qc"
+  ],
+  "8-8-K:paired:twotone": [
+    "8h,8c,Kh",
+    "8d,8c,Kd",
+    "8s,8d,Kd"
+  ],
+  "8-8-K:paired:rainbow": [
+    "8h,8d,Kc",
+    "8d,8c,Ks",
+    "8s,8d,Kh"
+  ],
+  "8-8-A:paired:twotone": [
+    "8s,8h,Ah",
+    "8s,8c,Ac",
+    "8d,8c,Ad"
+  ],
+  "8-8-A:paired:rainbow": [
+    "8h,8c,As",
+    "8h,8d,As",
+    "8s,8c,Ah"
+  ],
+  "8-9-9:paired:twotone": [
+    "8h,9h,9d",
+    "8d,9h,9d",
+    "8s,9s,9h"
+  ],
+  "8-9-T:connected:monotone": [
+    "8c,9c,Tc",
+    "8h,9h,Th",
+    "8d,9d,Td"
+  ],
+  "8-9-T:connected:twotone": [
+    "8h,9s,Ts",
+    "8d,9h,Td",
+    "8h,9d,Td"
+  ],
+  "8-9-J:connected:monotone": [
+    "8c,9c,Jc",
+    "8d,9d,Jd",
+    "8s,9s,Js"
+  ],
+  "8-9-J:connected:twotone": [
+    "8c,9d,Jd",
+    "8s,9s,Jh",
+    "8c,9d,Jc"
+  ],
+  "8-9-Q:connected:monotone": [
+    "8d,9d,Qd",
+    "8s,9s,Qs",
+    "8h,9h,Qh"
+  ],
+  "8-9-Q:connected:twotone": [
+    "8h,9h,Qs",
+    "8s,9c,Qs",
+    "8s,9c,Qc"
+  ],
+  "8-9-K:uncoordinated:monotone": [
+    "8s,9s,Ks",
+    "8c,9c,Kc",
+    "8d,9d,Kd"
+  ],
+  "8-9-K:uncoordinated:twotone": [
+    "8s,9c,Kc",
+    "8s,9s,Kh",
+    "8h,9d,Kd"
+  ],
+  "8-9-A:uncoordinated:monotone": [
+    "8s,9s,As",
+    "8h,9h,Ah",
+    "8d,9d,Ad"
+  ],
+  "8-9-A:uncoordinated:twotone": [
+    "8d,9d,Ac",
+    "8s,9s,Ad",
+    "8d,9h,Ad"
+  ],
+  "8-9-9:paired:rainbow": [
+    "8h,9s,9d",
+    "8s,9h,9d",
+    "8c,9h,9d"
+  ],
+  "8-9-T:connected:rainbow": [
+    "8d,9h,Ts",
+    "8h,9s,Tc",
+    "8c,9h,Td"
+  ],
+  "8-9-J:connected:rainbow": [
+    "8h,9d,Jc",
+    "8c,9h,Js",
+    "8c,9d,Jh"
+  ],
+  "8-9-Q:connected:rainbow": [
+    "8s,9c,Qh",
+    "8d,9c,Qh",
+    "8d,9c,Qs"
+  ],
+  "8-9-K:uncoordinated:rainbow": [
+    "8s,9h,Kd",
+    "8s,9d,Kh",
+    "8s,9h,Kc"
+  ],
+  "8-9-A:uncoordinated:rainbow": [
+    "8h,9s,Ac",
+    "8s,9h,Ad",
+    "8s,9c,Ah"
+  ],
+  "8-T-T:paired:twotone": [
+    "8d,Th,Td",
+    "8h,Ts,Th",
+    "8s,Ts,Th"
+  ],
+  "8-T-J:connected:monotone": [
+    "8s,Ts,Js",
+    "8d,Td,Jd",
+    "8h,Th,Jh"
+  ],
+  "8-T-J:connected:twotone": [
+    "8d,Ts,Js",
+    "8s,Ts,Jh",
+    "8s,Tc,Js"
+  ],
+  "8-T-Q:connected:monotone": [
+    "8d,Td,Qd",
+    "8h,Th,Qh",
+    "8c,Tc,Qc"
+  ],
+  "8-T-Q:connected:twotone": [
+    "8h,Th,Qs",
+    "8d,Th,Qh",
+    "8h,Td,Qh"
+  ],
+  "8-T-K:uncoordinated:monotone": [
+    "8s,Ts,Ks",
+    "8c,Tc,Kc",
+    "8d,Td,Kd"
+  ],
+  "8-T-K:uncoordinated:twotone": [
+    "8s,Tc,Kc",
+    "8h,Th,Ks",
+    "8s,Ts,Kd"
+  ],
+  "8-T-A:uncoordinated:monotone": [
+    "8c,Tc,Ac",
+    "8s,Ts,As",
+    "8h,Th,Ah"
+  ],
+  "8-T-A:uncoordinated:twotone": [
+    "8h,Th,Ad",
+    "8c,Tc,As",
+    "8d,Tc,Ad"
+  ],
+  "8-T-T:paired:rainbow": [
+    "8s,Td,Tc",
+    "8d,Th,Tc",
+    "8h,Td,Tc"
+  ],
+  "8-T-J:connected:rainbow": [
+    "8d,Tc,Jh",
+    "8c,Td,Js",
+    "8c,Ts,Jd"
+  ],
+  "8-T-Q:connected:rainbow": [
+    "8c,Td,Qs",
+    "8s,Td,Qh",
+    "8s,Th,Qc"
+  ],
+  "8-T-K:uncoordinated:rainbow": [
+    "8h,Td,Ks",
+    "8c,Th,Kd",
+    "8s,Th,Kd"
+  ],
+  "8-T-A:uncoordinated:rainbow": [
+    "8d,Ts,Ah",
+    "8s,Tc,Ah",
+    "8s,Td,Ah"
+  ],
+  "8-J-J:paired:twotone": [
+    "8d,Js,Jd",
+    "8c,Jd,Jc",
+    "8d,Jh,Jd"
+  ],
+  "8-J-Q:connected:monotone": [
+    "8s,Js,Qs",
+    "8d,Jd,Qd",
+    "8h,Jh,Qh"
+  ],
+  "8-J-Q:connected:twotone": [
+    "8d,Js,Qd",
+    "8s,Jd,Qd",
+    "8h,Jc,Qc"
+  ],
+  "8-J-K:uncoordinated:monotone": [
+    "8d,Jd,Kd",
+    "8c,Jc,Kc",
+    "8s,Js,Ks"
+  ],
+  "8-J-K:uncoordinated:twotone": [
+    "8h,Jc,Kc",
+    "8d,Jc,Kc",
+    "8h,Jh,Kc"
+  ],
+  "8-J-A:uncoordinated:monotone": [
+    "8h,Jh,Ah",
+    "8s,Js,As",
+    "8c,Jc,Ac"
+  ],
+  "8-J-A:uncoordinated:twotone": [
+    "8h,Jd,Ad",
+    "8c,Jd,Ad",
+    "8s,Jh,Ah"
+  ],
+  "8-J-J:paired:rainbow": [
+    "8h,Js,Jc",
+    "8h,Js,Jd",
+    "8d,Js,Jh"
+  ],
+  "8-J-Q:connected:rainbow": [
+    "8s,Jh,Qc",
+    "8h,Js,Qc",
+    "8h,Jc,Qd"
+  ],
+  "8-J-K:uncoordinated:rainbow": [
+    "8s,Jh,Kd",
+    "8s,Jd,Kc",
+    "8c,Js,Kd"
+  ],
+  "8-J-A:uncoordinated:rainbow": [
+    "8c,Js,Ad",
+    "8c,Jd,Ah",
+    "8s,Jh,Ac"
+  ],
+  "8-Q-Q:paired:twotone": [
+    "8h,Qh,Qc",
+    "8h,Qh,Qd",
+    "8d,Qh,Qd"
+  ],
+  "8-Q-K:uncoordinated:monotone": [
+    "8h,Qh,Kh",
+    "8c,Qc,Kc",
+    "8d,Qd,Kd"
+  ],
+  "8-Q-K:uncoordinated:twotone": [
+    "8s,Qs,Kc",
+    "8s,Qc,Kc",
+    "8h,Qd,Kd"
+  ],
+  "8-Q-A:uncoordinated:monotone": [
+    "8s,Qs,As",
+    "8h,Qh,Ah",
+    "8c,Qc,Ac"
+  ],
+  "8-Q-A:uncoordinated:twotone": [
+    "8s,Qh,Ah",
+    "8d,Qd,As",
+    "8c,Qh,Ac"
+  ],
+  "8-Q-Q:paired:rainbow": [
+    "8d,Qs,Qh",
+    "8s,Qd,Qc",
+    "8h,Qs,Qd"
+  ],
+  "8-Q-K:uncoordinated:rainbow": [
+    "8d,Qc,Kh",
+    "8d,Qh,Ks",
+    "8s,Qd,Kc"
+  ],
+  "8-Q-A:uncoordinated:rainbow": [
+    "8s,Qc,Ah",
+    "8s,Qc,Ad",
+    "8c,Qh,As"
+  ],
+  "8-K-K:paired:twotone": [
+    "8s,Ks,Kc",
+    "8h,Kh,Kd",
+    "8c,Ks,Kc"
+  ],
+  "8-K-A:uncoordinated:monotone": [
+    "8s,Ks,As",
+    "8c,Kc,Ac",
+    "8h,Kh,Ah"
+  ],
+  "8-K-A:uncoordinated:twotone": [
+    "8s,Kh,Ah",
+    "8d,Kh,Ah",
+    "8h,Kh,As"
+  ],
+  "8-K-K:paired:rainbow": [
+    "8s,Kh,Kd",
+    "8s,Kh,Kc",
+    "8c,Kh,Kd"
+  ],
+  "8-K-A:uncoordinated:rainbow": [
+    "8d,Kc,As",
+    "8h,Ks,Ad",
+    "8h,Kd,As"
+  ],
+  "8-A-A:paired:twotone": [
+    "8d,Ad,Ac",
+    "8c,As,Ac",
+    "8c,Ah,Ac"
+  ],
+  "8-A-A:paired:rainbow": [
+    "8s,Ah,Ad",
+    "8s,Ad,Ac",
+    "8d,As,Ac"
+  ],
+  "9-9-9:triplet:rainbow": [
+    "9h,9d,9c",
+    "9s,9h,9c",
+    "9s,9d,9c"
+  ],
+  "9-9-T:paired:twotone": [
+    "9s,9d,Td",
+    "9h,9c,Tc",
+    "9s,9h,Ts"
+  ],
+  "9-9-T:paired:rainbow": [
+    "9h,9c,Ts",
+    "9s,9c,Th",
+    "9s,9h,Tc"
+  ],
+  "9-9-J:paired:twotone": [
+    "9s,9c,Js",
+    "9h,9c,Jh",
+    "9h,9c,Jc"
+  ],
+  "9-9-J:paired:rainbow": [
+    "9d,9c,Jh",
+    "9s,9h,Jd",
+    "9s,9d,Jh"
+  ],
+  "9-9-Q:paired:twotone": [
+    "9h,9d,Qh",
+    "9d,9c,Qc",
+    "9h,9d,Qd"
+  ],
+  "9-9-Q:paired:rainbow": [
+    "9s,9h,Qd",
+    "9s,9d,Qh",
+    "9d,9c,Qs"
+  ],
+  "9-9-K:paired:twotone": [
+    "9d,9c,Kc",
+    "9d,9c,Kd",
+    "9s,9h,Kh"
+  ],
+  "9-9-K:paired:rainbow": [
+    "9s,9c,Kh",
+    "9s,9h,Kc",
+    "9h,9d,Ks"
+  ],
+  "9-9-A:paired:twotone": [
+    "9s,9d,As",
+    "9d,9c,Ac",
+    "9h,9c,Ac"
+  ],
+  "9-9-A:paired:rainbow": [
+    "9d,9c,As",
+    "9s,9h,Ac",
+    "9s,9c,Ad"
+  ],
+  "9-T-T:paired:twotone": [
+    "9s,Ts,Th",
+    "9s,Ts,Td",
+    "9s,Ts,Tc"
+  ],
+  "9-T-J:connected:monotone": [
+    "9d,Td,Jd",
+    "9c,Tc,Jc",
+    "9h,Th,Jh"
+  ],
+  "9-T-J:connected:twotone": [
+    "9s,Ts,Jc",
+    "9c,Ts,Jc",
+    "9s,Td,Jd"
+  ],
+  "9-T-Q:connected:monotone": [
+    "9d,Td,Qd",
+    "9h,Th,Qh",
+    "9s,Ts,Qs"
+  ],
+  "9-T-Q:connected:twotone": [
+    "9h,Tc,Qh",
+    "9c,Tc,Qd",
+    "9c,Ts,Qc"
+  ],
+  "9-T-K:connected:monotone": [
+    "9s,Ts,Ks",
+    "9h,Th,Kh",
+    "9c,Tc,Kc"
+  ],
+  "9-T-K:connected:twotone": [
+    "9s,Td,Ks",
+    "9h,Td,Kh",
+    "9c,Th,Kh"
+  ],
+  "9-T-A:uncoordinated:monotone": [
+    "9c,Tc,Ac",
+    "9s,Ts,As",
+    "9d,Td,Ad"
+  ],
+  "9-T-A:uncoordinated:twotone": [
+    "9d,Tc,Ac",
+    "9c,Th,Ah",
+    "9c,Ts,As"
+  ],
+  "9-T-T:paired:rainbow": [
+    "9h,Td,Tc",
+    "9d,Ts,Tc",
+    "9c,Ts,Th"
+  ],
+  "9-T-J:connected:rainbow": [
+    "9c,Th,Jd",
+    "9h,Tc,Js",
+    "9c,Ts,Jh"
+  ],
+  "9-T-Q:connected:rainbow": [
+    "9h,Tc,Qs",
+    "9s,Th,Qc",
+    "9c,Td,Qs"
+  ],
+  "9-T-K:connected:rainbow": [
+    "9c,Th,Kd",
+    "9s,Tc,Kh",
+    "9s,Td,Kc"
+  ],
+  "9-T-A:uncoordinated:rainbow": [
+    "9c,Td,Ah",
+    "9d,Ts,Ac",
+    "9d,Tc,Ah"
+  ],
+  "9-J-J:paired:twotone": [
+    "9c,Js,Jc",
+    "9h,Jh,Jd",
+    "9h,Js,Jh"
+  ],
+  "9-J-Q:connected:monotone": [
+    "9d,Jd,Qd",
+    "9s,Js,Qs",
+    "9c,Jc,Qc"
+  ],
+  "9-J-Q:connected:twotone": [
+    "9s,Js,Qh",
+    "9h,Js,Qh",
+    "9d,Jc,Qd"
+  ],
+  "9-J-K:connected:monotone": [
+    "9h,Jh,Kh",
+    "9c,Jc,Kc",
+    "9d,Jd,Kd"
+  ],
+  "9-J-K:connected:twotone": [
+    "9s,Jd,Kd",
+    "9h,Js,Kh",
+    "9h,Js,Ks"
+  ],
+  "9-J-A:uncoordinated:monotone": [
+    "9s,Js,As",
+    "9c,Jc,Ac",
+    "9h,Jh,Ah"
+  ],
+  "9-J-A:uncoordinated:twotone": [
+    "9c,Jc,Ah",
+    "9d,Jc,Ac",
+    "9s,Js,Ad"
+  ],
+  "9-J-J:paired:rainbow": [
+    "9c,Js,Jh",
+    "9h,Jd,Jc",
+    "9s,Jh,Jd"
+  ],
+  "9-J-Q:connected:rainbow": [
+    "9h,Jc,Qs",
+    "9c,Jd,Qh",
+    "9d,Jc,Qs"
+  ],
+  "9-J-K:connected:rainbow": [
+    "9s,Jh,Kd",
+    "9d,Jc,Kh",
+    "9d,Jc,Ks"
+  ],
+  "9-J-A:uncoordinated:rainbow": [
+    "9c,Js,Ah",
+    "9s,Jc,Ad",
+    "9h,Js,Ac"
+  ],
+  "9-Q-Q:paired:twotone": [
+    "9s,Qs,Qh",
+    "9h,Qh,Qd",
+    "9c,Qd,Qc"
+  ],
+  "9-Q-K:connected:monotone": [
+    "9s,Qs,Ks",
+    "9c,Qc,Kc",
+    "9h,Qh,Kh"
+  ],
+  "9-Q-K:connected:twotone": [
+    "9s,Qh,Ks",
+    "9c,Qd,Kc",
+    "9c,Qd,Kd"
+  ],
+  "9-Q-A:uncoordinated:monotone": [
+    "9h,Qh,Ah",
+    "9c,Qc,Ac",
+    "9s,Qs,As"
+  ],
+  "9-Q-A:uncoordinated:twotone": [
+    "9c,Qh,Ah",
+    "9s,Qh,Ah",
+    "9d,Qd,Ac"
+  ],
+  "9-Q-Q:paired:rainbow": [
+    "9d,Qs,Qc",
+    "9d,Qs,Qh",
+    "9d,Qh,Qc"
+  ],
+  "9-Q-K:connected:rainbow": [
+    "9s,Qc,Kh",
+    "9h,Qc,Ks",
+    "9c,Qh,Kd"
+  ],
+  "9-Q-A:uncoordinated:rainbow": [
+    "9c,Qh,As",
+    "9s,Qd,Ah",
+    "9s,Qh,Ad"
+  ],
+  "9-K-K:paired:twotone": [
+    "9d,Kd,Kc",
+    "9h,Kh,Kd",
+    "9d,Kh,Kd"
+  ],
+  "9-K-A:uncoordinated:monotone": [
+    "9s,Ks,As",
+    "9c,Kc,Ac",
+    "9h,Kh,Ah"
+  ],
+  "9-K-A:uncoordinated:twotone": [
+    "9c,Ks,As",
+    "9h,Kc,Ac",
+    "9c,Kc,As"
+  ],
+  "9-K-K:paired:rainbow": [
+    "9s,Kh,Kd",
+    "9h,Kd,Kc",
+    "9s,Kh,Kc"
+  ],
+  "9-K-A:uncoordinated:rainbow": [
+    "9c,Kh,As",
+    "9c,Kh,Ad",
+    "9d,Kc,As"
+  ],
+  "9-A-A:paired:twotone": [
+    "9s,As,Ad",
+    "9c,Ad,Ac",
+    "9h,Ah,Ac"
+  ],
+  "9-A-A:paired:rainbow": [
+    "9h,Ad,Ac",
+    "9d,As,Ac",
+    "9c,Ah,Ad"
+  ],
+  "T-T-T:triplet:rainbow": [
+    "Ts,Td,Tc",
+    "Ts,Th,Td",
+    "Ts,Th,Tc"
+  ],
+  "T-T-J:paired:twotone": [
+    "Td,Tc,Jd",
+    "Ts,Th,Jh",
+    "Th,Tc,Jc"
+  ],
+  "T-T-J:paired:rainbow": [
+    "Ts,Tc,Jh",
+    "Ts,Th,Jd",
+    "Th,Tc,Jd"
+  ],
+  "T-T-Q:paired:twotone": [
+    "Td,Tc,Qc",
+    "Th,Tc,Qh",
+    "Ts,Tc,Qc"
+  ],
+  "T-T-Q:paired:rainbow": [
+    "Th,Tc,Qs",
+    "Ts,Th,Qd",
+    "Ts,Tc,Qh"
+  ],
+  "T-T-K:paired:twotone": [
+    "Th,Td,Kd",
+    "Ts,Td,Kd",
+    "Ts,Td,Ks"
+  ],
+  "T-T-K:paired:rainbow": [
+    "Td,Tc,Kh",
+    "Th,Tc,Kd",
+    "Td,Tc,Ks"
+  ],
+  "T-T-A:paired:twotone": [
+    "Th,Tc,Ah",
+    "Ts,Th,Ah",
+    "Th,Td,Ah"
+  ],
+  "T-T-A:paired:rainbow": [
+    "Th,Td,Ac",
+    "Th,Td,As",
+    "Td,Tc,As"
+  ],
+  "T-J-J:paired:twotone": [
+    "Tc,Jh,Jc",
+    "Th,Js,Jh",
+    "Th,Jh,Jd"
+  ],
+  "T-J-Q:connected:monotone": [
+    "Td,Jd,Qd",
+    "Ts,Js,Qs",
+    "Th,Jh,Qh"
+  ],
+  "T-J-Q:connected:twotone": [
+    "Td,Js,Qd",
+    "Ts,Jh,Qs",
+    "Tc,Jh,Qh"
+  ],
+  "T-J-K:connected:monotone": [
+    "Td,Jd,Kd",
+    "Th,Jh,Kh",
+    "Tc,Jc,Kc"
+  ],
+  "T-J-K:connected:twotone": [
+    "Ts,Js,Kh",
+    "Td,Js,Kd",
+    "Tc,Jd,Kc"
+  ],
+  "T-J-A:connected:monotone": [
+    "Tc,Jc,Ac",
+    "Ts,Js,As",
+    "Th,Jh,Ah"
+  ],
+  "T-J-A:connected:twotone": [
+    "Tc,Jc,Ad",
+    "Td,Jc,Ad",
+    "Tc,Js,Ac"
+  ],
+  "T-J-J:paired:rainbow": [
+    "Th,Js,Jd",
+    "Th,Jd,Jc",
+    "Tc,Js,Jd"
+  ],
+  "T-J-Q:connected:rainbow": [
+    "Th,Jd,Qc",
+    "Td,Jh,Qc",
+    "Td,Jc,Qs"
+  ],
+  "T-J-K:connected:rainbow": [
+    "Td,Jh,Kc",
+    "Tc,Jd,Ks",
+    "Ts,Jh,Kd"
+  ],
+  "T-J-A:connected:rainbow": [
+    "Ts,Jd,Ac",
+    "Ts,Jc,Ah",
+    "Ts,Jd,Ah"
+  ],
+  "T-Q-Q:paired:twotone": [
+    "Ts,Qs,Qc",
+    "Tc,Qh,Qc",
+    "Ts,Qs,Qd"
+  ],
+  "T-Q-K:connected:monotone": [
+    "Tc,Qc,Kc",
+    "Ts,Qs,Ks",
+    "Th,Qh,Kh"
+  ],
+  "T-Q-K:connected:twotone": [
+    "Td,Qs,Kd",
+    "Th,Qs,Kh",
+    "Tc,Qd,Kd"
+  ],
+  "T-Q-A:connected:monotone": [
+    "Tc,Qc,Ac",
+    "Th,Qh,Ah",
+    "Ts,Qs,As"
+  ],
+  "T-Q-A:connected:twotone": [
+    "Th,Qc,Ac",
+    "Tc,Qc,As",
+    "Th,Qd,Ah"
+  ],
+  "T-Q-Q:paired:rainbow": [
+    "Tc,Qs,Qh",
+    "Td,Qs,Qh",
+    "Td,Qs,Qc"
+  ],
+  "T-Q-K:connected:rainbow": [
+    "Td,Qs,Kh",
+    "Ts,Qc,Kh",
+    "Tc,Qs,Kd"
+  ],
+  "T-Q-A:connected:rainbow": [
+    "Td,Qh,Ac",
+    "Th,Qs,Ad",
+    "Tc,Qd,As"
+  ],
+  "T-K-K:paired:twotone": [
+    "Th,Kh,Kd",
+    "Ts,Ks,Kc",
+    "Td,Kd,Kc"
+  ],
+  "T-K-A:connected:monotone": [
+    "Td,Kd,Ad",
+    "Tc,Kc,Ac",
+    "Ts,Ks,As"
+  ],
+  "T-K-A:connected:twotone": [
+    "Ts,Kh,As",
+    "Tc,Kc,Ah",
+    "Td,Kd,As"
+  ],
+  "T-K-K:paired:rainbow": [
+    "Tc,Ks,Kh",
+    "Tc,Ks,Kd",
+    "Td,Ks,Kh"
+  ],
+  "T-K-A:connected:rainbow": [
+    "Td,Ks,Ah",
+    "Th,Ks,Ad",
+    "Ts,Kc,Ah"
+  ],
+  "T-A-A:paired:twotone": [
+    "Ts,As,Ah",
+    "Td,As,Ad",
+    "Th,Ah,Ad"
+  ],
+  "T-A-A:paired:rainbow": [
+    "Th,Ad,Ac",
+    "Ts,Ah,Ad",
+    "Td,As,Ac"
+  ],
+  "J-J-J:triplet:rainbow": [
+    "Jh,Jd,Jc",
+    "Js,Jh,Jd",
+    "Js,Jh,Jc"
+  ],
+  "J-J-Q:paired:twotone": [
+    "Js,Jc,Qc",
+    "Jd,Jc,Qc",
+    "Js,Jc,Qs"
+  ],
+  "J-J-Q:paired:rainbow": [
+    "Jd,Jc,Qh",
+    "Jh,Jd,Qs",
+    "Jh,Jd,Qc"
+  ],
+  "J-J-K:paired:twotone": [
+    "Js,Jd,Ks",
+    "Jd,Jc,Kd",
+    "Js,Jc,Kc"
+  ],
+  "J-J-K:paired:rainbow": [
+    "Js,Jd,Kc",
+    "Js,Jd,Kh",
+    "Js,Jc,Kd"
+  ],
+  "J-J-A:paired:twotone": [
+    "Jh,Jd,Ah",
+    "Jd,Jc,Ac",
+    "Js,Jd,Ad"
+  ],
+  "J-J-A:paired:rainbow": [
+    "Js,Jh,Ad",
+    "Js,Jd,Ac",
+    "Jh,Jc,As"
+  ],
+  "J-Q-Q:paired:twotone": [
+    "Jd,Qh,Qd",
+    "Js,Qs,Qc",
+    "Jd,Qd,Qc"
+  ],
+  "J-Q-K:connected:monotone": [
+    "Jh,Qh,Kh",
+    "Jd,Qd,Kd",
+    "Js,Qs,Ks"
+  ],
+  "J-Q-K:connected:twotone": [
+    "Js,Qc,Kc",
+    "Js,Qh,Ks",
+    "Jc,Qh,Kh"
+  ],
+  "J-Q-A:connected:monotone": [
+    "Js,Qs,As",
+    "Jc,Qc,Ac",
+    "Jh,Qh,Ah"
+  ],
+  "J-Q-A:connected:twotone": [
+    "Js,Qh,As",
+    "Jd,Qs,As",
+    "Js,Qc,As"
+  ],
+  "J-Q-Q:paired:rainbow": [
+    "Jd,Qs,Qh",
+    "Js,Qh,Qd",
+    "Jd,Qh,Qc"
+  ],
+  "J-Q-K:connected:rainbow": [
+    "Jc,Qd,Kh",
+    "Jd,Qs,Kh",
+    "Js,Qd,Kh"
+  ],
+  "J-Q-A:connected:rainbow": [
+    "Jh,Qc,Ad",
+    "Jc,Qd,As",
+    "Jd,Qc,Ah"
+  ],
+  "J-K-K:paired:twotone": [
+    "Jd,Ks,Kd",
+    "Jd,Kh,Kd",
+    "Jc,Kd,Kc"
+  ],
+  "J-K-A:connected:monotone": [
+    "Jd,Kd,Ad",
+    "Jh,Kh,Ah",
+    "Js,Ks,As"
+  ],
+  "J-K-A:connected:twotone": [
+    "Jh,Kh,Ad",
+    "Jd,Kh,Ad",
+    "Js,Kh,As"
+  ],
+  "J-K-K:paired:rainbow": [
+    "Jd,Kh,Kc",
+    "Jh,Ks,Kc",
+    "Jh,Ks,Kd"
+  ],
+  "J-K-A:connected:rainbow": [
+    "Jc,Ks,Ad",
+    "Jc,Ks,Ah",
+    "Jh,Kc,Ad"
+  ],
+  "J-A-A:paired:twotone": [
+    "Jc,Ah,Ac",
+    "Jd,Ad,Ac",
+    "Jh,Ah,Ac"
+  ],
+  "J-A-A:paired:rainbow": [
+    "Js,Ah,Ad",
+    "Jh,As,Ac",
+    "Jc,As,Ad"
+  ],
+  "Q-Q-Q:triplet:rainbow": [
+    "Qs,Qh,Qd",
+    "Qs,Qd,Qc",
+    "Qh,Qd,Qc"
+  ],
+  "Q-Q-K:paired:twotone": [
+    "Qh,Qc,Kh",
+    "Qs,Qc,Ks",
+    "Qs,Qh,Ks"
+  ],
+  "Q-Q-K:paired:rainbow": [
+    "Qs,Qd,Kc",
+    "Qs,Qd,Kh",
+    "Qh,Qd,Kc"
+  ],
+  "Q-Q-A:paired:twotone": [
+    "Qd,Qc,Ad",
+    "Qs,Qd,Ad",
+    "Qs,Qd,As"
+  ],
+  "Q-Q-A:paired:rainbow": [
+    "Qd,Qc,As",
+    "Qd,Qc,Ah",
+    "Qs,Qh,Ad"
+  ],
+  "Q-K-K:paired:twotone": [
+    "Qh,Kh,Kc",
+    "Qd,Kh,Kd",
+    "Qh,Ks,Kh"
+  ],
+  "Q-K-A:connected:monotone": [
+    "Qs,Ks,As",
+    "Qd,Kd,Ad",
+    "Qh,Kh,Ah"
+  ],
+  "Q-K-A:connected:twotone": [
+    "Qd,Kh,Ah",
+    "Qh,Ks,Ah",
+    "Qd,Ks,As"
+  ],
+  "Q-K-K:paired:rainbow": [
+    "Qh,Ks,Kc",
+    "Qc,Ks,Kh",
+    "Qc,Kh,Kd"
+  ],
+  "Q-K-A:connected:rainbow": [
+    "Qs,Kc,Ah",
+    "Qc,Kd,Ah",
+    "Qh,Kd,As"
+  ],
+  "Q-A-A:paired:twotone": [
+    "Qs,As,Ad",
+    "Qs,As,Ac",
+    "Qd,As,Ad"
+  ],
+  "Q-A-A:paired:rainbow": [
+    "Qs,Ah,Ac",
+    "Qc,As,Ad",
+    "Qd,As,Ac"
+  ],
+  "K-K-K:triplet:rainbow": [
+    "Ks,Kd,Kc",
+    "Ks,Kh,Kc",
+    "Kh,Kd,Kc"
+  ],
+  "K-K-A:paired:twotone": [
+    "Ks,Kc,Ac",
+    "Ks,Kh,As",
+    "Kh,Kd,Ah"
+  ],
+  "K-K-A:paired:rainbow": [
+    "Kh,Kd,Ac",
+    "Ks,Kd,Ac",
+    "Ks,Kc,Ad"
+  ],
+  "K-A-A:paired:twotone": [
+    "Kd,Ah,Ad",
+    "Kd,Ad,Ac",
+    "Ks,As,Ah"
+  ],
+  "K-A-A:paired:rainbow": [
+    "Kh,As,Ad",
+    "Kd,As,Ah",
+    "Kc,As,Ah"
+  ],
+  "A-A-A:triplet:rainbow": [
+    "As,Ad,Ac",
+    "Ah,Ad,Ac",
+    "As,Ah,Ac"
+  ],
+  "J-Q-K:high:monotone": [
+    "Jd,Qd,Kd"
+  ],
+  "A-A-K:paired:rainbow": [
+    "Ac,Ad,Ks"
+  ],
+  "2-4-7:uncoordinated:rainbow": [
+    "2h,4c,7s"
+  ],
+  "A-K-Q:high:rainbow": [
+    "Ah,Kc,Qd"
+  ],
+  "T-T-2:paired:rainbow": [
+    "Ts,Th,2c"
+  ]
+}

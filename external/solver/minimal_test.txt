@@ -1,0 +1,7 @@
+set_pot 3.5
+set_effective_stack 100
+set_range_ip AA
+set_range_oop KK
+build_tree
+start_solve
+dump_result output_result.json
