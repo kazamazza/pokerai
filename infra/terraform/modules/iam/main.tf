@@ -14,7 +14,7 @@ resource "aws_iam_role" "ec2_instance_role" {
 }
 
 resource "aws_iam_policy" "full_access_policy" {
-  name        = "PreflopEC2FullAccessPolicy"
+  name = "PreflopEC2FullAccessPolicy"
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -24,6 +24,19 @@ resource "aws_iam_policy" "full_access_policy" {
         Action = [
           "sqs:*",
           "s3:*"
+        ],
+        Resource = "*"
+      },
+      {
+        Effect = "Allow",
+         Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups",
+          "cloudwatch:PutMetricData",
+          "ec2:DescribeInstances"
         ],
         Resource = "*"
       }

@@ -19,11 +19,6 @@ variable "instance_profile_name" {
   type        = string
 }
 
-variable "user_data_script" {
-  description = "Base64-encoded cloud-init script to run on launch"
-  type        = string
-}
-
 variable "min_size" {
   description = "Minimum number of instances in ASG"
   type        = number

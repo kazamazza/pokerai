@@ -4,11 +4,32 @@ resource "aws_launch_template" "worker_template" {
   instance_type = var.instance_type
   key_name      = var.key_name
 
+  monitoring {
+    enabled = true
+  }
+
   iam_instance_profile {
     name = var.instance_profile_name
   }
 
-  user_data = var.user_data_script
+  block_device_mappings {
+    device_name = "/dev/sda1"
+    ebs {
+      volume_size           = 100
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  user_data = base64encode(
+    templatefile("${path.module}/cloud-init.sh.tpl", {
+      github_token = var.github_token
+    })
+  )
+
+  metadata_options {
+    http_tokens = "required"
+  }
 
   lifecycle {
     create_before_destroy = true

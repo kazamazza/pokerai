@@ -14,7 +14,6 @@ module "ec2_spot" {
   source = "./modules/ec2_spot"
 
   instance_profile_name = module.iam.instance_profile_name
-  user_data_script      = filebase64("../scripts/cloud-init.sh")
   ami_id                = var.ami_id
   instance_type         = var.instance_type
   key_name              = var.ec2_key_pair_name

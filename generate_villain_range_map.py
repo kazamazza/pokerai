@@ -3,7 +3,7 @@ import os
 from itertools import product
 from typing import Dict
 
-from features.types import STACK_BUCKETS, VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, PRE_ACTION_CONTEXTS, \
+from features.types import STACK_BUCKETS, VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, ACTION_CONTEXTS, \
     POPULATION_TYPES, POSITIONS
 from utils.range_utils import get_stack_bucket_label
 
@@ -150,7 +150,7 @@ def generate_villain_range_map():
         VILLAIN_PROFILES,
         EXPLOIT_SETTINGS,
         MULTIWAY_CONTEXTS,
-        PRE_ACTION_CONTEXTS,
+        ACTION_CONTEXTS,
         POPULATION_TYPES
     ):
         key = f"{position}|{stack}|{profile}|{exploit}|{multiway}|{action}|{population}"
