@@ -71,7 +71,7 @@ for flop in raw_flops:
         continue
 
 # === Step 5: Cluster using KMeans ===
-n_clusters = FlopClusterGranularity.DEFAULT.value
+n_clusters = FlopClusterGranularity.HIGH.value
 model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
 labels = model.fit_predict(flop_features)
 

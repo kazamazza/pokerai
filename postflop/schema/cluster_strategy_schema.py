@@ -3,10 +3,10 @@ from pydantic import BaseModel
 
 
 class ActionBranch(BaseModel):
-    action: Literal["CHECK", "BET", "CALL", "RAISE", "FOLD"]
-    size: Optional[float]  # e.g. 0.33 for 33% pot, None for CHECK
-    frequency: float        # 0.0 → 1.0
-    next: Optional["StrategyNode"] = None  # Recursively define next node (e.g., turn)
+    action: str
+    size: Optional[float] = None
+    frequency: float
+    next: Optional[dict] = None
 
 class StrategyNode(BaseModel):
     combos: List[str]             # ["AhKs", "QdTs", ...]

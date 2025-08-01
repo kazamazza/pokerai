@@ -16,7 +16,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 valid_clusters = set(FLOP_CLUSTER_MAP.values())
 
 # === Iterate over all postflop contexts + cluster IDs ===
-for cluster_id in range(FlopClusterGranularity.DEFAULT.value):
+for cluster_id in range(FlopClusterGranularity.HIGH.value):
     if cluster_id not in valid_clusters:
         print(f"[SKIP] Cluster {cluster_id} has no mapped board.")
         continue

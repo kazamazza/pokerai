@@ -28,6 +28,16 @@ class S3Uploader:
         except ClientError as e:
             print(f"❌ Upload failed: {e}")
 
+    def download_file_if_missing(self, s3_key: str, local_path: Path) -> None:
+        if local_path.exists():
+            return
+        try:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            self.s3.download_file(self.bucket, s3_key, str(local_path))
+            print(f"✅ Downloaded: {s3_key} → {local_path}")
+        except ClientError as e:
+            print(f"❌ Failed to download {s3_key}: {e}")
+
     def download_file(self, s3_key: str, local_path: Path) -> None:
         """
         Download a file from S3 to local path.

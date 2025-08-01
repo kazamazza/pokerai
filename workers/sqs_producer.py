@@ -26,8 +26,6 @@ sqs = boto3.client(
 # Your SQS queue URL
 QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")
 
-
-
 def build_all_configs():
     for profile, exploit, multiway, pop, action in itertools.product(
         VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS

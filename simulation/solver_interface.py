@@ -6,7 +6,8 @@ import tempfile
 import json
 from typing import List, Tuple
 from features.types import SolverRequest
-from simulation.combo_utils import get_hero_combo_string, get_169_combo_list
+from simulation.combo_utils import get_hero_combo_string
+from utils.combos import get_169_combo_list
 
 # Adjust if your solver binary is somewhere else
 SOLVER_BINARY = "./external/solver/console_solver"

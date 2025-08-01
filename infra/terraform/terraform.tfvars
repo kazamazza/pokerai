@@ -13,7 +13,7 @@ security_group_ids = [
   "sg-0e2945357ff34782a"
 ]
 
-asg_min_size         = 1
-asg_max_size         = 5
-asg_desired_capacity = 1
+asg_min_size         = 5
+asg_max_size         = 15
+asg_desired_capacity = 10
 
