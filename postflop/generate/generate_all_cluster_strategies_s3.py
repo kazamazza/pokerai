@@ -1,23 +1,18 @@
-import os
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 from dotenv import load_dotenv
-import boto3
-from botocore.exceptions import ClientError
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
+from postflop.schema.cluster_strategy_schema import ClusterStrategy
 from features.types import STACK_BUCKETS, VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, \
     ACTION_CONTEXTS
 from flop.clustering.cluster_config import FlopClusterGranularity
 from infra.storage.s3_uploader import S3Uploader
 from postflop.generate.generate_cluster_strategy import generate_cluster_strategy
 from preflop.matchups import MATCHUPS
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-sys.path.append(str(ROOT_DIR))
-
-from postflop.schema.cluster_strategy_schema import ClusterStrategy, StrategyNode, ActionBranch
 
 # === Load environment ===
 load_dotenv()
