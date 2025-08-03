@@ -1,7 +1,8 @@
+import gzip
 import json
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, cast, TextIO, IO
 from dotenv import load_dotenv
 
 from infra.storage.s3_uploader import S3Uploader
@@ -67,18 +68,22 @@ def generate_single_range(config: Dict):
         "actions": buckets
     }
 
-    json_data = json.dumps(payload, indent=2)
-    filename = f"{ip_position}_vs_{oop_position}_{stack_bb}bb.json"
+    # Prepare paths
+    filename = f"{ip_position}_vs_{oop_position}_{stack_bb}bb.json.gz"
     s3_key = f"preflop/ranges/profile={villain_profile}/exploit={exploit_setting}/multiway={multiway_context}/pop={population_type}/action={action_context}/{filename}"
-
-    # Save to temp file before upload
     temp_path = Path("/tmp") / filename
-    with open(temp_path, "w") as f:
-        f.write(json_data)
 
-    s3.upload_file(temp_path, s3_key)
+    # Compress and write to .gz
+    # type: ignore
+    with gzip.open(temp_path, "wt", encoding="utf-8") as f:  # type: ignore
+        json.dump(payload, f, indent=2)
+
+    # Upload to S3
+    s3.upload_file(temp_path, s3_key)  # Pass as Path, not str
+
+    # Cleanup
     temp_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
-    raise RuntimeError("Run this from sqs_worker_preflop.py with input config")
+    raise RuntimeError("Run this from sqs_worker.py with input config")

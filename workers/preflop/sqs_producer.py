@@ -2,14 +2,15 @@ import os
 import json
 import sys
 from pathlib import Path
-
 import boto3
 import itertools
 from dotenv import load_dotenv
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from utils.expected_counts import update_expected_count
 from features.types import VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS, \
     STACK_BUCKETS
 from preflop.matchups import MATCHUPS
@@ -24,7 +25,7 @@ sqs = boto3.client(
 )
 
 # Your SQS queue URL
-QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")
+QUEUE_URL = os.getenv("PRE_FLOP_QUEUE_URL")
 
 def build_all_configs():
     for profile, exploit, multiway, pop, action in itertools.product(
@@ -54,6 +55,7 @@ def enqueue_all_configs():
         total += 1
         if total % 100 == 0:
             print(f"🟢 Enqueued {total} tasks...")
+    update_expected_count("preflop", total)
     print(f"✅ Done. Total tasks enqueued: {total}")
 
 

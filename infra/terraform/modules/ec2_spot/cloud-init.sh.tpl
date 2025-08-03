@@ -18,7 +18,12 @@ log() {
 log "Starting instance initialization."
 
 apt-get update -y && apt-get upgrade -y
-apt-get install -y git software-properties-common awscli
+apt-get install -y git software-properties-common unzip curl jq
+
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip -q awscliv2.zip
+./aws/install --update
+
 add-apt-repository ppa:deadsnakes/ppa -y
 apt-get update -y
 apt-get install -y python3.11 python3.11-venv python3.11-dev
@@ -34,7 +39,15 @@ log "Disk usage before resize:"
 df -h /
 
 growpart "$ROOT_DEVICE" 1 || log "[WARN] growpart may already be applied"
-resize2fs "$PARTITION" || log "[WARN] resize2fs may already be applied"
+
+FS_TYPE=$(df -T / | tail -1 | awk '{print $2}')
+if [[ "$FS_TYPE" == "ext4" ]]; then
+  resize2fs "$PARTITION" || log "[WARN] resize2fs may already be applied"
+elif [[ "$FS_TYPE" == "xfs" ]]; then
+  xfs_growfs / || log "[WARN] xfs_growfs may already be applied"
+else
+  log "[WARN] Unknown FS type: $FS_TYPE"
+fi
 
 log "Disk usage after resize:"
 df -h /
@@ -59,29 +72,31 @@ pip install -r requirements.txt || { log "requirements install failed"; exit 1; 
 export AWS_REGION="eu-central-1"
 export AWS_SQS_QUEUE_URL="$sqs_queue_url"
 export AWS_SQS_DLQ_URL="$sqs_dlq_url"
+export WORKER_TAG=$(basename "$script_to_run" .py)
+log "Worker identified as: $WORKER_TAG"
 
 nohup python3.11 "$script_to_run" > worker.log 2>&1 &
 log "Worker script '$script_to_run' launched in background."
 
 REGION="eu-central-1"
-LOG_GROUP="/spot-workers/cloud-init"
+LOG_GROUP="/spot-workers/$WORKER_TAG"
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-LOG_STREAM="init-$INSTANCE_ID"
 
-aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP" --region "$REGION" | grep "$LOG_GROUP" || \
-  aws logs create-log-group --log-group-name "$LOG_GROUP" --region "$REGION"
-
-aws logs describe-log-streams --log-group-name "$LOG_GROUP" --log-stream-name-prefix "$LOG_STREAM" --region "$REGION" | grep "$LOG_STREAM" || \
-  aws logs create-log-stream --log-group-name "$LOG_GROUP" --log-stream-name "$LOG_STREAM" --region "$REGION"
-
-TIMESTAMP=$(date +%s%3N)
-LOG_CONTENT=$(cat /var/log/cloud-init-output.log | sed "s/\"/'/g")
+touch /var/log/worker.log
+tail -n0 -F /var/log/worker.log | while read line; do
+  TIMESTAMP=$(date +%s%3N)
+  aws logs put-log-events \
+    --log-group-name "$LOG_GROUP" \
+    --log-stream-name "worker-$INSTANCE_ID" \
+    --region "$REGION" \
+    --log-events timestamp=$TIMESTAMP,message="${line//\"/\'}" || true
+done &
 
 aws logs put-log-events \
   --log-group-name "$LOG_GROUP" \
-  --log-stream-name "$LOG_STREAM" \
+  --log-stream-name "init-$INSTANCE_ID" \
   --region "$REGION" \
-  --log-events timestamp=$TIMESTAMP,message="$LOG_CONTENT" || true
+  --log-events timestamp=$(date +%s%3N),message="$(cat /var/log/cloud-init-output.log | sed "s/\"/'/g")" || true
 
-log "Initialization complete."
+echo "[init] Initialization complete."
 exit 0

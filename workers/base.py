@@ -31,6 +31,7 @@ class SQSWorker:
         self.dlq_url = os.getenv(dlq_env)
 
         self.sqs = boto3.client("sqs", region_name=self.region)
+        self.ec2 = boto3.client("ec2", region_name=self.region)
 
     def move_to_dlq(self, message_body: str):
         if not self.dlq_url:
@@ -93,7 +94,11 @@ class SQSWorker:
 
                     messages = response.get("Messages", [])
                     if not messages:
-                        print("⏳ No messages. Sleeping 10s...")
+                        print("⏳ No messages. Checking shutdown condition...")
+                        if self._should_shutdown():
+                            print("✅ Queue is empty and idle. Initiating shutdown.")
+                            self._shutdown_instance()
+                            break
                         time.sleep(10)
                         continue
 
@@ -120,3 +125,26 @@ class SQSWorker:
                     print(f"❌ Worker error: {e}")
                     traceback.print_exc()
                     time.sleep(5)
+
+    def _should_shutdown(self):
+        try:
+            response = self.sqs.get_queue_attributes(
+                QueueUrl=self.queue_url,
+                AttributeNames=["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"]
+            )
+            visible = int(response["Attributes"].get("ApproximateNumberOfMessages", 0))
+            inflight = int(response["Attributes"].get("ApproximateNumberOfMessagesNotVisible", 0))
+            return visible == 0 and inflight == 0
+        except Exception as e:
+            print(f"❌ Failed to check queue for shutdown condition: {e}")
+            return False
+
+    def _shutdown_instance(self):
+        try:
+            import requests
+            r = requests.get("http://169.254.169.254/latest/meta-data/instance-id", timeout=2)
+            instance_id = r.text
+            self.ec2.stop_instances(InstanceIds=[instance_id])
+            print(f"🛑 Shutting down instance: {instance_id}")
+        except Exception as e:
+            print(f"❌ Failed to shutdown instance: {e}")
