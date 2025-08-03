@@ -17,11 +17,3 @@ output "dlq_queue_arn" {
 output "ec2_instance_profile_name" {
   value = module.iam.instance_profile_name
 }
-
-output "launch_template_name" {
-  value = module.ec2_spot.launch_template_name
-}
-
-output "asg_name" {
-  value = module.ec2_spot.autoscaling_group_name
-}

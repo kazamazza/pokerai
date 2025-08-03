@@ -81,4 +81,4 @@ def generate_single_range(config: Dict):
 
 
 if __name__ == "__main__":
-    raise RuntimeError("Run this from sqs_worker.py with input config")
+    raise RuntimeError("Run this from sqs_worker_preflop.py with input config")

@@ -6,7 +6,7 @@ variable "ami_id" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.large"
+  default     = "c5.large"
 }
 
 variable "key_name" {
@@ -51,4 +51,16 @@ variable "github_token" {
   description = "GitHub token to clone private repo"
   type        = string
   sensitive   = true
+}
+
+variable "script_to_run" {
+  type = string
+}
+
+variable "aws_sqs_queue_url" {
+  type = string
+}
+
+variable "aws_sqs_dlq_url" {
+  type = string
 }

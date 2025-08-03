@@ -23,7 +23,10 @@ resource "aws_launch_template" "worker_template" {
 
   user_data = base64encode(
     templatefile("${path.module}/cloud-init.sh.tpl", {
-      github_token = var.github_token
+      github_token        = var.github_token,
+      script_to_run       = var.script_to_run,
+      aws_sqs_queue_url   = var.aws_sqs_queue_url,
+      aws_sqs_dlq_url     = var.aws_sqs_dlq_url
     })
   )
 
@@ -65,8 +68,4 @@ resource "aws_autoscaling_group" "spot_asg" {
     value               = "preflop-worker"
     propagate_at_launch = true
   }
-}
-
-output "asg_name" {
-  value = aws_autoscaling_group.spot_asg.name
 }

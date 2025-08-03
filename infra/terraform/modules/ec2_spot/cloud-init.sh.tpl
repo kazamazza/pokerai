@@ -3,8 +3,11 @@
 
 set -euo pipefail
 
-# GitHub token (passed from Terraform)
+# Variables passed from Terraform
 github_token="${github_token}"
+sqs_queue_url="${aws_sqs_queue_url}"
+sqs_dlq_url="${aws_sqs_dlq_url}"
+script_to_run="${script_to_run}"
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
@@ -52,8 +55,13 @@ source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-nohup python3.11 workers/sqs_worker.py > worker.log 2>&1 &
-log "Worker launched in background."
+# Export runtime config for worker
+export AWS_REGION="eu-central-1"
+export AWS_SQS_QUEUE_URL="$sqs_queue_url"
+export AWS_SQS_DLQ_URL="$sqs_dlq_url"
+
+nohup python3.11 "$script_to_run" > worker.log 2>&1 &
+log "Worker script '$script_to_run' launched in background."
 
 REGION="eu-central-1"
 LOG_GROUP="/spot-workers/cloud-init"

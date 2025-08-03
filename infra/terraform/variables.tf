@@ -14,7 +14,7 @@ variable "ami_id" {
 variable "instance_type" {
   description = "EC2 instance type for Spot workers"
   type        = string
-  default     = "t3.large"
+  default     = "c5.large"
 }
 
 variable "ec2_key_pair_name" {
@@ -54,4 +54,16 @@ variable "github_token" {
   description = "GitHub token for private repo clone"
   type        = string
   sensitive   = true
+}
+
+variable "worker_configs" {
+  type = map(object({
+    script_to_run         = string
+    aws_sqs_queue_url     = string
+    aws_sqs_dlq_url       = string
+    instance_type         = string
+    min_size              = number
+    max_size              = number
+    desired_capacity      = number
+  }))
 }

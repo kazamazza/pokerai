@@ -12,3 +12,7 @@ output "autoscaling_group_name" {
   description = "Name of the Auto Scaling Group"
   value       = aws_autoscaling_group.spot_asg.name
 }
+
+output "asg_name" {
+  value = aws_autoscaling_group.spot_asg.name
+}
