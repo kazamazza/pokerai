@@ -21,6 +21,7 @@ worker_configs = {
     min_size          = 0
     max_size          = 15
     desired_capacity  = 1
+    worker_name = "preflop"
   }
 
   equities = {
@@ -31,6 +32,7 @@ worker_configs = {
     min_size          = 0
     max_size          = 5
     desired_capacity  = 0
+    worker_name = "equity"
   }
 
    exploit = {
@@ -41,5 +43,6 @@ worker_configs = {
     min_size          = 0
     max_size          = 5
     desired_capacity  = 0
+    worker_name = "exploit"
   }
 }

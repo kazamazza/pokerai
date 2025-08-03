@@ -65,5 +65,6 @@ variable "worker_configs" {
     min_size              = number
     max_size              = number
     desired_capacity      = number
+    worker_name           = string
   }))
 }

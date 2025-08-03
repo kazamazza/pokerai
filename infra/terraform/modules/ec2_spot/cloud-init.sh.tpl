@@ -8,6 +8,7 @@ github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
 sqs_dlq_url="${aws_sqs_dlq_url}"
 script_to_run="${script_to_run}"
+worker_name="${worker_name}"
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
@@ -68,35 +69,36 @@ source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-# Export runtime config for worker
-export AWS_REGION="eu-central-1"
-export AWS_SQS_QUEUE_URL="$sqs_queue_url"
-export AWS_SQS_DLQ_URL="$sqs_dlq_url"
-export WORKER_TAG=$(basename "$script_to_run" .py)
-log "Worker identified as: $WORKER_TAG"
 
-nohup python3.11 "$script_to_run" > worker.log 2>&1 &
+# Export config
+echo "export AWS_REGION=eu-central-1" >> ~/.bashrc
+echo "export AWS_SQS_QUEUE_URL=${aws_sqs_queue_url}" >> ~/.bashrc
+echo "export AWS_SQS_DLQ_URL=${aws_sqs_dlq_url}" >> ~/.bashrc
+echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
+
+# Start worker
+nohup python3.11 "$script_to_run" > /var/log/worker.log 2>&1 &
+
 log "Worker script '$script_to_run' launched in background."
 
+# CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
-LOG_GROUP="/spot-workers/$WORKER_TAG"
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+INSTANCE_ID_CMD="curl -s http://169.254.169.254/latest/meta-data/instance-id"
+echo "$INSTANCE_ID_CMD" > /tmp/meta_fetch.sh
+chmod +x /tmp/meta_fetch.sh
+INSTANCE_ID=$(/tmp/meta_fetch.sh)
 
-touch /var/log/worker.log
-tail -n0 -F /var/log/worker.log | while read line; do
-  TIMESTAMP=$(date +%s%3N)
-  aws logs put-log-events \
-    --log-group-name "$LOG_GROUP" \
-    --log-stream-name "worker-$INSTANCE_ID" \
-    --region "$REGION" \
-    --log-events timestamp=$TIMESTAMP,message="${line//\"/\'}" || true
-done &
+aws logs create-log-group --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
+aws logs create-log-stream --log-group-name "/spot-workers/${worker_name}" --log-stream-name "init-$INSTANCE_ID" --region "$REGION" || true
+
+TIMESTAMP=$(date +%s%3N)
+LOG_MSG=$(sed "s/\"/'/g" /var/log/cloud-init-output.log)
 
 aws logs put-log-events \
-  --log-group-name "$LOG_GROUP" \
+  --log-group-name "/spot-workers/${worker_name}" \
   --log-stream-name "init-$INSTANCE_ID" \
   --region "$REGION" \
-  --log-events timestamp=$(date +%s%3N),message="$(cat /var/log/cloud-init-output.log | sed "s/\"/'/g")" || true
+  --log-events timestamp=$TIMESTAMP,message="$LOG_MSG" || true
 
-echo "[init] Initialization complete."
-exit 0
+log "CloudWatch init logs pushed."
+log "Initialization complete."

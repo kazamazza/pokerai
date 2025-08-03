@@ -27,6 +27,7 @@ resource "aws_launch_template" "worker_template" {
       script_to_run       = var.script_to_run,
       aws_sqs_queue_url   = var.aws_sqs_queue_url,
       aws_sqs_dlq_url     = var.aws_sqs_dlq_url
+      worker_name         = var.worker_name
     })
   )
 
