@@ -20,14 +20,14 @@ worker_configs = {
     instance_type     = "c5.large"
     min_size          = 0
     max_size          = 15
-    desired_capacity  = 10
+    desired_capacity  = 1
   }
 
   equities = {
     script_to_run     = "workers/equity_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123/equity-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123/equity-dlq"
-    instance_type     = "c6g.large"
+    instance_type     = "c5.large"
     min_size          = 0
     max_size          = 5
     desired_capacity  = 0

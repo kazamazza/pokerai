@@ -4,7 +4,6 @@ import time
 import traceback
 import boto3
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
 
 # Load .env variables
 load_dotenv()

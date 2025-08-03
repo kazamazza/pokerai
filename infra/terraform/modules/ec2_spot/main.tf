@@ -1,5 +1,5 @@
 resource "aws_launch_template" "worker_template" {
-  name_prefix   = "preflop-worker-"
+  name_prefix   = "${var.worker_name}-worker-"
   image_id      = var.ami_id
   instance_type = var.instance_type
   key_name      = var.key_name
@@ -40,7 +40,7 @@ resource "aws_launch_template" "worker_template" {
 }
 
 resource "aws_autoscaling_group" "spot_asg" {
-  name                      = "preflop-worker-asg"
+  name                     = "${var.worker_name}-worker-asg"
   max_size                 = var.max_size
   min_size                 = var.min_size
   desired_capacity         = var.desired_capacity

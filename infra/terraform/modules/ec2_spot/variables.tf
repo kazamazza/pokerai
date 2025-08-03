@@ -64,3 +64,8 @@ variable "aws_sqs_queue_url" {
 variable "aws_sqs_dlq_url" {
   type = string
 }
+
+variable "worker_name" {
+  description = "Unique name for this worker"
+  type        = string
+}

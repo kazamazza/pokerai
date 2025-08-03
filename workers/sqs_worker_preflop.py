@@ -3,12 +3,12 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from workers.base import SQSWorker
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
 from preflop.generate_ranges import generate_single_range
+from workers.base import SQSWorker
 
 REGION = os.getenv("AWS_REGION")
 QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")
