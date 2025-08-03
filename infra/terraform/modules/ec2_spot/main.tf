@@ -66,7 +66,7 @@ resource "aws_autoscaling_group" "spot_asg" {
 
   tag {
     key                 = "Name"
-    value               = "preflop-worker"
+    value               = "${var.worker_name}-worker"
     propagate_at_launch = true
   }
 }

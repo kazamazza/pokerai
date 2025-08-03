@@ -14,6 +14,7 @@ from utils.expected_counts import update_expected_count
 from features.types import VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS, \
     STACK_BUCKETS
 from preflop.matchups import MATCHUPS
+from utils.ec2 import is_ec2_instance, shutdown_instance
 
 # Load AWS credentials from .env
 load_dotenv()
@@ -61,3 +62,5 @@ def enqueue_all_configs():
 
 if __name__ == "__main__":
     enqueue_all_configs()
+    if is_ec2_instance():
+        shutdown_instance()

@@ -13,6 +13,7 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.schema.equity_net_schema import EquityNetFeatures, EquityNetLabel
 from features.types import STACK_BUCKETS, POSITIONS, ACTION_CONTEXTS
+from utils.ec2 import is_ec2_instance, shutdown_instance
 
 # Load AWS credentials from .env
 load_dotenv()
@@ -140,3 +141,5 @@ def enqueue_simulations():
 
 if __name__ == "__main__":
     enqueue_simulations()
+    if is_ec2_instance():
+        shutdown_instance()
