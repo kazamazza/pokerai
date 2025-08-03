@@ -47,8 +47,12 @@ class SQSWorker:
             print(f"❌ Failed to move message to DLQ: {e}")
 
     def _process_single(self, msg):
-        receipt_handle = msg["ReceiptHandle"]
-        body = msg["Body"]
+        receipt_handle = msg.get("ReceiptHandle")
+        body = msg.get("Body")
+        if not receipt_handle or not body:
+            print("⚠️ Skipping invalid message.")
+            return
+
         try:
             print("🔄 Processing task...")
             self.handler(body)
@@ -82,7 +86,10 @@ class SQSWorker:
                 with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
                     futures = [executor.submit(self._process_single, m) for m in messages]
                     for future in as_completed(futures):
-                        _ = future.result()
+                        try:
+                            future.result()
+                        except Exception as e:
+                            print(f"❌ Error during task execution: {e}")
 
             except KeyboardInterrupt:
                 print("👋 Exiting worker loop")
