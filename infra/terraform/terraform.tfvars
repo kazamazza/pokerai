@@ -20,7 +20,7 @@ worker_configs = {
     instance_type     = "c5.large"
     min_size          = 0
     max_size          = 15
-    desired_capacity  = 0
+    desired_capacity  = 1
   }
 
   equities = {

@@ -6,7 +6,6 @@ from asyncio import as_completed
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
-
 import boto3
 from botocore.exceptions import ClientError
 
@@ -49,52 +48,75 @@ class SQSWorker:
     def _process_single(self, msg):
         receipt_handle = msg.get("ReceiptHandle")
         body = msg.get("Body")
+        message_id = msg.get("MessageId")
+
         if not receipt_handle or not body:
-            print("⚠️ Skipping invalid message.")
+            print(f"⚠️ Skipping invalid message: {msg}")
             return
 
+        print(f"📩 Received Message ID: {message_id}")
+
         try:
+            start = time.time()
             print("🔄 Processing task...")
             self.handler(body)
+            duration = time.time() - start
+            print(f"✅ Task completed in {duration:.2f}s")
+
             self.sqs.delete_message(
                 QueueUrl=self.queue_url,
                 ReceiptHandle=receipt_handle
             )
-            print("✅ Task completed and deleted from queue")
+            print(f"🧹 Deleted Message ID: {message_id}")
         except Exception as e:
             print(f"❌ Task failed: {e}")
             traceback.print_exc()
             self.move_to_dlq(body)
 
     def run(self):
-        print("📥 Starting SQS polling loop...")
-        while True:
-            try:
-                response = self.sqs.receive_message(
-                    QueueUrl=self.queue_url,
-                    MaxNumberOfMessages=self.batch_size,
-                    WaitTimeSeconds=20,
-                    VisibilityTimeout=300
-                )
+        print("\U0001F4E5 Starting SQS polling loop...")
 
-                messages = response.get("Messages", [])
-                if not messages:
-                    print("⏳ No messages. Sleeping 10s...")
-                    time.sleep(10)
-                    continue
+        with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            while True:
+                try:
+                    try:
+                        response = self.sqs.receive_message(
+                            QueueUrl=self.queue_url,
+                            MaxNumberOfMessages=self.batch_size,
+                            WaitTimeSeconds=20,
+                            VisibilityTimeout=300
+                        )
+                    except ClientError as e:
+                        print(f"❌ SQS receive_message failed: {e}")
+                        time.sleep(5)
+                        continue
 
-                with ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+                    messages = response.get("Messages", [])
+                    if not messages:
+                        print("⏳ No messages. Sleeping 10s...")
+                        time.sleep(10)
+                        continue
+
+                    print(f"📦 Received {len(messages)} messages")
+                    batch_start = time.time()
+
                     futures = [executor.submit(self._process_single, m) for m in messages]
                     for future in as_completed(futures):
                         try:
                             future.result()
+                        except TypeError as e:
+                            print(f"🚨 TypeError during task: {e}")
+                            traceback.print_exc()
                         except Exception as e:
                             print(f"❌ Error during task execution: {e}")
+                            traceback.print_exc()
 
-            except KeyboardInterrupt:
-                print("👋 Exiting worker loop")
-                break
-            except Exception as e:
-                print(f"❌ Worker error: {e}")
-                traceback.print_exc()
-                time.sleep(5)
+                    print(f"⏱️ Finished batch of {len(messages)} in {time.time() - batch_start:.2f}s\n")
+
+                except KeyboardInterrupt:
+                    print("👋 Exiting worker loop")
+                    break
+                except Exception as e:
+                    print(f"❌ Worker error: {e}")
+                    traceback.print_exc()
+                    time.sleep(5)
