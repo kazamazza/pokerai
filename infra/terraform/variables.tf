@@ -1,5 +1,3 @@
-# infra/terraform/variables.tf
-
 variable "aws_region" {
   description = "AWS region to deploy resources in"
   type        = string
@@ -67,4 +65,15 @@ variable "worker_configs" {
     desired_capacity      = number
     worker_name           = string
   }))
+}
+
+variable "job_configs" {
+  type = map(object({
+    script_to_run         = string
+    aws_sqs_queue_url     = string
+    instance_type         = string
+    worker_name           = string
+    volume_size           = number
+  }))
+  description = "Configuration for ephemeral one-off jobs"
 }

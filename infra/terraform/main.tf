@@ -35,3 +35,25 @@ module "spot_workers" {
 output "spot_worker_names" {
   value = [for k in keys(module.spot_workers) : k]
 }
+
+module "ephemeral_jobs" {
+  for_each = var.job_configs
+  source   = "./modules/ec2_one_shot"
+
+  instance_profile_name = module.iam.instance_profile_name
+  worker_name           = each.key
+  ami_id                = var.ami_id
+  key_name              = var.ec2_key_pair_name
+  subnet_ids            = var.subnet_ids
+  security_group_ids    = var.security_group_ids
+  github_token          = var.github_token
+
+  script_to_run         = each.value.script_to_run
+  aws_sqs_queue_url     = each.value.aws_sqs_queue_url
+  instance_type         = each.value.instance_type
+  subnet_id             = var.subnet_ids[0] # pick one subnet
+}
+
+output "ephemeral_job_names" {
+  value = [for k in keys(module.ephemeral_jobs) : k]
+}
