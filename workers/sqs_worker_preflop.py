@@ -26,10 +26,7 @@ def handle_preflop_task(message_body):
 
 if __name__ == "__main__":
     worker = SQSWorker(
-        queue_url=QUEUE_URL,
-        dlq_url=DLQ_URL,
         handler=handle_preflop_task,
-        region=REGION,
         max_threads=5,
         batch_size=5
     )
