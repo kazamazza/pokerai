@@ -14,11 +14,6 @@ variable "key_name" {
   type        = string
 }
 
-variable "instance_profile_name" {
-  description = "IAM instance profile to attach to EC2 instances"
-  type        = string
-}
-
 variable "min_size" {
   description = "Minimum number of instances in ASG"
   type        = number
@@ -31,12 +26,6 @@ variable "max_size" {
   default     = 10
 }
 
-variable "desired_capacity" {
-  description = "Initial desired instance count"
-  type        = number
-  default     = 3
-}
-
 variable "subnet_ids" {
   description = "List of subnet IDs to launch EC2 instances into"
   type        = list(string)
@@ -45,6 +34,11 @@ variable "subnet_ids" {
 variable "security_group_ids" {
   description = "List of security group IDs to attach to EC2 instances"
   type        = list(string)
+}
+
+variable "desired_capacity" {
+  description = "Initial desired instance count"
+  type        = number
 }
 
 variable "github_token" {
@@ -67,5 +61,10 @@ variable "aws_sqs_dlq_url" {
 
 variable "worker_name" {
   description = "Unique name for this worker"
+  type        = string
+}
+
+variable "instance_profile_name" {
+  description = "IAM instance profile to attach to EC2 instances"
   type        = string
 }

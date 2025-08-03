@@ -1,5 +1,5 @@
 resource "aws_iam_role" "ec2_instance_role" {
-  name = "preflop-ec2-role"
+  name = "spot-worker-ec2-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -14,7 +14,7 @@ resource "aws_iam_role" "ec2_instance_role" {
 }
 
 resource "aws_iam_policy" "full_access_policy" {
-  name = "PreflopEC2FullAccessPolicy"
+  name = "SpotWorkerEC2FullAccessPolicy"
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -23,20 +23,10 @@ resource "aws_iam_policy" "full_access_policy" {
         Effect = "Allow",
         Action = [
           "sqs:*",
-          "s3:*"
-        ],
-        Resource = "*"
-      },
-      {
-        Effect = "Allow",
-         Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams",
-          "logs:DescribeLogGroups",
-          "cloudwatch:PutMetricData",
-          "ec2:DescribeInstances"
+          "s3:*",
+          "logs:*",
+          "ec2:DescribeInstances",
+          "cloudwatch:PutMetricData"
         ],
         Resource = "*"
       }
@@ -50,7 +40,7 @@ resource "aws_iam_role_policy_attachment" "attach_policy" {
 }
 
 resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "preflop-ec2-profile"
+  name = "spot-worker-ec2-profile"
   role = aws_iam_role.ec2_instance_role.name
 }
 

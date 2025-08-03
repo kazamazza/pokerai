@@ -30,7 +30,7 @@ worker_configs = {
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-dlq"
     instance_type     = "c5.large"
     min_size          = 1
-    max_size          = 5
+    max_size          = 10
     desired_capacity  = 1
     worker_name = "equity"
   }
@@ -41,7 +41,7 @@ worker_configs = {
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/exploit-logs-dlq"
     instance_type     = "c5.large"
     min_size          = 1
-    max_size          = 5
+    max_size          = 10
     desired_capacity  = 1
     worker_name = "exploit"
   }

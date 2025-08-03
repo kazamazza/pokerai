@@ -14,14 +14,13 @@ module "iam" {
 module "spot_workers" {
   for_each = var.worker_configs
   source   = "./modules/ec2_spot"
+  instance_profile_name = module.iam.instance_profile_name
   worker_name           = each.key
   ami_id                = var.ami_id
   key_name              = var.ec2_key_pair_name
   subnet_ids            = var.subnet_ids
   security_group_ids    = var.security_group_ids
   github_token          = var.github_token
-  instance_profile_name = module.iam.instance_profile_name
-
 
   script_to_run         = each.value.script_to_run
   aws_sqs_queue_url     = each.value.aws_sqs_queue_url
