@@ -70,13 +70,20 @@ pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
 
-# Export config
-echo "export AWS_REGION=eu-central-1" >> ~/.bashrc
-echo "export AWS_SQS_QUEUE_URL=${aws_sqs_queue_url}" >> ~/.bashrc
-echo "export AWS_SQS_DLQ_URL=${aws_sqs_dlq_url}" >> ~/.bashrc
+# Export config to global environment
+echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_SQS_QUEUE_URL=https://..." | sudo tee -a /etc/environment
+echo "AWS_SQS_DLQ_URL=https://..." | sudo tee -a /etc/environment
+
+# Optional: set a tag for interactive shells (safe in .bashrc)
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# Start worker
+# Export env vars into current shell (so this script has them too)
+set -o allexport
+source /etc/environment
+set +o allexport
+
+# Start worker in background, log output
 nohup python3.11 "$script_to_run" > /var/log/worker.log 2>&1 &
 
 log "Worker script '$script_to_run' launched in background."
