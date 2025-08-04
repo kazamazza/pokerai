@@ -6,7 +6,7 @@ class RawSeat(BaseModel):
     seat_number: int
     player_id: str
     stack_size: float
-    status: Optional[Literal['active','sitting out']] = 'active'
+    status: Optional[Literal['active', 'sitting out']] = 'active'
 
 class HandSchema(BaseModel):
     hand_id: str

@@ -1,6 +1,9 @@
 import argparse
 import json
+import tempfile
 from pathlib import Path
+
+from infra.storage import s3_uploader
 from parsers.parse_hand_history.regex_patterns import FLOP_RE, TURN_RE, RIVER_RE, TABLE_RE, SEATLINE_RE, HOLE_CARDS_RE, \
     SHOWDOWN_RE, ACTION_LINE_RE, FOLD_RE, SUMMARY_FOLD_RE, HAND_SPLIT_RE
 from parsers.parse_hand_history.utils import RawSeat, HandSchema
@@ -62,7 +65,10 @@ def parse_hand_block(text: str, stake_label: str) -> dict:
             num = int(m.group(1))
             player = m.group(2)
             stack = float(m.group(3)) if m.group(3) else 0.0
-            status = 'sitting out' if 'sit out' in line.lower() else 'active'
+            if "sit out" in line.lower():
+                status = "sitting out"
+            else:
+                status = "active"
             seat = RawSeat(
                 seat_number=num,
                 player_id=player,
@@ -118,22 +124,24 @@ def parse_hand_block(text: str, stake_label: str) -> dict:
 def parse_all_hands(stake: int):
     stake_label = f"NL{stake}"
     raw_dir = Path(f"data/raw/{stake_label}")
-    out_dir = Path("data/parsed")
-    out_file = out_dir / f"hands_{stake_label}.jsonl"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    s3_key = f"parsed/hands_{stake_label}.jsonl"
 
     total = 0
-    with out_file.open("w") as out_f:
+    with tempfile.NamedTemporaryFile("w+", delete=False) as tmp_f:
+        tmp_path = tmp_f.name
         for txt in raw_dir.rglob("*.txt"):
             content = txt.read_text(errors="ignore")
             for block in HAND_SPLIT_RE.split(content):
                 if not block.strip():
                     continue
                 parsed = parse_hand_block(block, stake_label)
-                json.dump(parsed, out_f)
-                out_f.write("\n")
+                json.dump(parsed, tmp_f)
+                tmp_f.write("\n")
                 total += 1
-    print(f"✅ Parsed {total} hands to: {out_file}")
+
+    s3_uploader.upload(tmp_path, s3_key)
+    Path(tmp_path).unlink(missing_ok=True)
+    print(f"✅ Parsed & uploaded {total} hands to s3://{s3_uploader.bucket}/{s3_key}")
 
 
 
