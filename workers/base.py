@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Callable
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 
+load_dotenv()
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
@@ -26,9 +28,12 @@ class SQSWorker:
         self.batch_size = batch_size
         self.max_threads = max_threads
 
-        self.region = os.environ[region_env]
-        self.queue_url = os.environ[queue_env]
-        self.dlq_url = os.getenv(dlq_env)
+        self.region = os.environ.get(region_env)
+        self.queue_url = os.environ.get(queue_env)
+        self.dlq_url = os.environ.get(dlq_env)
+
+        if not self.region or not self.queue_url:
+            raise RuntimeError(f"Missing required env vars: {region_env} or {queue_env}")
 
         self.sqs = boto3.client("sqs", region_name=self.region)
         self.ec2 = boto3.client("ec2", region_name=self.region)
