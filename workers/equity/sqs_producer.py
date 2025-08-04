@@ -14,6 +14,7 @@ sys.path.append(str(ROOT_DIR))
 from ml.schema.equity_net_schema import EquityNetFeatures, EquityNetLabel
 from features.types import STACK_BUCKETS, POSITIONS, ACTION_CONTEXTS
 from utils.ec2 import is_ec2_instance, shutdown_instance
+from utils.expected_counts import update_expected_count
 
 # Load AWS credentials from .env
 load_dotenv()
@@ -37,36 +38,6 @@ def generate_random_hand(deck):
 def generate_random_board(deck: eval7.Deck, street="flop") -> list[eval7.Card]:
     board_size = {"flop": 3, "turn": 4, "river": 5}[street]
     return deck.deal(board_size)
-
-def compute_equity(hero, board, num_players, trials=100):
-    hero_score = 0
-    total = 0
-
-    hero_cards = [eval7.Card(c) for c in hero]
-    board_cards = [eval7.Card(c) for c in board]
-
-    for _ in range(trials):
-        deck = eval7.Deck()
-        used = set(hero_cards + board_cards)
-        deck.cards = [c for c in deck.cards if c not in used]
-        deck.shuffle()
-
-        villains = [[deck.deal(1)[0], deck.deal(1)[0]] for _ in range(num_players - 1)]
-
-        sim_board = board_cards.copy()
-        while len(sim_board) < 5:
-            sim_board.append(deck.deal(1)[0])
-
-        hero_eval = eval7.evaluate(hero_cards + sim_board)
-        villain_evals = [eval7.evaluate(v + sim_board) for v in villains]
-
-        if hero_eval > max(villain_evals):
-            hero_score += 1
-        elif hero_eval == max(villain_evals):
-            hero_score += 0.5
-        total += 1
-
-    return round(hero_score / total, 4)
 
 def compute_pot_size(action_context: str, num_players: int, include_antes: bool = False) -> int:
     sb = 0.5
@@ -102,17 +73,8 @@ def enqueue_simulations():
         stack_bb = random.choice(STACK_BUCKETS)
         position = random.choice(POSITIONS)
         has_initiative = random.choice(INITIATIVE_OPTIONS)
-        pot_size = compute_pot_size(
-            action_context=random.choice(ACTION_CONTEXTS),
-            num_players=num_players
-        )
-
-        equity = compute_equity(
-            [str(c) for c in hero_hand],
-            [str(c) for c in board],
-            num_players,
-            EVAL_TRIALS
-        )
+        action_context = random.choice(ACTION_CONTEXTS)
+        pot_size = compute_pot_size(action_context, num_players)
 
         features = EquityNetFeatures(
             hero_hand=[str(c) for c in hero_hand],
@@ -123,12 +85,14 @@ def enqueue_simulations():
             has_initiative=has_initiative,
             pot_size=pot_size
         )
-        label = EquityNetLabel(
-            raw_equity=equity,
-            normalized_equity=equity
-        )
 
-        msg = json.dumps({"features": features.model_dump(), "label": label.model_dump()})
+        msg = json.dumps({
+            "features": features.model_dump(),
+            "metadata": {
+                "action_context": action_context,
+                "num_players": num_players
+            }
+        })
         sqs.send_message(QueueUrl=QUEUE_URL, MessageBody=msg)
 
         total += 1
@@ -136,7 +100,6 @@ def enqueue_simulations():
             print(f"📨 Enqueued {total} tasks")
 
     print(f"✅ Enqueued all {total} equity simulations")
-    from utils.expected_counts import update_expected_count
     update_expected_count("equity_simulations", total)
 
 if __name__ == "__main__":
