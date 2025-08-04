@@ -1,15 +1,17 @@
 import argparse
 import gzip
 import json
-import tempfile
+import sys
 from pathlib import Path
 from typing import Literal
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
 
 from infra.storage.s3_uploader import S3Uploader
 from parsers.parse_hand_history.regex_patterns import FLOP_RE, TURN_RE, RIVER_RE, TABLE_RE, SEATLINE_RE, HOLE_CARDS_RE, \
     SHOWDOWN_RE, ACTION_LINE_RE, FOLD_RE, SUMMARY_FOLD_RE, HAND_SPLIT_RE
 from parsers.parse_hand_history.utils import RawSeat, HandSchema
-from utils.files import compress_json_gzip
 
 s3 = S3Uploader()
 
