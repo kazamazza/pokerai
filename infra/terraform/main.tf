@@ -21,6 +21,8 @@ module "spot_workers" {
   subnet_ids            = var.subnet_ids
   security_group_ids    = var.security_group_ids
   github_token          = var.github_token
+  aws_access_key_id     = var.aws_access_key_id
+  aws_secret_access_key = var.aws_secret_access_key
 
   script_to_run         = each.value.script_to_run
   aws_sqs_queue_url     = each.value.aws_sqs_queue_url

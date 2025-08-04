@@ -1,4 +1,6 @@
 aws_region = "eu-central-1"
+aws_access_key_id = "AKIATDVYMJ5MRZJASBON"
+aws_secret_access_key = "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"
 ami_id     = "ami-0dc33c9c954b3f073"
 ec2_key_pair_name = "mainkey"
 github_token = "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"

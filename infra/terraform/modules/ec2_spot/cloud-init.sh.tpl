@@ -7,6 +7,8 @@ set -euo pipefail
 github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
 sqs_dlq_url="${aws_sqs_dlq_url}"
+access_key_id="${aws_access_key_id}"
+secret_access_key="${aws_secret_access_key}"
 script_to_run="${script_to_run}"
 worker_name="${worker_name}"
 
@@ -71,14 +73,20 @@ pip install -r requirements.txt || { log "requirements install failed"; exit 1; 
 
 
 # Export config to global environment
-echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_SQS_QUEUE_URL=https://..." | sudo tee -a /etc/environment
-echo "AWS_SQS_DLQ_URL=https://..." | sudo tee -a /etc/environment
 
-# Optional: set a tag for interactive shells (safe in .bashrc)
+
+# Set global environment vars
+echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_ACCESS_KEY_ID=$access_key_id" | sudo tee -a /etc/environment
+echo "AWS_SECRET_ACCESS_KEY=$secret_access_key" | sudo tee -a /etc/environment
+echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
+echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
+echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
+
+# Optional: tag shell sessions
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# Export env vars into current shell (so this script has them too)
+# Load the env vars into this shell for current script to use
 set -o allexport
 source /etc/environment
 set +o allexport

@@ -47,6 +47,18 @@ variable "github_token" {
   sensitive   = true
 }
 
+variable "aws_access_key_id" {
+  type        = string
+  description = "AWS access key ID for EC2 worker access"
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  type        = string
+  description = "AWS secret access key for EC2 worker access"
+  sensitive   = true
+}
+
 variable "script_to_run" {
   type = string
 }

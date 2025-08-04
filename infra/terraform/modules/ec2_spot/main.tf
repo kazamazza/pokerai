@@ -23,13 +23,15 @@ resource "aws_launch_template" "worker_template" {
 
   user_data = base64encode(
     templatefile("${path.module}/cloud-init.sh.tpl", {
-      github_token        = var.github_token,
-      script_to_run       = var.script_to_run,
-      aws_sqs_queue_url   = var.aws_sqs_queue_url,
-      aws_sqs_dlq_url     = var.aws_sqs_dlq_url
-      worker_name         = var.worker_name
+      github_token          = var.github_token,
+      script_to_run         = var.script_to_run,
+      aws_sqs_queue_url     = var.aws_sqs_queue_url,
+      aws_sqs_dlq_url       = var.aws_sqs_dlq_url,
+      aws_access_key_id     = var.aws_access_key_id,
+      aws_secret_access_key = var.aws_secret_access_key,
+      worker_name           = var.worker_name
     })
-  )
+)
 
   metadata_options {
     http_tokens = "required"
