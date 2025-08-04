@@ -74,6 +74,7 @@ variable "job_configs" {
     instance_type         = string
     worker_name           = string
     volume_size           = number
+    disabled              = optional(bool, false)
   }))
   description = "Configuration for ephemeral one-off jobs"
 }

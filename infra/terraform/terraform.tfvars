@@ -19,6 +19,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "preflop_producer"
     volume_size       = 100
+    disabled          = true
   }
 
   equity_producer = {
@@ -27,6 +28,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "equity_producer"
     volume_size       = 100
+    disabled          = true
   }
 
   exploit_producer = {
@@ -35,6 +37,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "exploit_producer"
     volume_size       = 100
+    disabled          = true
   }
 }
 
@@ -46,7 +49,7 @@ worker_configs = {
     instance_type     = "c5.large"
     min_size          = 0
     max_size          = 10
-    desired_capacity  = 0
+    desired_capacity  = 5
     worker_name = "preflop_worker"
   }
 
@@ -57,7 +60,7 @@ worker_configs = {
     instance_type     = "c5.large"
     min_size          = 0
     max_size          = 10
-    desired_capacity  = 0
+    desired_capacity  = 5
     worker_name = "equity_worker"
   }
 
@@ -68,7 +71,7 @@ worker_configs = {
     instance_type     = "c5.large"
     min_size          = 0
     max_size          = 10
-    desired_capacity  = 0
+    desired_capacity  = 5
     worker_name = "exploit_worker"
   }
 }

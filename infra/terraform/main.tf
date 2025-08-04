@@ -36,8 +36,16 @@ output "spot_worker_names" {
   value = [for k in keys(module.spot_workers) : k]
 }
 
+locals {
+  enabled_jobs = {
+    for job_name, config in var.job_configs :
+    job_name => config
+    if !lookup(config, "disabled", false)
+  }
+}
+
 module "ephemeral_jobs" {
-  for_each = var.job_configs
+  for_each = local.enabled_jobs
   source   = "./modules/ec2_one_shot"
 
   instance_profile_name = module.iam.instance_profile_name

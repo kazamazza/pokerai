@@ -30,7 +30,7 @@ cluster_to_board = {
 
 # === Setup ===
 OUTPUT_DIR = Path("postflop/strategy_templates")
-uploader = S3Uploader()
+s3 = S3Uploader()
 
 # === Main Loop ===
 for cluster_id in range(FlopClusterGranularity.HIGH.value):
@@ -57,7 +57,7 @@ for cluster_id in range(FlopClusterGranularity.HIGH.value):
                                 local_path = Path(s3_key)
 
                                 # Pull from S3 if needed
-                                uploader.download_file_if_missing(s3_key, local_path)
+                                s3.download_file_if_missing(s3_key, local_path)
 
                                 try:
                                     strategy: ClusterStrategy = generate_cluster_strategy(
@@ -89,4 +89,4 @@ for cluster_id in range(FlopClusterGranularity.HIGH.value):
 
                                 # === Upload back to S3 ===
                                 s3_out_key = f"postflop/strategy_templates/profile={villain_profile}/exploit={exploit_setting}/multiway={multiway_context}/pop={population_type}/action={action_context}/{file_out}"
-                                uploader.upload_file(local_out_path, s3_out_key)
+                                s3.upload_file(local_out_path, s3_out_key)

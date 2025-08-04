@@ -1,7 +1,6 @@
 from typing import List, Literal, Optional, Union
 from pydantic import BaseModel
 
-
 class ActionBranch(BaseModel):
     action: str
     size: Optional[float] = None
