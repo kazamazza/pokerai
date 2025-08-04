@@ -84,7 +84,8 @@ source /etc/environment
 set +o allexport
 
 # Start worker in background, log output
-nohup python3.11 "$script_to_run" > /var/log/worker.log 2>&1 &
+source /home/ubuntu/pokerai/env/bin/activate
+nohup python "$script_to_run" > /var/log/worker.log 2>&1 &
 
 log "Worker script '$script_to_run' launched in background."
 
