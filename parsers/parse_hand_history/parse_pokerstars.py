@@ -1,13 +1,17 @@
 import argparse
+import gzip
 import json
 import tempfile
 from pathlib import Path
+from typing import Literal
 
-from infra.storage import s3_uploader
+from infra.storage.s3_uploader import S3Uploader
 from parsers.parse_hand_history.regex_patterns import FLOP_RE, TURN_RE, RIVER_RE, TABLE_RE, SEATLINE_RE, HOLE_CARDS_RE, \
     SHOWDOWN_RE, ACTION_LINE_RE, FOLD_RE, SUMMARY_FOLD_RE, HAND_SPLIT_RE
 from parsers.parse_hand_history.utils import RawSeat, HandSchema
+from utils.files import compress_json_gzip
 
+s3 = S3Uploader()
 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
 def determine_street(board_cards: list[str]) -> str:
@@ -65,10 +69,7 @@ def parse_hand_block(text: str, stake_label: str) -> dict:
             num = int(m.group(1))
             player = m.group(2)
             stack = float(m.group(3)) if m.group(3) else 0.0
-            if "sit out" in line.lower():
-                status = "sitting out"
-            else:
-                status = "active"
+            status: Literal['active', 'sitting out'] = "sitting out" if "sit out" in line.lower() else "active"
             seat = RawSeat(
                 seat_number=num,
                 player_id=player,
@@ -124,24 +125,34 @@ def parse_hand_block(text: str, stake_label: str) -> dict:
 def parse_all_hands(stake: int):
     stake_label = f"NL{stake}"
     raw_dir = Path(f"data/raw/{stake_label}")
-    s3_key = f"parsed/hands_{stake_label}.jsonl"
+    tmp_jsonl = Path(f"hands_{stake_label}.jsonl")
+    tmp_gz = Path(f"{tmp_jsonl}.gz")
+    s3_key = f"parsed/{tmp_gz.name}"
 
     total = 0
-    with tempfile.NamedTemporaryFile("w+", delete=False) as tmp_f:
-        tmp_path = tmp_f.name
+    with tmp_jsonl.open("w", encoding="utf-8") as out_f:
         for txt in raw_dir.rglob("*.txt"):
             content = txt.read_text(errors="ignore")
             for block in HAND_SPLIT_RE.split(content):
                 if not block.strip():
                     continue
                 parsed = parse_hand_block(block, stake_label)
-                json.dump(parsed, tmp_f)
-                tmp_f.write("\n")
+                json.dump(parsed, out_f, separators=(",", ":"))
+                out_f.write("\n")
                 total += 1
 
-    s3_uploader.upload(tmp_path, s3_key)
-    Path(tmp_path).unlink(missing_ok=True)
-    print(f"✅ Parsed & uploaded {total} hands to s3://{s3_uploader.bucket}/{s3_key}")
+    # Compress the full JSONL file
+    with tmp_jsonl.open("rb") as f_in, tmp_gz.open("wb") as f_out:
+        f_out.write(gzip.compress(f_in.read()))
+
+    # Upload to S3
+    s3.upload_file(tmp_gz, s3_key)
+
+    # Cleanup
+    tmp_jsonl.unlink(missing_ok=True)
+    tmp_gz.unlink(missing_ok=True)
+
+    print(f"✅ Parsed & uploaded {total} hands to s3://{s3.bucket}/{s3_key}")
 
 
 
