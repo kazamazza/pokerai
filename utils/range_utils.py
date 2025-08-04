@@ -5,7 +5,6 @@ from typing import Literal
 from features.types import RangeFeatureRequest, Action, ActionType, Hand
 from utils.range_parser import expand_range_syntax
 
-
 def sum_action_amounts(actions: List[Action]) -> float:
     return sum(a.amount or 0.0 for a in actions
                if a.type in {
@@ -397,11 +396,3 @@ def get_stack_bucket_label(stack_depth: float) -> str:
         return "deepstack"
     else:
         return "very_deep"
-
-
-def encode_position(pos: str) -> int:
-    mapping = {"UTG": 0, "MP": 1, "CO": 2, "BTN": 3, "SB": 4, "BB": 5}
-    return mapping.get(pos.upper(), -1)
-
-def encode_category(value: str, categories: List[str]) -> int:
-    return categories.index(value.upper()) if value.upper() in categories else -1

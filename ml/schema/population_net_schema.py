@@ -6,7 +6,7 @@ class PopulationNetFeatures(BaseModel):
     """
     Input features for population-level strategy tendencies, aggregated from hand histories.
     """
-    stake_level: Literal["NL2", "NL5", "NL10", "NL15",  "NL25", "NL50", "NL100", "NL200"]
+    stake_level: Literal["NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200"]
     action_context: Literal[
         "OPEN", "VS_LIMP", "VS_OPEN", "VS_ISO", "VS_3BET", "VS_4BET"
     ]

@@ -3,7 +3,6 @@ from typing import List
 
 import eval7
 
-
 def compute_hand_vs_range_equity(hand_combo: str, opponent_combos: List[str], iterations: int = 5000) -> float:
     """
     Estimate equity of a single hand (e.g., 'AKs') vs a list of opponent concrete combos (e.g. ['AhKd', '2h2c', ...]).
