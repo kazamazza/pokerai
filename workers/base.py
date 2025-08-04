@@ -1,18 +1,11 @@
 import os
-import sys
 import time
 import traceback
 from asyncio import as_completed
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Callable
 import boto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
-
-load_dotenv()
-ROOT_DIR = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT_DIR))
 
 class SQSWorker:
     def __init__(
