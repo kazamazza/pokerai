@@ -1,7 +1,7 @@
 import os
 import time
 import traceback
-from asyncio import as_completed
+from concurrent.futures import as_completed
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 import boto3
