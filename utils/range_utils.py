@@ -374,7 +374,7 @@ def get_preflop_range(
     if key not in all_ranges:
         raise KeyError(f"❌ Range not found for key: {key}")
 
-    raw_range = all_ranges[key]
+    raw_range = ",".join(x for x in all_ranges[key].split(",") if x.strip())
     print(f"[DEBUG] raw range: {raw_range}")
     return expand_range_syntax(raw_range)
 

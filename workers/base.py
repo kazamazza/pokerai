@@ -13,20 +13,20 @@ class SQSWorker:
         handler: Callable[[str], None],
         max_threads: int = 5,
         batch_size: int = 5,
-        region_env: str = "AWS_REGION",
-        queue_env: str = "AWS_SQS_QUEUE_URL",
-        dlq_env: str = "AWS_SQS_DLQ_URL"
+        region: str | None = None,
+        queue_url: str | None = None,
+        dlq_url: str | None = None
     ):
         self.handler = handler
         self.batch_size = batch_size
         self.max_threads = max_threads
 
-        self.region = os.environ.get(region_env)
-        self.queue_url = os.environ.get(queue_env)
-        self.dlq_url = os.environ.get(dlq_env)
+        self.region = region or os.environ.get("AWS_REGION")
+        self.queue_url = queue_url or os.environ.get("AWS_SQS_QUEUE_URL")
+        self.dlq_url = dlq_url or os.environ.get("AWS_SQS_DLQ_URL")
 
         if not self.region or not self.queue_url:
-            raise RuntimeError(f"Missing required env vars: {region_env} or {queue_env}")
+            raise RuntimeError("Missing AWS_REGION or AWS_SQS_QUEUE_URL")
 
         self.sqs = boto3.client("sqs", region_name=self.region)
         self.ec2 = boto3.client("ec2", region_name=self.region)
