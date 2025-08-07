@@ -40,9 +40,10 @@ def handle_equity_task(_: str):
         raise
 
 if __name__ == "__main__":
+    max_threads = os.cpu_count()
     worker = SQSWorker(
         handler=handle_equity_task,
-        max_threads=10,
+        max_threads=max_threads,
         batch_size=10,
         region="eu-central-1",
         queue_url="https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-queue",

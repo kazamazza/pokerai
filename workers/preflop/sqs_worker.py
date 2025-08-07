@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -21,9 +22,10 @@ def handle_preflop_task(message_body):
 
 
 if __name__ == "__main__":
+    max_threads = os.cpu_count()
     worker = SQSWorker(
         handler=handle_preflop_task,
-        max_threads=5,
+        max_threads=max_threads,
         batch_size=5
     )
     worker.run()
