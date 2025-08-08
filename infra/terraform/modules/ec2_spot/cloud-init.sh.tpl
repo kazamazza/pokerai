@@ -85,28 +85,47 @@ echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 # Optional: tag shell sessions
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# Load /etc/environment
+# ===== Runtime setup & launch =====
+# (run after venv + requirements are ready)
+
+# Load env so child processes inherit URLs/region
+set +u  # avoid unbound errors during detection in this block
 set -o allexport
-source /etc/environment
+# shellcheck disable=SC1091
+source /etc/environment || true
 set +o allexport
 
-# Make sure current shell (and children) has the region
-export AWS_DEFAULT_REGION=eu-central-1
+# Decide process count: operator can export MAX_PROCS in /etc/environment.
+# Otherwise default to nproc (always sets N).
+N="$${MAX_PROCS:-}"
+if [ -z "$$N" ]; then
+  N="$(nproc || echo 1)"
+fi
 
-# Start worker processes, one per vCPU
-source /home/ubuntu/pokerai/env/bin/activate
+# Don’t let math/BLAS libs oversubscribe threads
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
 
-# Keep native libs from oversubscribing
-export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+echo "[init] Launching $$N worker processes..."
 
-# Launch one worker process; it will use all vCPUs via Python threads
-nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
-  > /var/log/worker.log 2>&1 &
+PIDS_FILE=/var/run/worker_pids.txt
+mkdir -p /var/run
+: > "$$PIDS_FILE"
 
-log "Launched single worker process that will use all vCPUs via threading."
+for i in $(seq 1 "$$N"); do
+  LOG="/var/log/worker_$$i.log"
+  nohup /home/ubuntu/pokerai/env/bin/python -u "${script_to_run}" > "$$LOG" 2>&1 &
+  PID=$!
+  echo "$$PID" >> "$$PIDS_FILE"
+  echo "[init] started worker_$$i pid $$PID -> $$LOG"
+  sleep 0.2
+done
 
-
-log "Launched $N workers for $N vCPUs."
+# Count started workers safely
+STARTED="$(wc -l < "$$PIDS_FILE" | tr -d ' ')"
+echo "[init] Launched $$STARTED workers."
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
