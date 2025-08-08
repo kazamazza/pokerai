@@ -56,15 +56,13 @@ resource "aws_autoscaling_group" "spot_asg" {
   instances_distribution {
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
-    spot_allocation_strategy                 = "capacity-optimized-prioritized"
+    spot_allocation_strategy                 = "capacity-optimized"
   }
-
   launch_template {
     launch_template_specification {
       launch_template_id = aws_launch_template.worker_template.id
       version            = "$Latest"
     }
-
     dynamic "override" {
       for_each = var.instance_types
       content {

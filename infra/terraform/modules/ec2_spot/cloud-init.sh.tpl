@@ -56,7 +56,8 @@ cd pokerai
 python3.11 -m venv env
 source env/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+pip install -r requirements.txt --upgrade --extra-index-url https://download.pytorch.org/whl/cpu
 
 # ===== Runtime env =====
 # Write to /etc/environment so non-interactive shells inherit it
@@ -92,25 +93,23 @@ cd /home/ubuntu/pokerai
 source env/bin/activate
 
 PIDFILE="/var/run/pokerai-workers.pids"
-TOTAL_CPUS="$(nproc)"
-
-if [ -f "$PIDFILE" ] && pgrep -F "$PIDFILE" >/dev/null 2>&1; then
-  log "[init] Workers already running; skip relaunch."
-else
-  : > "$PIDFILE"
-  core=0
-  for i in $(seq 1 "$${N}"); do
-    WORKER_INDEX="$${i}" taskset -c "$${core}" \
-      nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
-    echo $! >> "$PIDFILE"
-    log "[init] worker_$${i} -> CPU $${core} (pid $!)"
-    core=$(( (core + 1) % $TOTAL_CPUS ))
-  done
+TOTAL_CPUS=$(nproc)
+core=0
+for i in $(seq 1 "$${N}"); do
+  WORKER_INDEX="$${i}" taskset -c "$core" \
+    nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+  echo $! >> "$PIDFILE"
+  log "[init] worker_$${i} -> CPU $core (pid $!)"
+  core=$(( (core + 1) % TOTAL_CPUS ))
+done
 fi
 
 # CloudWatch upload (don’t crash if missing)
 REGION="eu-central-1"
-INSTANCE_ID="$(curl -fsS http://169.254.169.254/latest/meta-data/instance-id || echo unknown)"
+IMDS_TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id || echo unknown)
 aws logs create-log-group  --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
 aws logs create-log-stream --log-group-name "/spot-workers/${worker_name}" --log-stream-name "init-$INSTANCE_ID" --region "$REGION" || true
 TIMESTAMP=$(date +%s%3N)
