@@ -40,12 +40,7 @@ def handle_equity_task(_: str):
         raise
 
 if __name__ == "__main__":
-    try:
-        # This respects CPU pinning if taskset is used
-        cpu_count = len(os.sched_getaffinity(0))
-    except AttributeError:
-        # Fallback to total logical CPUs
-        cpu_count = os.cpu_count() or 1
+    cpu_count = os.cpu_count() or 1  # use all vCPUs
     worker = SQSWorker(
         handler=handle_equity_task,
         max_threads=cpu_count,

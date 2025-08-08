@@ -95,16 +95,16 @@ export AWS_DEFAULT_REGION=eu-central-1
 
 # Start worker processes, one per vCPU
 source /home/ubuntu/pokerai/env/bin/activate
-command -v taskset >/dev/null 2>&1 || apt-get install -y --no-install-recommends util-linux
+
+# Keep native libs from oversubscribing
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 
-N=$(nproc)
-for core in $(seq 0 $((N-1))); do
-  WORKER_INDEX="$core" nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
-    > "/var/log/worker_$${core}.log" 2>&1 &
-  pid=$!
-  taskset -pc "$core" "$pid" >/dev/null 2>&1 || true
-done
+# Launch one worker process; it will use all vCPUs via Python threads
+nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
+  > /var/log/worker.log 2>&1 &
+
+log "Launched single worker process that will use all vCPUs via threading."
+
 
 log "Launched $N workers for $N vCPUs."
 
