@@ -77,8 +77,7 @@ pip install -r requirements.txt || { log "requirements install failed"; exit 1; 
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_ACCESS_KEY_ID=$access_key_id" | sudo tee -a /etc/environment
-echo "AWS_SECRET_ACCESS_KEY=$secret_access_key" | sudo tee -a /etc/environment
+echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment
 echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
 echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
 echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
@@ -91,8 +90,7 @@ set -o allexport
 source /etc/environment
 set +o allexport
 
-# Start worker in background, log output
-# Start one worker per vCPU, each pinned to a CPU
+# Start worker processes, one per vCPU
 source /home/ubuntu/pokerai/env/bin/activate
 command -v taskset >/dev/null 2>&1 || apt-get install -y --no-install-recommends util-linux
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
@@ -104,7 +102,9 @@ TOTAL_CPUS=$(nproc)
 : > "$PIDFILE"
 core=0
 for i in $(seq 1 "$${N}"); do
-  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+  # give each worker its index and its own log file
+  WORKER_INDEX="$${i}" nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
+    > "/var/log/worker_$${i}.log" 2>&1 &
   pid=$!
   echo "$pid" >> "$PIDFILE"
   taskset -pc "$core" "$pid" >/dev/null 2>&1 || true
