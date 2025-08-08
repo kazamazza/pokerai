@@ -3,10 +3,10 @@ variable "ami_id" {
   type        = string
 }
 
-variable "instance_type" {
-  description = "EC2 instance type"
-  type        = string
-  default     = "c5.large"
+variable "instance_types" {
+  description = "Preferred Spot instance types (ordered)."
+  type        = list(string)
+  default     = ["c5.xlarge", "c5a.xlarge", "c5d.xlarge", "c6i.xlarge", "m6i.xlarge"]
 }
 
 variable "key_name" {

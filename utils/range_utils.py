@@ -347,6 +347,9 @@ def compute_position_onehot(seats: List[Dict[str, Any]], button_seat: int, playe
 
 Position = Literal["UTG", "MP", "CO", "BTN", "SB", "BB"]
 
+def clean_range_string(raw: str) -> str:
+    """Remove empty strings and lone '+' tokens from the range string."""
+    return ",".join(token for token in raw.split(",") if token.strip() and token.strip() != "+")
 
 def get_preflop_range(
     position: str,
@@ -374,9 +377,11 @@ def get_preflop_range(
     if key not in all_ranges:
         raise KeyError(f"❌ Range not found for key: {key}")
 
-    raw_range = ",".join(x for x in all_ranges[key].split(",") if x.strip())
-    print(f"[DEBUG] raw range: {raw_range}")
-    return expand_range_syntax(raw_range)
+    raw_range = all_ranges[key]
+    cleaned_range = clean_range_string(raw_range)
+    print(f"[DEBUG] raw range: {cleaned_range}")
+
+    return expand_range_syntax(cleaned_range)
 
 def get_stack_bucket_label(stack_depth: float) -> str:
     """

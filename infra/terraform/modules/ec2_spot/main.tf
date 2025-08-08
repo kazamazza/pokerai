@@ -1,7 +1,7 @@
 resource "aws_launch_template" "worker_template" {
   name_prefix   = "${var.worker_name}-worker-"
   image_id      = var.ami_id
-  instance_type = var.instance_type
+  instance_type = "c5.xlarge"
   key_name      = var.key_name
 
   monitoring {
@@ -43,25 +43,35 @@ resource "aws_launch_template" "worker_template" {
 }
 
 resource "aws_autoscaling_group" "spot_asg" {
-  name                     = "${var.worker_name}-worker-asg"
-  max_size                 = var.max_size
-  min_size                 = var.min_size
-  desired_capacity         = var.desired_capacity
-  vpc_zone_identifier      = var.subnet_ids
-  health_check_type        = "EC2"
-  force_delete             = true
+  name                   = "${var.worker_name}-worker-asg"
+  max_size               = var.max_size
+  min_size               = var.min_size
+  desired_capacity       = var.desired_capacity
+  vpc_zone_identifier    = var.subnet_ids
+  health_check_type      = "EC2"
+  force_delete           = true
+  capacity_rebalance     = true  # replace interrupted instances faster
 
   mixed_instances_policy {
     instances_distribution {
       on_demand_base_capacity                  = 0
       on_demand_percentage_above_base_capacity = 0
-      spot_allocation_strategy                 = "lowest-price"
+      # This finds pools with capacity, not just lowest price
+      spot_allocation_strategy                 = "price-capacity-optimized"
     }
 
     launch_template {
       launch_template_specification {
         launch_template_id = aws_launch_template.worker_template.id
-        version             = "$Latest"
+        version            = "$Latest"
+      }
+
+      # Add many pools via a dynamic block
+      dynamic "override" {
+        for_each = var.instance_types
+        content {
+          instance_type = override.value
+        }
       }
     }
   }

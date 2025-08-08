@@ -22,10 +22,9 @@ def handle_preflop_task(message_body):
 
 
 if __name__ == "__main__":
-    max_threads = os.cpu_count()
     worker = SQSWorker(
         handler=handle_preflop_task,
-        max_threads=max_threads,
+        max_threads=1,
         batch_size=5
     )
     worker.run()

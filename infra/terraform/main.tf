@@ -28,7 +28,7 @@ module "spot_workers" {
   aws_sqs_queue_url     = each.value.aws_sqs_queue_url
   aws_sqs_dlq_url       = each.value.aws_sqs_dlq_url
 
-  instance_type         = each.value.instance_type
+  instance_types        = each.value.instance_types
   min_size              = each.value.min_size
   max_size              = each.value.max_size
   desired_capacity      = each.value.desired_capacity

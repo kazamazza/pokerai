@@ -91,9 +91,17 @@ set -o allexport
 source /etc/environment
 set +o allexport
 
-# Start worker in background, log output
+# Activate venv
 source /home/ubuntu/pokerai/env/bin/activate
-nohup python "$script_to_run" > /var/log/worker.log 2>&1 &
+
+# Detect number of logical CPUs
+N="$(nproc || echo 1)"
+echo "[init] Launching $N worker processes..."
+
+# Start N workers in background, each logging separately
+for i in $(seq 1 "$N"); do
+  nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+done
 
 log "Worker script '$script_to_run' launched in background."
 

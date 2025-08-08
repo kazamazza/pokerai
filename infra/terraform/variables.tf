@@ -9,10 +9,10 @@ variable "ami_id" {
   type        = string
 }
 
-variable "instance_type" {
-  description = "EC2 instance type for Spot workers"
-  type        = string
-  default     = "c5.large"
+variable "instance_types" {
+  description = "Preferred Spot instance types (ordered)."
+  type        = list(string)
+  default     = ["c5.xlarge", "c5a.xlarge", "c5d.xlarge", "c6i.xlarge", "m6i.xlarge"]
 }
 
 variable "ec2_key_pair_name" {
@@ -20,23 +20,6 @@ variable "ec2_key_pair_name" {
   type        = string
 }
 
-variable "asg_min_size" {
-  description = "Minimum number of instances in Auto Scaling Group"
-  type        = number
-  default     = 1
-}
-
-variable "asg_max_size" {
-  description = "Maximum number of instances in Auto Scaling Group"
-  type        = number
-  default     = 10
-}
-
-variable "asg_desired_capacity" {
-  description = "Desired capacity of Auto Scaling Group"
-  type        = number
-  default     = 3
-}
 
 variable "subnet_ids" {
   description = "List of subnet IDs to launch EC2 instances into"
@@ -71,7 +54,7 @@ variable "worker_configs" {
     script_to_run         = string
     aws_sqs_queue_url     = string
     aws_sqs_dlq_url       = string
-    instance_type         = string
+    instance_types        = list(string)
     min_size              = number
     max_size              = number
     desired_capacity      = number
