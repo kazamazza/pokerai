@@ -55,7 +55,6 @@ fi
 log "Disk usage after resize:"
 df -h /
 
-
 REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
 log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
 
@@ -71,51 +70,75 @@ source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
+# ===== Runtime setup & launch =====
 
-# Export config to global environment
-
-
-# Set global environment vars
-echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_ACCESS_KEY_ID=$access_key_id" | sudo tee -a /etc/environment
-echo "AWS_SECRET_ACCESS_KEY=$secret_access_key" | sudo tee -a /etc/environment
-echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
-echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
-echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
-
-# Optional: tag shell sessions
-echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
-
-# Load the env vars into this shell for current script to use
-set -o allexport
-source /etc/environment
-set +o allexport
-
-# Activate venv
 source /home/ubuntu/pokerai/env/bin/activate
 
-# How many processes? ~ physical cores (vCPUs/2). Fallback to at least 1.
-VCPUS=$(nproc)                  # e.g. 8 on c5.xlarge (8 vCPU)
-PHYS=$(( VCPUS / 2 ))
-N=$(( PHYS > 0 ? PHYS : 1 ))
+#    These come from Terraform templatefile() vars.
+echo "AWS_REGION=eu-central-1"                   | sudo tee -a /etc/environment >/dev/null
+echo "AWS_ACCESS_KEY_ID=${aws_access_key_id}"    | sudo tee -a /etc/environment >/dev/null
+echo "AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}" | sudo tee -a /etc/environment >/dev/null
+echo "AWS_BUCKET_NAME=pokeraistore"              | sudo tee -a /etc/environment >/dev/null
+echo "AWS_SQS_QUEUE_URL=${aws_sqs_queue_url}"    | sudo tee -a /etc/environment >/dev/null
+echo "AWS_SQS_DLQ_URL=${aws_sqs_dlq_url}"        | sudo tee -a /etc/environment >/dev/null
+echo "WORKER_TAG=${worker_name}"                 | sudo tee -a /etc/environment >/dev/null
 
-# Keep native libs from oversubscribing threads
+# Load /etc/environment into current shell
+set -o allexport
+# shellcheck disable=SC1091
+source /etc/environment || true
+set +o allexport
+
+# --- Launch pinned worker processes ---
+
+# Ensure taskset exists (non-interactive)
+export DEBIAN_FRONTEND=noninteractive
+if ! command -v taskset >/dev/null 2>&1; then
+  apt-get update -y && apt-get install -y --no-install-recommends util-linux
+fi
+
+# Be sure we're in the repo root (for relative script paths)
+cd /home/ubuntu/pokerai || exit 1
+# Activate venv
+# shellcheck disable=SC1091
+source /home/ubuntu/pokerai/env/bin/activate
+
+# Operator override via /etc/environment (MAX_PROCS), else ~physical cores
+if [ -n "$${MAX_PROCS:-}" ]; then
+  N="$${MAX_PROCS}"
+else
+  VCPUS="$(nproc)"
+  PHYS=$(( VCPUS / 2 ))
+  N=$(( PHYS > 0 ? PHYS : 1 ))
+fi
+
+# Prevent native libs from oversubscribing threads
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-echo "[init] Launching $N worker processes (pinned to cores)..."
+echo "[init] Launching $${N} worker processes (pinned to distinct CPUs)…"
 
-# Launch N processes, each pinned to its own core
-core=0
-for i in $(seq 1 "$N"); do
-  # Pin to two vCPUs per process if you like (core and its HT sibling)
-  taskset -c "$core" nohup python "$script_to_run" > "/var/log/worker_${i}.log" 2>&1 &
-  core=$(( (core + 1) % VCPUS ))
-done
+PIDFILE="/var/run/pokerai-workers.pids"
+TOTAL_CPUS="$(nproc)"
 
-log "Worker script '$script_to_run' launched in background."
+# Skip if already running (idempotent)
+if [ -f "$PIDFILE" ] && pgrep -F "$PIDFILE" >/dev/null 2>&1; then
+  echo "[init] Workers already running; skipping relaunch."
+else
+  : > "$PIDFILE"
+  core=0
+  for i in $(seq 1 "$${N}"); do
+    WORKER_INDEX="$${i}" taskset -c "$${core}" \
+      nohup python "${script_to_run}" > "/var/log/worker_$${i}.log" 2>&1 &
+    echo $! >> "$PIDFILE"
+    echo "[init] worker_$${i} -> CPU $${core} (pid $!)"
+    core=$(( (core + 1) % TOTAL_CPUS ))
+  done
+fi
+
+echo "[init] Workers launched. tail -f /var/log/worker_*.log"
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
