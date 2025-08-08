@@ -1,7 +1,9 @@
 #!/bin/bash
+# cloud-init.sh.tpl
+
 set -euo pipefail
 
-# ===== Vars from Terraform =====
+# Variables passed from Terraform
 github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
 sqs_dlq_url="${aws_sqs_dlq_url}"
@@ -11,113 +13,125 @@ script_to_run="${script_to_run}"
 worker_name="${worker_name}"
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-log(){ echo "[cloud-init] $1"; }
+
+log() {
+  echo "[cloud-init] $1"
+}
+
 log "Starting instance initialization."
 
-# Base pkgs
-export DEBIAN_FRONTEND=noninteractive
 apt-get update -y && apt-get upgrade -y
-apt-get install -y git software-properties-common unzip curl jq \
-  cloud-guest-utils xfsprogs build-essential
+apt-get install -y git software-properties-common unzip curl jq
 
-# AWS CLI v2
-curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip -q awscliv2.zip
-./aws/install --update || ./aws/install
+./aws/install --update
 
-# Python 3.11
 add-apt-repository ppa:deadsnakes/ppa -y
 apt-get update -y
 apt-get install -y python3.11 python3.11-venv python3.11-dev
 
-# Resize root FS (best-effort)
-PARTITION=$(findmnt -n -o SOURCE /)                      # e.g. /dev/nvme0n1p1
-ROOT_DEVICE="/dev/$(lsblk -no pkname "$PARTITION")"      # e.g. /dev/nvme0n1
-log "Root device: $ROOT_DEVICE  Partition: $PARTITION"
+PARTITION=$(findmnt -n -o SOURCE /)
+ROOT_DEVICE=$(lsblk -no pkname "$PARTITION")
+ROOT_DEVICE="/dev/$ROOT_DEVICE"
+
+log "Root device: $ROOT_DEVICE"
+log "Partition: $PARTITION"
+
+log "Disk usage before resize:"
 df -h /
-growpart "$ROOT_DEVICE" 1 || log "[WARN] growpart failed/na"
+
+growpart "$ROOT_DEVICE" 1 || log "[WARN] growpart may already be applied"
+
 FS_TYPE=$(df -T / | tail -1 | awk '{print $2}')
 if [[ "$FS_TYPE" == "ext4" ]]; then
-  resize2fs "$PARTITION" || log "[WARN] resize2fs skipped"
+  resize2fs "$PARTITION" || log "[WARN] resize2fs may already be applied"
 elif [[ "$FS_TYPE" == "xfs" ]]; then
-  xfs_growfs / || log "[WARN] xfs_growfs skipped"
+  xfs_growfs / || log "[WARN] xfs_growfs may already be applied"
 else
   log "[WARN] Unknown FS type: $FS_TYPE"
 fi
+
+log "Disk usage after resize:"
 df -h /
 
-# Clone repo
-REPO_URL="https://x-access-token:${github_token}@github.com/kazamazza/pokerai.git"
-cd /home/ubuntu
-git clone "$REPO_URL" || { log "[ERROR] Git clone failed"; exit 1; }
+
+REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
+log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
+
+cd /home/ubuntu || exit 1
+if ! git clone "$REPO_URL"; then
+  log "[ERROR] Git clone failed."
+  exit 1
+fi
 cd pokerai
 
-# Venv + deps
-python3.11 -m venv env
+python3.11 -m venv env || { log "venv failed"; exit 1; }
 source env/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
+pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-# ===== Runtime env =====
-# Write to /etc/environment so non-interactive shells inherit it
-{
-  echo "AWS_REGION=eu-central-1"
-  echo "AWS_ACCESS_KEY_ID=${aws_access_key_id}"
-  echo "AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}"
-  echo "AWS_BUCKET_NAME=pokeraistore"
-  echo "AWS_SQS_QUEUE_URL=${aws_sqs_queue_url}"
-  echo "AWS_SQS_DLQ_URL=${aws_sqs_dlq_url}"
-  echo "WORKER_TAG=${worker_name}"               # <— restored
-} | tee -a /etc/environment >/dev/null
 
-# Load into current shell
+# Export config to global environment
+
+
+# Set global environment vars
+echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_ACCESS_KEY_ID=$access_key_id" | sudo tee -a /etc/environment
+echo "AWS_SECRET_ACCESS_KEY=$secret_access_key" | sudo tee -a /etc/environment
+echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
+echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
+echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
+
+# Optional: tag shell sessions
+echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
+
+# Load the env vars into this shell for current script to use
 set -o allexport
-# shellcheck disable=SC1091
-source /etc/environment || true
+source /etc/environment
 set +o allexport
 
-# Ensure taskset exists
-if ! command -v taskset >/dev/null 2>&1; then
-  apt-get install -y --no-install-recommends util-linux
-fi
-
-# Compute process count (use all vCPUs)
-N=$(nproc)
-
-# Avoid thread oversubscription
+# Start worker in background, log output
+# Start one worker per vCPU, each pinned to a CPU
+source /home/ubuntu/pokerai/env/bin/activate
+command -v taskset >/dev/null 2>&1 || apt-get install -y --no-install-recommends util-linux
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment >/dev/null
 
-log "[init] Launching $${N} worker processes (pinned)…"
-cd /home/ubuntu/pokerai
-source env/bin/activate
-
+N=$(nproc)
 PIDFILE="/var/run/pokerai-workers.pids"
 TOTAL_CPUS=$(nproc)
+: > "$PIDFILE"
 core=0
 for i in $(seq 1 "$${N}"); do
-  WORKER_INDEX="$${i}" taskset -c "$core" \
-    nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
-  echo $! >> "$PIDFILE"
-  log "[init] worker_$${i} -> CPU $core (pid $!)"
+  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+  pid=$!
+  echo "$pid" >> "$PIDFILE"
+  taskset -pc "$core" "$pid" >/dev/null 2>&1 || true
+  log "[init] worker_$${i} -> CPU $core (pid $pid)"
   core=$(( (core + 1) % TOTAL_CPUS ))
 done
-fi
+log "Launched $${N} workers."
 
-# CloudWatch upload (don’t crash if missing)
+log "Worker script '$script_to_run' launched in background."
+
+# CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
-IMDS_TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" \
-  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
-  http://169.254.169.254/latest/meta-data/instance-id || echo unknown)
-aws logs create-log-group  --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
+IMDS_TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo unknown)
+
+set +e
+aws logs create-log-group --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
 aws logs create-log-stream --log-group-name "/spot-workers/${worker_name}" --log-stream-name "init-$INSTANCE_ID" --region "$REGION" || true
 TIMESTAMP=$(date +%s%3N)
-# Prefer the file we actually wrote to; guard with || true
-LOG_MSG="$(sed 's/\"/'\''/g' /var/log/user-data.log || true)"
+LOG_MSG=$(sed "s/\"/'/g" /var/log/cloud-init-output.log)
 aws logs put-log-events \
   --log-group-name "/spot-workers/${worker_name}" \
   --log-stream-name "init-$INSTANCE_ID" \
   --region "$REGION" \
   --log-events timestamp=$TIMESTAMP,message="$LOG_MSG" || true
+set -e
 
+log "CloudWatch init logs pushed."
 log "Initialization complete."
+exit 0
