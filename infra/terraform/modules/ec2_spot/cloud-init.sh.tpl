@@ -94,13 +94,25 @@ set +o allexport
 # Activate venv
 source /home/ubuntu/pokerai/env/bin/activate
 
-# Detect number of logical CPUs
-N="$(nproc || echo 1)"
-echo "[init] Launching $N worker processes..."
+# How many processes? ~ physical cores (vCPUs/2). Fallback to at least 1.
+VCPUS=$(nproc)                  # e.g. 8 on c5.xlarge (8 vCPU)
+PHYS=$(( VCPUS / 2 ))
+N=$(( PHYS > 0 ? PHYS : 1 ))
 
-# Start N workers in background, each logging separately
+# Keep native libs from oversubscribing threads
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+
+echo "[init] Launching $N worker processes (pinned to cores)..."
+
+# Launch N processes, each pinned to its own core
+core=0
 for i in $(seq 1 "$N"); do
-  nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+  # Pin to two vCPUs per process if you like (core and its HT sibling)
+  taskset -c "$core" nohup python "$script_to_run" > "/var/log/worker_${i}.log" 2>&1 &
+  core=$(( (core + 1) % VCPUS ))
 done
 
 log "Worker script '$script_to_run' launched in background."
