@@ -85,35 +85,28 @@ echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 # Optional: tag shell sessions
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# Load the env vars into this shell for current script to use
+# Load /etc/environment
 set -o allexport
 source /etc/environment
 set +o allexport
+
+# Make sure current shell (and children) has the region
+export AWS_DEFAULT_REGION=eu-central-1
 
 # Start worker processes, one per vCPU
 source /home/ubuntu/pokerai/env/bin/activate
 command -v taskset >/dev/null 2>&1 || apt-get install -y --no-install-recommends util-linux
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment >/dev/null
 
 N=$(nproc)
-PIDFILE="/var/run/pokerai-workers.pids"
-TOTAL_CPUS=$(nproc)
-: > "$PIDFILE"
-core=0
-for i in $(seq 1 "$${N}"); do
-  # give each worker its index and its own log file
-  WORKER_INDEX="$${i}" nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
-    > "/var/log/worker_$${i}.log" 2>&1 &
+for core in $(seq 0 $((N-1))); do
+  WORKER_INDEX="$core" nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
+    > "/var/log/worker_${core}.log" 2>&1 &
   pid=$!
-  echo "$pid" >> "$PIDFILE"
   taskset -pc "$core" "$pid" >/dev/null 2>&1 || true
-  log "[init] worker_$${i} -> CPU $core (pid $pid)"
-  core=$(( (core + 1) % TOTAL_CPUS ))
 done
-log "Launched $${N} workers."
 
-log "Worker script '$script_to_run' launched in background."
+log "Launched $N workers for $N vCPUs."
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
