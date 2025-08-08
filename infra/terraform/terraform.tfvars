@@ -48,32 +48,62 @@ worker_configs = {
     script_to_run     = "workers/preflop/sqs_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-dlq"
-    instance_types    = ["c5.xlarge","c5a.xlarge","c5d.xlarge","c6i.xlarge","m6i.xlarge"]
+    instance_types    = [
+      # Primary compute families
+      "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+      "c6a.xlarge", "c6a.2xlarge", "c6a.4xlarge",
+      "c5.xlarge",  "c5.2xlarge",  "c5.4xlarge",
+      "c5a.xlarge", "c5a.2xlarge", "c5a.4xlarge",
+      "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge",
+      "c6in.xlarge","c6in.2xlarge","c6in.4xlarge",
+      # NVMe instance-store variants
+      "c6id.xlarge","c6id.2xlarge","c5d.xlarge","c5d.2xlarge",
+      # General-purpose fallbacks
+      "m6i.xlarge","m6i.2xlarge","m5.xlarge","m5.2xlarge"
+    ]
     min_size          = 0
     max_size          = 15
     desired_capacity  = 0
-    worker_name = "preflop_worker"
+    worker_name       = "preflop_worker"
   }
 
   equities = {
     script_to_run     = "workers/equity/sqs_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-dlq"
-    instance_types    = ["c5.xlarge","c5a.xlarge","c5d.xlarge","c6i.xlarge","m6i.xlarge"]
+    instance_types    = [
+      "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+      "c6a.xlarge", "c6a.2xlarge", "c6a.4xlarge",
+      "c5.xlarge",  "c5.2xlarge",  "c5.4xlarge",
+      "c5a.xlarge", "c5a.2xlarge", "c5a.4xlarge",
+      "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge",
+      "c6in.xlarge","c6in.2xlarge","c6in.4xlarge",
+      "c6id.xlarge","c6id.2xlarge","c5d.xlarge","c5d.2xlarge",
+      "m6i.xlarge","m6i.2xlarge","m5.xlarge","m5.2xlarge"
+    ]
     min_size          = 0
     max_size          = 10
     desired_capacity  = 0
-    worker_name = "equity_worker"
+    worker_name       = "equity_worker"
   }
 
-   exploit = {
+  exploit = {
     script_to_run     = "workers/exploit/sqs_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/exploit-logs-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/exploit-logs-dlq"
-    instance_types    = ["c5.xlarge","c5a.xlarge","c5d.xlarge","c6i.xlarge","m6i.xlarge"]
+    instance_types    = [
+      "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+      "c6a.xlarge", "c6a.2xlarge", "c6a.4xlarge",
+      "c5.xlarge",  "c5.2xlarge",  "c5.4xlarge",
+      "c5a.xlarge", "c5a.2xlarge", "c5a.4xlarge",
+      "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge",
+      "c6in.xlarge","c6in.2xlarge","c6in.4xlarge",
+      "c6id.xlarge","c6id.2xlarge","c5d.xlarge","c5d.2xlarge",
+      "m6i.xlarge","m6i.2xlarge","m5.xlarge","m5.2xlarge"
+    ]
     min_size          = 0
     max_size          = 10
     desired_capacity  = 0
-    worker_name = "exploit_worker"
+    worker_name       = "exploit_worker"
   }
 }

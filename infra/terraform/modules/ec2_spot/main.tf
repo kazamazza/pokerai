@@ -53,28 +53,26 @@ resource "aws_autoscaling_group" "spot_asg" {
   capacity_rebalance     = true  # replace interrupted instances faster
 
   mixed_instances_policy {
-    instances_distribution {
-      on_demand_base_capacity                  = 0
-      on_demand_percentage_above_base_capacity = 0
-      # This finds pools with capacity, not just lowest price
-      spot_allocation_strategy                 = "price-capacity-optimized"
+  instances_distribution {
+    on_demand_base_capacity                  = 0
+    on_demand_percentage_above_base_capacity = 0
+    spot_allocation_strategy                 = "capacity-optimized-prioritized"
+  }
+
+  launch_template {
+    launch_template_specification {
+      launch_template_id = aws_launch_template.worker_template.id
+      version            = "$Latest"
     }
 
-    launch_template {
-      launch_template_specification {
-        launch_template_id = aws_launch_template.worker_template.id
-        version            = "$Latest"
-      }
-
-      # Add many pools via a dynamic block
-      dynamic "override" {
-        for_each = var.instance_types
-        content {
-          instance_type = override.value
-        }
+    dynamic "override" {
+      for_each = var.instance_types
+      content {
+        instance_type = override.value
       }
     }
   }
+}
 
   tag {
     key                 = "Name"
