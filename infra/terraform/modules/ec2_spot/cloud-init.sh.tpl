@@ -86,46 +86,41 @@ echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
 # ===== Runtime setup & launch =====
-# (run after venv + requirements are ready)
-
-# Load env so child processes inherit URLs/region
-set +u  # avoid unbound errors during detection in this block
+set +u
 set -o allexport
-# shellcheck disable=SC1091
 source /etc/environment || true
 set +o allexport
 
 # Decide process count: operator can export MAX_PROCS in /etc/environment.
-# Otherwise default to nproc (always sets N).
+# Escape ONLY this default expansion so Terraform doesn't interpolate it.
 N="$${MAX_PROCS:-}"
-if [ -z "$$N" ]; then
+if [ -z "$N" ]; then
   N="$(nproc || echo 1)"
 fi
 
-# Don’t let math/BLAS libs oversubscribe threads
+# Don’t let native libs oversubscribe threads
 export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-echo "[init] Launching $$N worker processes..."
+echo "[init] Launching $N worker processes..."
 
 PIDS_FILE=/var/run/worker_pids.txt
 mkdir -p /var/run
-: > "$$PIDS_FILE"
+: > "$PIDS_FILE"
 
-for i in $(seq 1 "$$N"); do
-  LOG="/var/log/worker_$$i.log"
-  nohup /home/ubuntu/pokerai/env/bin/python -u "${script_to_run}" > "$$LOG" 2>&1 &
+for i in $(seq 1 "$N"); do
+  LOG="/var/log/worker_$i.log"
+  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "$LOG" 2>&1 &
   PID=$!
-  echo "$$PID" >> "$$PIDS_FILE"
-  echo "[init] started worker_$$i pid $$PID -> $$LOG"
+  echo "$PID" >> "$PIDS_FILE"
+  echo "[init] started worker_$i pid $PID -> $LOG"
   sleep 0.2
 done
 
-# Count started workers safely
-STARTED="$(wc -l < "$$PIDS_FILE" | tr -d ' ')"
-echo "[init] Launched $$STARTED workers."
+STARTED="$(wc -l < "$PIDS_FILE" | tr -d ' ')"
+echo "[init] Launched $STARTED workers."
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"

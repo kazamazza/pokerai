@@ -20,11 +20,11 @@ def handle_preflop_task(message_body):
         raise
 
 
+# preflop/sqs_worker.py
 if __name__ == "__main__":
-    cpu_count = os.cpu_count() or 1  # use all vCPUs
     worker = SQSWorker(
         handler=handle_preflop_task,
-        max_threads=cpu_count,
-        batch_size=10
+        max_threads=1,   # was os.cpu_count()
+        batch_size=3     # smaller batch reduces timeout risk
     )
     worker.run()

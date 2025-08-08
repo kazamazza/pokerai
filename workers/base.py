@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import traceback
 from concurrent.futures import as_completed
@@ -53,24 +54,45 @@ class SQSWorker:
             print(f"⚠️ Skipping invalid message: {msg}")
             return
 
-        print(f"📩 Received Message ID: {message_id}")
+        # --- keep-alive thread to extend visibility while we work ---
+        stop_flag = False
+
+        def _extend_loop():
+            while not stop_flag:
+                try:
+                    self.sqs.change_message_visibility(
+                        QueueUrl=self.queue_url,
+                        ReceiptHandle=receipt_handle,
+                        VisibilityTimeout=300  # extend by 5 min
+                    )
+                except Exception as e:
+                    print(f"⚠️ Visibility extend failed: {e}")
+                time.sleep(90)  # heartbeat
+
+        hb = threading.Thread(target=_extend_loop, daemon=True)
+        hb.start()
+        # ------------------------------------------------------------
 
         try:
             start = time.time()
+            print(f"📩 Received Message ID: {message_id}")
             print("🔄 Processing task...")
             self.handler(body)
-            duration = time.time() - start
-            print(f"✅ Task completed in {duration:.2f}s")
+            print(f"✅ Task completed in {time.time() - start:.2f}s")
 
-            self.sqs.delete_message(
-                QueueUrl=self.queue_url,
-                ReceiptHandle=receipt_handle
-            )
+            self.sqs.delete_message(QueueUrl=self.queue_url, ReceiptHandle=receipt_handle)
             print(f"🧹 Deleted Message ID: {message_id}")
         except Exception as e:
             print(f"❌ Task failed: {e}")
             traceback.print_exc()
             self.move_to_dlq(body)
+        finally:
+            stop_flag = True
+            # let the heartbeat exit; don't block long
+            try:
+                hb.join(timeout=1)
+            except Exception:
+                pass
 
     def run(self):
         print("\U0001F4E5 Starting SQS polling loop...")
@@ -83,7 +105,7 @@ class SQSWorker:
                             QueueUrl=self.queue_url,
                             MaxNumberOfMessages=self.batch_size,
                             WaitTimeSeconds=20,
-                            VisibilityTimeout=300
+                            VisibilityTimeout=60  # short initial; we'll extend immediately per message
                         )
                     except ClientError as e:
                         print(f"❌ SQS receive_message failed: {e}")
@@ -101,6 +123,17 @@ class SQSWorker:
                         continue
 
                     print(f"📦 Received {len(messages)} messages")
+                    # Pre-extend each message so they don't reappear while we queue work
+                    for m in messages:
+                        try:
+                            self.sqs.change_message_visibility(
+                                QueueUrl=self.queue_url,
+                                ReceiptHandle=m["ReceiptHandle"],
+                                VisibilityTimeout=300  # 5 min runway to start
+                            )
+                        except Exception as e:
+                            print(f"⚠️ Pre-extend failed: {e}")
+
                     batch_start = time.time()
 
                     futures = [executor.submit(self._process_single, m) for m in messages]
