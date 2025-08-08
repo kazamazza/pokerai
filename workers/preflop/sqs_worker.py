@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import traceback
 from pathlib import Path
@@ -25,6 +24,6 @@ if __name__ == "__main__":
     worker = SQSWorker(
         handler=handle_preflop_task,
         max_threads=1,   # was os.cpu_count()
-        batch_size=3     # smaller batch reduces timeout risk
+        batch_size=1     # smaller batch reduces timeout risk
     )
     worker.run()

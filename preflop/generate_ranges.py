@@ -1,5 +1,7 @@
 import gzip
 import json
+import os
+import uuid
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict
@@ -68,20 +70,17 @@ def generate_single_range(config: Dict):
         "actions": buckets
     }
 
-    # Prepare paths
     filename = f"{ip_position}_vs_{oop_position}_{stack_bb}bb.json.gz"
     s3_key = f"preflop/ranges/profile={villain_profile}/exploit={exploit_setting}/multiway={multiway_context}/pop={population_type}/action={action_context}/{filename}"
-    temp_path = Path("/tmp") / filename
 
-    # Compress and write to .gz
-    # type: ignore
-    with gzip.open(temp_path, "wt", encoding="utf-8") as f:  # type: ignore
+    # make temp unique per worker/process to avoid clobber
+    unique = f"{uuid.uuid4().hex}_{os.getpid()}"
+    temp_path = Path("/tmp") / f"{unique}_{filename}"
+
+    with gzip.open(temp_path, "wt", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
-    # Upload to S3
-    s3.upload_file(temp_path, s3_key)  # Pass as Path, not str
-
-    # Cleanup
+    s3.upload_file(temp_path, s3_key)  # your wrapper takes Path; ok
     temp_path.unlink(missing_ok=True)
 
 
