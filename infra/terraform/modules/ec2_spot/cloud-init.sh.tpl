@@ -56,8 +56,7 @@ cd pokerai
 python3.11 -m venv env
 source env/bin/activate
 pip install --upgrade pip
-pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
-pip install -r requirements.txt --upgrade --extra-index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
 
 # ===== Runtime env =====
 # Write to /etc/environment so non-interactive shells inherit it

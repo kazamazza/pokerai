@@ -2,7 +2,7 @@ import gzip
 import json
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, cast, TextIO, IO
+from typing import Dict
 from dotenv import load_dotenv
 
 from infra.storage.s3_uploader import S3Uploader
