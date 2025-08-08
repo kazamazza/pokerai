@@ -51,7 +51,7 @@ worker_configs = {
     instance_types    = ["c5.xlarge","c5a.xlarge","c5d.xlarge","c6i.xlarge","m6i.xlarge"]
     min_size          = 0
     max_size          = 15
-    desired_capacity  = 10
+    desired_capacity  = 0
     worker_name = "preflop_worker"
   }
 

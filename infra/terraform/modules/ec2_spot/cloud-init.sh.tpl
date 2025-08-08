@@ -81,10 +81,8 @@ if ! command -v taskset >/dev/null 2>&1; then
   apt-get install -y --no-install-recommends util-linux
 fi
 
-# Compute process count (≈ physical cores)
-VCPUS="$(nproc)"
-PHYS=$(( VCPUS / 2 ))
-N=$(( PHYS > 0 ? PHYS : 1 ))
+# Compute process count (use all vCPUs)
+N=$(nproc)
 
 # Avoid thread oversubscription
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
@@ -95,18 +93,19 @@ source env/bin/activate
 
 PIDFILE="/var/run/pokerai-workers.pids"
 TOTAL_CPUS="$(nproc)"
+
 if [ -f "$PIDFILE" ] && pgrep -F "$PIDFILE" >/dev/null 2>&1; then
   log "[init] Workers already running; skip relaunch."
 else
   : > "$PIDFILE"
   core=0
   for i in $(seq 1 "$${N}"); do
-  WORKER_INDEX="$${i}" taskset -c "$${core}" \
-    nohup python "$${script_to_run}" > "/var/log/worker_$${i}.log" 2>&1 &
-  echo $! >> "$${PIDFILE}"
-  log "[init] worker_$${i} -> CPU $${core} (pid $!)"
-  core=$(( (core + 1) % $${TOTAL_CPUS} ))
-    done
+    WORKER_INDEX="$${i}" taskset -c "$${core}" \
+      nohup python "$script_to_run" > "/var/log/worker_$${i}.log" 2>&1 &
+    echo $! >> "$PIDFILE"
+    log "[init] worker_$${i} -> CPU $${core} (pid $!)"
+    core=$(( (core + 1) % $TOTAL_CPUS ))
+  done
 fi
 
 # CloudWatch upload (don’t crash if missing)
