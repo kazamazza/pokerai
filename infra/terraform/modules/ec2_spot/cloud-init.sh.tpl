@@ -101,7 +101,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 N=$(nproc)
 for core in $(seq 0 $((N-1))); do
   WORKER_INDEX="$core" nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" \
-    > "/var/log/worker_${core}.log" 2>&1 &
+    > "/var/log/worker_$${core}.log" 2>&1 &
   pid=$!
   taskset -pc "$core" "$pid" >/dev/null 2>&1 || true
 done

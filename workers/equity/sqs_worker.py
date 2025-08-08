@@ -12,7 +12,6 @@ load_dotenv()
 from utils.files import compress_json_gzip
 from generate_equity_simulations import generate_simulation
 from workers.base import SQSWorker
-from utils.threads import detect_threads
 
 REGION = os.getenv("AWS_REGION")
 BUCKET = os.getenv("AWS_BUCKET_NAME")
@@ -41,9 +40,15 @@ def handle_equity_task(_: str):
         raise
 
 if __name__ == "__main__":
+    try:
+        # This respects CPU pinning if taskset is used
+        cpu_count = len(os.sched_getaffinity(0))
+    except AttributeError:
+        # Fallback to total logical CPUs
+        cpu_count = os.cpu_count() or 1
     worker = SQSWorker(
         handler=handle_equity_task,
-        max_threads=detect_threads(),
+        max_threads=cpu_count,
         batch_size=10,
         region="eu-central-1",
         queue_url="https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-queue",

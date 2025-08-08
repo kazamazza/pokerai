@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -8,7 +9,6 @@ sys.path.append(str(ROOT_DIR))
 
 from preflop.generate_ranges import generate_single_range
 from workers.base import SQSWorker
-from utils.threads import detect_threads
 
 def handle_preflop_task(message_body):
     try:
@@ -21,9 +21,16 @@ def handle_preflop_task(message_body):
 
 
 if __name__ == "__main__":
+    try:
+        # This respects CPU pinning if taskset is used
+        cpu_count = len(os.sched_getaffinity(0))
+    except AttributeError:
+        # Fallback to total logical CPUs
+        cpu_count = os.cpu_count() or 1
+
     worker = SQSWorker(
         handler=handle_preflop_task,
-        max_threads=detect_threads(),  # auto
+        max_threads=cpu_count,
         batch_size=10
     )
     worker.run()
