@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import traceback
 from pathlib import Path
 import boto3
@@ -18,26 +19,52 @@ BUCKET = os.getenv("AWS_BUCKET_NAME")
 
 s3 = boto3.client("s3", region_name=REGION)
 
-def handle_equity_task(_: str):
-    features, label = generate_simulation()
-    data = {
-        "features": features.model_dump(),
-        "label": label.model_dump()
-    }
-    key = f"equity/simulations/{features.hash()}.json.gz"
+def handle_equity_task(_: str) -> bool:
+    """
+    Generate one equity sample, upload gzipped JSON to S3, and verify it exists.
+    Return True on success so SQSWorker will delete the message.
+    """
     try:
+        features, label = generate_simulation()
+
+        # Pydantic v1/v2 compatible dict extraction
+        feat_to_dict = getattr(features, "model_dump", getattr(features, "dict"))
+        lab_to_dict  = getattr(label, "model_dump", getattr(label, "dict"))
+        data = {
+            "features": feat_to_dict(),
+            "label": lab_to_dict(),
+        }
+
+        key = f"equity/simulations/{features.hash()}.json.gz"
+
         s3.put_object(
             Bucket=BUCKET,
             Key=key,
             Body=compress_json_gzip(data),
             ContentEncoding="gzip",
-            ContentType="application/json"
+            ContentType="application/json",
         )
         print(f"✅ Uploaded: {key}")
+
+        # Verify the object is present and non-empty
+        for _ in range(3):
+            try:
+                head = s3.head_object(Bucket=BUCKET, Key=key)
+                size = head.get("ContentLength", 0)
+                if size and size > 0:
+                    print(f"✅ Verified in S3: s3://{BUCKET}/{key} ({size} bytes)")
+                    return True
+            except Exception as e:
+                print(f"⚠️ head_object retry for {key}: {e}")
+            time.sleep(0.5)
+
+        print(f"❌ Verification failed for s3://{BUCKET}/{key}")
+        return False
+
     except Exception as e:
-        print(f"❌ Failed to upload {key}: {e}")
+        print(f"❌ Failed to process equity task: {e}")
         traceback.print_exc()
-        raise
+        return False
 
 if __name__ == "__main__":
     worker = SQSWorker(

@@ -3,14 +3,14 @@ import time
 import traceback
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable
+from typing import Callable, Union
 import boto3
 from botocore.exceptions import ClientError
 
 class SQSWorker:
     def __init__(
         self,
-        handler: Callable[[str], None],
+        handler: Callable[[str], Union[bool, None]],
         max_threads: int = 5,
         batch_size: int = 5,
         region: str | None = None,

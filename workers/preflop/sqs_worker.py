@@ -1,17 +1,15 @@
-import hashlib
 import json
 import os
 import sys
 import time
 import traceback
 from pathlib import Path
-
 import boto3
 from boto3 import s3
+from botocore.exceptions import ClientError
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
-
 
 REGION = os.getenv("AWS_REGION")
 BUCKET = os.getenv("AWS_BUCKET_NAME")
@@ -21,40 +19,40 @@ s3 = boto3.client("s3", region_name=REGION)
 from preflop.generate_ranges import generate_single_range
 from workers.base import SQSWorker
 
-def _md5_file(p: Path) -> str:
-    h = hashlib.md5()
-    with open(p, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-def handle_preflop_task(message_body: str) -> None:
-    """
-    Return True only when the final S3 object is confirmed present.
-    """
+def handle_preflop_task(message_body: str) -> bool:
     try:
-        config = json.loads(message_body)
-        # generate_single_range should now RETURN (s3_key, temp_path)
-        s3_key, temp_path = generate_single_range(config)  # <-- adjust implementation below
+        cfg = json.loads(message_body)
 
-        # Upload (idempotent-safe: overwrite same key)
+        s3_key, temp_path = generate_single_range(cfg)  # make this return (key, tmp_path)
+        # Or: s3_key = build_preflop_key(cfg) if you build it here instead
+
+        # Idempotency guard: if it exists, consider done
+        try:
+            head = s3.head_object(Bucket=BUCKET, Key=s3_key)
+            if head.get("ContentLength", 0) > 0:
+                print(f"🟢 Already exists: s3://{BUCKET}/{s3_key} — skipping upload")
+                Path(temp_path).unlink(missing_ok=True)
+                return True
+        except ClientError as e:
+            # 404 -> proceed to upload
+            pass
+
+        # Upload
         s3.upload_file(str(temp_path), BUCKET, s3_key)
 
-        # Verify: HEAD the key; optionally check size > 0
+        # Verify
         for _ in range(5):
             try:
                 head = s3.head_object(Bucket=BUCKET, Key=s3_key)
-                size = head.get("ContentLength", 0)
-                if size and size > 0:
-                    print(f"✅ Verified in S3: s3://{BUCKET}/{s3_key} ({size} bytes)")
-                    # cleanup local
+                if head.get("ContentLength", 0) > 0:
+                    print(f"✅ Verified: s3://{BUCKET}/{s3_key}")
                     Path(temp_path).unlink(missing_ok=True)
                     return True
             except Exception as e:
                 print(f"⚠️ head_object retry: {e}")
-            time.sleep(1.0)
+            time.sleep(0.5)
 
-        print(f"❌ Verification failed for s3://{BUCKET}/{s3_key}")
+        print(f"❌ Verification failed: s3://{BUCKET}/{s3_key}")
         return False
 
     except Exception as e:
