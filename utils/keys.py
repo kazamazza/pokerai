@@ -3,7 +3,7 @@ from typing import Dict
 
 def build_preflop_filename(ip: str, oop: str, stack_bb: int) -> str:
     # Canonical: OOP_vs_IP_<stack>bb.json.gz (order matters)
-    return f"{oop}_vs_{ip}_{stack_bb}bb.json.gz"
+    return f"{ip}_vs_{oop}_{stack_bb}bb.json.gz"
 
 def build_preflop_s3_key(config: Dict) -> str:
     """
