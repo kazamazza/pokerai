@@ -47,7 +47,7 @@ def build_all_keys() -> Iterator[str]:
                     "preflop/ranges/"
                     f"profile={profile}/exploit={exploit}/multiway={multiway}/"
                     f"pop={pop}/action={action}/"
-                    f"{oop}_vs_{ip}_{stack}bb.json.gz"
+                    f"{ip}_vs_{oop}_{stack}bb.json.gz"
                 )
 
 def key_to_config(key: str) -> Dict:
