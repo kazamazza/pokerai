@@ -1,15 +1,16 @@
 import gzip
+import io
 import json
 import os
 import uuid
-from pathlib import Path
 from collections import defaultdict
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Tuple
 from dotenv import load_dotenv
-
 from infra.storage.s3_uploader import S3Uploader
 from utils.combos import get_169_combo_list
 from utils.equity import expand_combo_string, compute_hand_vs_range_equity
+from utils.keys import build_preflop_s3_key
 from utils.range_classifier import classify_by_equity
 from utils.range_utils import get_preflop_range
 
@@ -17,18 +18,18 @@ load_dotenv()
 s3 = S3Uploader()
 
 
-def generate_single_range(config: Dict):
+def generate_single_range(config: dict) -> tuple[str, Path]:
     """
-    Generate a single preflop range and upload the result to S3.
+    Build preflop payload and return (s3_key, gzipped_bytes). No S3 or filesystem.
     """
-    ip_position = config["ip_position"]
-    oop_position = config["oop_position"]
-    stack_bb = config["stack_bb"]
-    villain_profile = config["villain_profile"]
-    exploit_setting = config["exploit_setting"]
+    ip_position      = config["ip_position"]
+    oop_position     = config["oop_position"]
+    stack_bb         = config["stack_bb"]
+    villain_profile  = config["villain_profile"]
+    exploit_setting  = config["exploit_setting"]
     multiway_context = config["multiway_context"]
-    population_type = config["population_type"]
-    action_context = config["action_context"]
+    population_type  = config["population_type"]
+    action_context   = config["action_context"]
 
     combos = get_169_combo_list()
 
@@ -64,24 +65,16 @@ def generate_single_range(config: Dict):
         )
         buckets[action].append(hand)
 
-    # Format JSON output
-    payload = {
-        "meta": config,
-        "actions": buckets
-    }
+    payload = {"meta": config, "actions": buckets}
 
-    filename = f"{ip_position}_vs_{oop_position}_{stack_bb}bb.json.gz"
-    s3_key = f"preflop/ranges/profile={villain_profile}/exploit={exploit_setting}/multiway={multiway_context}/pop={population_type}/action={action_context}/{filename}"
-
-    # make temp unique per worker/process to avoid clobber
+    s3_key = build_preflop_s3_key(payload["meta"])
     unique = f"{uuid.uuid4().hex}_{os.getpid()}"
-    temp_path = Path("/tmp") / f"{unique}_{filename}"
+    temp_path = Path("/tmp") / f"{unique}.json.gz"
 
     with gzip.open(temp_path, "wt", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
-    s3.upload_file(temp_path, s3_key)  # your wrapper takes Path; ok
-    temp_path.unlink(missing_ok=True)
+    return s3_key, temp_path
 
 
 if __name__ == "__main__":

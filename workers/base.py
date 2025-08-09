@@ -2,7 +2,6 @@ import os
 import time
 import traceback
 import threading
-import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 import boto3
@@ -49,29 +48,34 @@ class SQSWorker:
             print(f"⚠️ Skipping invalid message: {msg}")
             return
 
-        # heartbeat to keep message invisible while computing
         stop = False
+
         def extender():
             while not stop:
                 try:
                     self.sqs.change_message_visibility(
                         QueueUrl=self.queue_url,
                         ReceiptHandle=rh,
-                        VisibilityTimeout=600  # 10 min window
+                        VisibilityTimeout=600
                     )
-                    print(f"[vis] extended {mid} to 600s")
                 except Exception as e:
                     print(f"[vis] extend failed for {mid}: {e}")
-                time.sleep(60 + random.randint(0, 15))
-        hb = threading.Thread(target=extender, daemon=True)
-        hb.start()
+                time.sleep(60)
+
+        threading.Thread(target=extender, daemon=True).start()
 
         try:
             start = time.time()
             print(f"📩 Received {mid}")
-            self.handler(body)
+            # ⬇️ handler must return True when the object exists in S3
+            ok = bool(self.handler(body))
             dur = time.time() - start
-            print(f"✅ Task {mid} completed in {dur:.2f}s")
+            print(f"✅ Task {mid} completed in {dur:.2f}s (ok={ok})")
+
+            if not ok:
+                print(f"❌ Handler reported failure for {mid}; sending to DLQ")
+                self.move_to_dlq(body)
+                return
 
             # robust delete with retry
             for attempt in range(3):
@@ -80,11 +84,12 @@ class SQSWorker:
                     print(f"🧹 Deleted {mid}")
                     break
                 except Exception as e:
-                    print(f"⚠️ Delete failed for {mid} (try {attempt+1}/3): {e}")
+                    print(f"⚠️ Delete failed for {mid} (try {attempt + 1}/3): {e}")
                     time.sleep(2 ** attempt)
             else:
                 print(f"❌ Could not delete {mid}; sending to DLQ")
                 self.move_to_dlq(body)
+
         except Exception as e:
             print(f"❌ Task failed for {mid}: {e}")
             traceback.print_exc()
