@@ -11,7 +11,6 @@ from ml.schema.population_net_schema import PopulationNetFeatures, PopulationNet
 s3 = S3Uploader()
 
 # --- Utility: Position mapping ---
-POSITION_ORDER = ["BTN", "SB", "BB", "UTG", "MP", "CO"]
 
 def determine_action_context(actions: list[str]) -> str:
     text = " ".join(actions).lower()

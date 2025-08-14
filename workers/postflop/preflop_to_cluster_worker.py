@@ -134,20 +134,49 @@ def _deps_satisfied(context: str, ip: str, oop: str, stack: int, prof: str, expl
             return False
     return True
 
-def cluster_sweep() -> int:
-    total = 0
-    for (ctx, ip, oop, sb, prof, expl, mw, pop) in iter_cluster_axes():
-        if not _deps_satisfied(ctx, ip, oop, sb, prof, expl, mw, pop):
-            continue
-        # probe: if any cluster 0 solved exists, assume tuple done (idempotent shortcut)
-        probe = build_postflop_solved_s3_key(context=ctx, ip=ip, oop=oop, stack_bb=sb,
-                                             cluster_id=0, profile=prof, exploit=expl, multiway=mw, pop=pop)
-        if s3_exists(probe):
-            continue
-        total += generate_clusters_for_axes(context=ctx, ip=ip, oop=oop, stack_bb=sb,
-                                            prof=prof, expl=expl, mw=mw, pop=pop)
-    print(f"ℹ️ cluster_sweep uploaded {total} artifacts." if total else "ℹ️ cluster_sweep: nothing to do.")
-    return total
+def maybe_run_clusters_for_cfg(cfg: dict) -> None:
+    """
+    Use the exact axes from the just-created preflop file (cfg) and
+    generate clusters + solved artifacts for THAT tuple (context, ip, oop, stack, prof, expl, mw, pop)
+    as soon as the minimal preflop dependencies are present.
+    """
+    ctx   = cfg["action_context"]
+    ip    = cfg["ip_position"]
+    oop   = cfg["oop_position"]
+    stack = cfg["stack_bb"]
+    prof  = cfg["villain_profile"]
+    expl  = cfg["exploit_setting"]
+    mw    = cfg["multiway_context"]
+    pop   = cfg["population_type"]
+
+    # What preflop files must exist to build both flop ranges?
+    deps_fn = DEPS.get(ctx)
+    if not deps_fn:
+        print(f"[SKIP] Unknown context in cfg: {ctx}")
+        return
+
+    # Wait-until-ready check (idempotent and cheap)
+    dep_keys = deps_fn(ip, oop, stack, prof, expl, mw, pop)
+    for key in dep_keys:
+        if not s3_exists(key):
+            print(f"⏳ deps not ready for {ctx}: missing s3://{BUCKET}/{key}")
+            return
+
+    # Optional: probe whether we already solved at least one cluster for this tuple
+    probe_key = build_postflop_solved_s3_key(
+        context=ctx, ip=ip, oop=oop, stack_bb=stack,
+        cluster_id=0, profile=prof, exploit=expl, multiway=mw, pop=pop
+    )
+    if s3_exists(probe_key):
+        print(f"🟢 postflop already exists for tuple → {probe_key}")
+        return
+
+    # Generate all clusters for THIS tuple, using the tuple’s axes
+    uploaded = generate_clusters_for_axes(
+        context=ctx, ip=ip, oop=oop, stack_bb=stack,
+        prof=prof, expl=expl, mw=mw, pop=pop
+    )
+    print(f"🎯 generated {uploaded} postflop artifacts for {ctx} {ip}vs{oop}@{stack}bb {prof}/{expl}/{mw}/{pop}")
 
 # ---------- Preflop SQS handler (pipeline style)
 def handle_preflop_task(message_body: str) -> bool:
@@ -160,7 +189,7 @@ def handle_preflop_task(message_body: str) -> bool:
             head = s3.head_object(Bucket=BUCKET, Key=s3_key)
             if head.get("ContentLength", 0) > 0:
                 Path(temp_path).unlink(missing_ok=True)
-                cluster_sweep()
+                maybe_run_clusters_for_cfg(cfg)
                 return True
         except ClientError:
             pass
@@ -174,7 +203,7 @@ def handle_preflop_task(message_body: str) -> bool:
                 head = s3.head_object(Bucket=BUCKET, Key=s3_key)
                 if head.get("ContentLength", 0) > 0:
                     Path(temp_path).unlink(missing_ok=True)
-                    cluster_sweep()
+                    maybe_run_clusters_for_cfg(cfg)
                     return True
             except Exception:
                 time.sleep(0.4)

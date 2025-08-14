@@ -21,7 +21,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "preflop_producer"
     volume_size       = 100
-    disabled          = false
+    disabled          = true
   }
 
   equity_producer = {
