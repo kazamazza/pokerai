@@ -7,10 +7,11 @@ from collections import defaultdict
 from pathlib import Path
 from dotenv import load_dotenv
 from infra.storage.s3_uploader import S3Uploader
+from utils.builders import build_preflop_s3_key
 from utils.combos import get_169_combo_list
 from utils.equity import expand_combo_string, compute_hand_vs_range_equity
-from utils.keys import build_preflop_s3_key
 from utils.range_classifier import classify_by_equity
+from utils.range_extraction import _is_valid_open_pair
 from utils.range_utils import get_preflop_range
 
 load_dotenv()
@@ -44,6 +45,9 @@ def generate_single_range(config: dict) -> tuple[str, Path]:
 
     if not opponent_hands or not all(len(c) == 4 for c in opponent_hands):
         raise ValueError(f"Invalid range for {oop_position} @ {stack_bb}bb")
+
+    if action_context == "OPEN" and not _is_valid_open_pair(ip_position, oop_position):
+        raise ValueError(f"Invalid OPEN pairing: {ip_position} vs {oop_position}")
 
     buckets = defaultdict(list)
     for hand in combos:

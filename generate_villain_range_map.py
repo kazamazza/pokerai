@@ -6,6 +6,7 @@ from typing import Dict
 
 from features.types import STACK_BUCKETS, VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, ACTION_CONTEXTS, \
     POPULATION_TYPES, POSITIONS
+from utils.canonicalize_range_string import canonicalize_range_string
 from utils.range_utils import get_stack_bucket_label
 
 OUTPUT_PATH = "data/villain_range_map.json"
@@ -126,16 +127,6 @@ def apply_population_adjustments(base: str, pop: str) -> str:
         return base + ",J9s,T8s"
     return base
 
-
-def normalize_range_string(range_str: str) -> str:
-    # Remove accidental double commas or stray commas/plus
-    range_str = re.sub(r',+', ',', range_str)  # collapse multiple commas
-    range_str = re.sub(r'\+,+', '+', range_str)  # remove commas after plus
-    range_str = re.sub(r',\+', '+', range_str)  # fix comma before plus
-    range_str = re.sub(r',\s*$', '', range_str)  # strip trailing comma
-    range_str = re.sub(r'^\s*,', '', range_str)  # strip leading comma
-    return range_str.strip()
-
 def build_range_string(
     position: str,
     stack: int,
@@ -154,7 +145,7 @@ def build_range_string(
     base = apply_population_adjustments(base, population)
     base = apply_action_context_adjustments(base, position, action)
 
-    return normalize_range_string(base)
+    return canonicalize_range_string(base)
 
 
 def generate_villain_range_map():

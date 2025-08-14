@@ -21,7 +21,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "preflop_producer"
     volume_size       = 100
-    disabled          = true
+    disabled          = false
   }
 
   equity_producer = {
@@ -30,7 +30,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "equity_producer"
     volume_size       = 100
-    disabled          = false
+    disabled          = true
   }
 
   exploit_producer = {
@@ -45,7 +45,7 @@ job_configs = {
 
 worker_configs = {
   preflop = {
-    script_to_run     = "workers/preflop/sqs_worker.py"
+    script_to_run     = "workers/postflop/preflop_to_cluster_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-dlq"
     instance_types    = [
@@ -66,6 +66,7 @@ worker_configs = {
     desired_capacity  = 0
     worker_name       = "preflop_worker"
   }
+
 
   equities = {
     script_to_run     = "workers/equity/sqs_worker.py"

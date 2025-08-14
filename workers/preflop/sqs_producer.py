@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from workers.preflop.validators import VALIDATORS
 from utils.expected_counts import update_expected_count
 from features.types import VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS, \
     STACK_BUCKETS
@@ -31,7 +32,16 @@ def build_all_configs():
     for profile, exploit, multiway, pop, action in itertools.product(
         VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS
     ):
+        validator = VALIDATORS.get(action)
+        if validator is None:
+            # Skip unknown contexts rather than enqueueing nonsense
+            continue
+
         for ip, oop in MATCHUPS:
+            # Enforce per-context legality
+            if not validator(ip, oop):
+                continue
+
             for stack in STACK_BUCKETS:
                 yield {
                     "ip_position": ip,

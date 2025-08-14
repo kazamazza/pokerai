@@ -7,15 +7,13 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-
+from utils.builders import build_cluster_strategy_object
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from utils.range_extraction import extract_ip_oop_ranges_for_open
 from features.types import STACK_BUCKETS
 from preflop.matchups import MATCHUPS
-from utils.build_cluster_strategy_object import build_cluster_strategy_object
 from utils.cluster_helpers import _load_flop_cluster_map, _valid_clusters_and_representatives, _board_for_cluster_id
 
 load_dotenv()

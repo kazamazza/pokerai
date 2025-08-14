@@ -1,22 +1,14 @@
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 from features.types import SolverRequest
 from postflop.schema.cluster_strategy_schema import ClusterStrategy, StrategyNode, ActionBranch
 from utils.solver import parse_board_string, combos_to_range_str
-from workers.postflop.sqs_producer import VILLAIN_PROFILE, EXPLOIT_SETTING, MULTIWAY_CONTEXT, POPULATION_TYPE, \
-    ACTION_CONTEXT
+from workers.postflop.config import VILLAIN_PROFILE, EXPLOIT_SETTING, MULTIWAY_CONTEXT, POPULATION_TYPE, ACTION_CONTEXT
 
 # ===== Pipeline toggles =====
 UPLOAD_CLUSTER_TEMPLATES = False  # set True if you still want the templates saved
 SOLVE_FROM_BOTH_SIDES = True      # IP and OOP calls (leave True for symmetry)
-
-# ===== Fixed axes for clustering/solver stage =====
-CLUSTER_VILLAIN_PROFILE   = "GTO"
-CLUSTER_EXPLOIT_SETTING   = "GTO"
-CLUSTER_MULTIWAY_CONTEXT  = "HU"
-CLUSTER_POPULATION_TYPE   = "REGULAR"
-CLUSTER_ACTION_CONTEXT    = "OPEN"
 
 # ===== S3 prefixes =====
 CLUSTER_TEMPLATES_PREFIX = "postflop/strategy_templates"
@@ -82,30 +74,21 @@ def build_cluster_strategy_object(*, cluster_id: int, board: str, ip_range: List
         oop_strategy=oop_node
     )
 
-def build_cluster_template_s3_key(
-    *, ip: str, oop: str, stack_bb: int, cluster_id: int
-) -> str:
-    file_out = f"{ip}_vs_{oop}_{stack_bb}bb_cluster_{cluster_id}.json.gz"
+def build_cluster_template_s3_key(*, ip: str, oop: str, stack_bb: int, cluster_id: int,
+                                  context: str, profile: str, exploit: str, multiway: str, pop: str) -> str:
     return (
-        f"{CLUSTER_TEMPLATES_PREFIX}/"
-        f"profile={CLUSTER_VILLAIN_PROFILE}/exploit={CLUSTER_EXPLOIT_SETTING}/"
-        f"multiway={CLUSTER_MULTIWAY_CONTEXT}/pop={CLUSTER_POPULATION_TYPE}/"
-        f"action={CLUSTER_ACTION_CONTEXT}/{file_out}"
+        "postflop/cluster_templates/"
+        f"context={context}/profile={profile}/exploit={exploit}/multiway={multiway}/pop={pop}/"
+        f"{ip}_vs_{oop}_{int(stack_bb)}bb_cluster_{cluster_id}.json.gz"
     )
 
 
-def build_postflop_solved_s3_key(
-    *, ip: str, oop: str, stack_bb: int, cluster_id: int
-) -> str:
-    """
-    Final artifact your RangeNet dataset can read.
-    """
-    file_out = f"{ip}_vs_{oop}_{stack_bb}bb_cluster_{cluster_id}.json.gz"
+def build_postflop_solved_s3_key(*, context: str, ip: str, oop: str, stack_bb: int,
+                                 cluster_id: int, profile: str, exploit: str, multiway: str, pop: str) -> str:
     return (
-        f"{POSTFLOP_SOLVED_PREFIX}/"
-        f"profile={CLUSTER_VILLAIN_PROFILE}/exploit={CLUSTER_EXPLOIT_SETTING}/"
-        f"multiway={CLUSTER_MULTIWAY_CONTEXT}/pop={CLUSTER_POPULATION_TYPE}/"
-        f"action={CLUSTER_ACTION_CONTEXT}/{file_out}"
+        "postflop/solved/"
+        f"context={context}/profile={profile}/exploit={exploit}/multiway={multiway}/pop={pop}/"
+        f"{ip}_vs_{oop}_{int(stack_bb)}bb_cluster_{cluster_id}.json.gz"
     )
 
 

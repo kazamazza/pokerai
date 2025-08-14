@@ -3,6 +3,7 @@ import os
 from typing import Dict, Any, List, Union
 from typing import Literal
 from features.types import RangeFeatureRequest, Action, ActionType, Hand
+from utils.canonicalize_range_string import canonicalize_range_string
 from utils.range_parser import expand_range_syntax
 
 def sum_action_amounts(actions: List[Action]) -> float:
@@ -378,9 +379,7 @@ def get_preflop_range(
         raise KeyError(f"❌ Range not found for key: {key}")
 
     raw_range = all_ranges[key]
-    cleaned_range = clean_range_string(raw_range)
-    print(f"[DEBUG] raw range: {cleaned_range}")
-
+    cleaned_range = canonicalize_range_string(raw_range)
     return expand_range_syntax(cleaned_range)
 
 def get_stack_bucket_label(stack_depth: float) -> str:

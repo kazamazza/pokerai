@@ -55,34 +55,76 @@ def _load_vs_open_defender_file(
         ip, oop, stack_bb, profile, exploit, multiway, pop, action_context="VS_OPEN"
     )
 
-def extract_ip_oop_ranges_for_open(ip: str, oop: str, stack_bb: int,
-                                   villain_profile: str, exploit_setting: str,
-                                   multiway_context: str, population_type: str) -> tuple[list[str], list[str]]:
-    """
-    For SRP OPEN:
-      IP range  = opener's OPEN file (ip_vs_oop)
-      OOP range = defender's VS_OPEN file (defender_vs_opener). We try both orderings to be safe.
-    """
-    # Opener (IP)
-    opener_doc = load_preflop_json_from_s3(
-        ip, oop, stack_bb, villain_profile, exploit_setting, multiway_context, population_type, action_context="OPEN"
-    )
-    ip_range = _collect_actions(opener_doc, OPEN_OPENER_ACTIONS)
+# ---- tiny loader wrappers (reuse your existing load_preflop_json_from_s3) ----
+def _load_pf(ip: str, oop: str, stack_bb: int, profile: str, exploit: str, multiway: str, pop: str, action: str) -> dict:
+    return load_preflop_json_from_s3(ip, oop, stack_bb, profile, exploit, multiway, pop, action)
 
-    # Defender (OOP) — roles reversed for VS_OPEN
-    defender_doc, vs_key = _load_vs_open_doc_any(
-        ip_defender=oop,          # defender is OOP
-        oop_opener=ip,            # opener is IP
-        stack_bb=stack_bb,
-        profile=villain_profile,
-        exploit=exploit_setting,
-        multiway=multiway_context,
-        pop=population_type
-    )
-    oop_range = _collect_actions(defender_doc, VS_OPEN_DEFENDER_ACTIONS)
+# Which buckets to collect from each file for each context/role.
+# NOTE: keep names lowercase; _collect_actions lowercases keys.
+CONTEXT_RECIPES = {
+    # Single-raised pot (SRP): opener is IP in your clustering stage
+    "OPEN": [
+        # (action_file_used, buckets_we_want, pair_orientation)
+        ("OPEN",    ("open",),                           "ip_oop"),  # opener's range
+        ("VS_OPEN", ("call", "3bet", "4bet", "jam"),     "oop_ip"),  # defender's range (all defending lines)
+    ],
 
-    # Helpful breadcrumbs
-    print(f"    • OPEN used: action=OPEN/{ip}_vs_{oop}_{stack_bb}bb.json.gz")
-    print(f"    • VS_OPEN used: {vs_key}")
-    print(f"    • IP_range={len(ip_range)} OOP_range={len(oop_range)}")
+    # Facing a limp (hero can ISO or over-limp). Opponent is the limper.
+    "VS_LIMP": [
+        ("VS_LIMP", ("iso", "limp"),                     "ip_oop"),  # hero's options vs limp
+        ("VS_ISO",  ("fold", "call", "3bet", "jam"),     "oop_ip"),  # limper's defend vs ISO
+    ],
+
+    # Hero (IP) was the opener, faces a 3bet by OOP.
+    # Hero's file is VS_3BET; OOP's 3betting range is in VS_OPEN (their "3bet" bucket).
+    "VS_3BET": [
+        ("VS_3BET", ("fold", "call", "4bet", "jam"),     "ip_oop"),  # hero's responses
+        ("VS_OPEN", ("3bet",),                           "oop_ip"),  # defender's 3betting range
+    ],
+
+    # Hero (IP) now faces a 4bet. OOP’s 4bet range typically appears in their VS_3BET file.
+    "VS_4BET": [
+        ("VS_4BET", ("fold", "call", "jam"),             "ip_oop"),  # hero's responses to 4bet
+        ("VS_3BET", ("4bet", "jam"),                     "oop_ip"),  # defender's 4bet/jam buckets
+    ],
+
+    # Optional: if you also do "VS_ISO" as a primary context
+    "VS_ISO": [
+        ("VS_ISO",  ("fold", "call", "3bet", "jam"),     "ip_oop"),
+        ("VS_LIMP", ("limp",),                           "oop_ip"),  # original limper range
+    ],
+}
+
+def extract_ip_oop_ranges(
+    action_context: str,
+    ip: str, oop: str, stack_bb: int,
+    villain_profile: str, exploit_setting: str,
+    multiway_context: str, population_type: str,
+) -> tuple[list[str], list[str]]:
+    """
+    Generic extractor: loads the correct two preflop files (possibly role-reversed)
+    and collects the requested buckets to produce (ip_range, oop_range).
+    """
+    ctx = action_context.upper()
+    if ctx not in CONTEXT_RECIPES:
+        raise ValueError(f"Unsupported action_context: {action_context}")
+
+    steps = CONTEXT_RECIPES[ctx]
+
+    # Step A: get IP range
+    fileA, bucketsA, orientA = steps[0]
+    if orientA == "ip_oop":
+        docA = _load_pf(ip, oop, stack_bb, villain_profile, exploit_setting, multiway_context, population_type, fileA)
+    else:
+        docA = _load_pf(oop, ip, stack_bb, villain_profile, exploit_setting, multiway_context, population_type, fileA)
+    ip_range = _collect_actions(docA, set(bucketsA))
+
+    # Step B: get OOP range
+    fileB, bucketsB, orientB = steps[1]
+    if orientB == "ip_oop":
+        docB = _load_pf(ip, oop, stack_bb, villain_profile, exploit_setting, multiway_context, population_type, fileB)
+    else:
+        docB = _load_pf(oop, ip, stack_bb, villain_profile, exploit_setting, multiway_context, population_type, fileB)
+    oop_range = _collect_actions(docB, set(bucketsB))
+
     return ip_range, oop_range
