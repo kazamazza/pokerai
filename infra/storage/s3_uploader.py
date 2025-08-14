@@ -1,3 +1,6 @@
+import gzip
+import io
+import json
 import os
 
 import boto3
@@ -59,3 +62,20 @@ class S3Uploader:
         except ClientError as e:
             print(f"❌ List failed: {e}")
             return []
+
+    def read_json_gz(self, s3_key: str) -> dict:
+        """
+        Read a .json.gz object from S3, decompress in-memory, and return parsed JSON.
+        """
+        try:
+            obj = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            by = obj["Body"].read()
+            with gzip.GzipFile(fileobj=io.BytesIO(by)) as gz:
+                text = gz.read().decode("utf-8")
+            return json.loads(text)
+        except ClientError as e:
+            print(f"❌ Failed to read {s3_key}: {e}")
+            raise
+        except Exception as e:
+            print(f"❌ Gzip/JSON parse failed for {s3_key}: {e}")
+            raise

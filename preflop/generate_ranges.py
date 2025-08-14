@@ -5,7 +5,6 @@ import os
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Tuple
 from dotenv import load_dotenv
 from infra.storage.s3_uploader import S3Uploader
 from utils.combos import get_169_combo_list

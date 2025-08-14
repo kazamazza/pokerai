@@ -30,7 +30,7 @@ job_configs = {
     instance_type     = "c5.large"
     worker_name       = "equity_producer"
     volume_size       = 100
-    disabled          = true
+    disabled          = false
   }
 
   exploit_producer = {
@@ -63,7 +63,7 @@ worker_configs = {
     ]
     min_size          = 0
     max_size          = 15
-    desired_capacity  = 10
+    desired_capacity  = 0
     worker_name       = "preflop_worker"
   }
 

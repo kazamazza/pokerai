@@ -5,7 +5,7 @@ from typing import Tuple
 import torch
 from torch.utils.data import Dataset
 
-from utils.range_utils import encode_category, encode_position
+from utils.encoders import encode_position, encode_category
 
 
 class RangeNetDataset(Dataset):

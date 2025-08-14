@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from itertools import product
 from typing import Dict
 
@@ -104,11 +105,36 @@ def apply_multiway_adjustments(base: str, multiway: str) -> str:
     return base
 
 
+def apply_action_context_adjustments(base: str, position: str, action_context: str) -> str:
+    # Example dummy logic — replace with real GTO/solver outputs
+    if action_context == "OPEN":
+        return base
+    elif action_context == "VS_OPEN":
+        # Narrow calling/3betting range vs open
+        return "99+,AQs+,AKo"
+    elif action_context == "VS_3BET":
+        # Defend tighter vs 3bet
+        return "JJ+,AKs,AKo"
+    elif action_context == "VS_LIMP":
+        # Widen vs limp
+        return base + ",Q9o+,J9o+,T9o"
+    return base
+
+
 def apply_population_adjustments(base: str, pop: str) -> str:
     if pop == "RECREATIONAL":
         return base + ",J9s,T8s"
     return base
 
+
+def normalize_range_string(range_str: str) -> str:
+    # Remove accidental double commas or stray commas/plus
+    range_str = re.sub(r',+', ',', range_str)  # collapse multiple commas
+    range_str = re.sub(r'\+,+', '+', range_str)  # remove commas after plus
+    range_str = re.sub(r',\+', '+', range_str)  # fix comma before plus
+    range_str = re.sub(r',\s*$', '', range_str)  # strip trailing comma
+    range_str = re.sub(r'^\s*,', '', range_str)  # strip leading comma
+    return range_str.strip()
 
 def build_range_string(
     position: str,
@@ -126,11 +152,9 @@ def build_range_string(
     base = apply_exploit_adjustments(base, exploit)
     base = apply_multiway_adjustments(base, multiway)
     base = apply_population_adjustments(base, population)
+    base = apply_action_context_adjustments(base, position, action)
 
-    # Optional: adjust for action_context, e.g., vs open, vs limp
-    # For now we leave this static.
-
-    return base
+    return normalize_range_string(base)
 
 
 def generate_villain_range_map():

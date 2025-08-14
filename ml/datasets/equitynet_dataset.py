@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 from typing import List, Tuple
 
 from ml.schema.equity_net_schema import EquityNetFeatures, EquityNetLabel
-from utils.range_utils import encode_position, encode_card, encode_board
+from utils.encoders import encode_card, encode_board, encode_position
 
 
 class EquityNetDataset(Dataset):
