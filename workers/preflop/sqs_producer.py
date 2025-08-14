@@ -8,10 +8,10 @@ import boto3
 import itertools
 from dotenv import load_dotenv
 
-from utils.poker import POSITION_ORDER
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
+
+from utils.poker import POSITION_ORDER
 
 load_dotenv()
 

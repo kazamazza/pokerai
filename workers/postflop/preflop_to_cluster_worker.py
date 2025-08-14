@@ -14,7 +14,6 @@ sys.path.append(str(ROOT_DIR))
 
 from postflop.extractors import EXTRACTORS
 from postflop.flop_clusters import load_flop_cluster_map, valid_clusters_and_reps, board_for_cluster_id
-from utils.cluster_plan import iter_cluster_axes
 from postflop.deps import DEPS
 from utils.pot_calculators import get_flop_pot_from_context
 from preflop.generate_ranges import generate_single_range
