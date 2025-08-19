@@ -21,4 +21,12 @@ crash.log
 .terraform.lock.hcl
 
 data/vendor/
+data/raw/
+data/equity/
+data/exploit/
+data/parsed/
+data/population/
+data/preflop/
+data/rangenet/
+data/ranges/
 postflop/strategy_templates/
