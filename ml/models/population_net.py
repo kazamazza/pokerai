@@ -1,15 +1,40 @@
-import torch.nn as nn
-import torch.nn.functional as F
+import torch
+from torch import nn
 
 
 class PopulationNet(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int = 128, output_dim: int = 6):
-        super(PopulationNet, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.out = nn.Linear(hidden_dim, output_dim)
+    """
+    Simple, strong baseline for population profiling.
+    - Input: dense feature vector x_vec ∈ R^D (already normalized in ETL)
+    - Output: M targets in [0,1] (frequencies / propensities), via sigmoid
+    - Optional: pass dropout for regularization
+    """
+    def __init__(self, input_dim: int, output_dim: int, hidden: int = 256, dropout: float = 0.15):
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.out(x)
+        self.backbone = nn.Sequential(
+            nn.Linear(input_dim, hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden, hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden, hidden // 2),
+            nn.ReLU(inplace=True),
+        )
+        self.head = nn.Linear(hidden // 2, output_dim)
+
+    def forward(self, batch):
+        """
+        Expect batch["x_vec"] : FloatTensor [B, D]
+        Returns predictions in [0,1] : FloatTensor [B, M]
+        """
+        x = batch["x_vec"]              # [B, D]
+        h = self.backbone(x)            # [B, H/2]
+        logits = self.head(h)           # [B, M]
+        probs = torch.sigmoid(logits)   # constrain to [0,1]
+        return probs
