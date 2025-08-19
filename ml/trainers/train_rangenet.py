@@ -14,7 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 ROOT_DIR = Path(__file__).resolve().parents[2]
 import sys; sys.path.append(str(ROOT_DIR))
 import pandas as pd
-from ml.datasets.rangenet_parquet_dataset import RangeNetParquetDataset
+from ml.datasets.rangenet_dataset import RangeNetDataset
 from ml.models.range_net import RangeNet
 
 try:
@@ -97,8 +97,8 @@ def train(yaml_path="ml/config/settings.yaml"):
     ctx_vocab = sorted(df_train["ctx"].astype(str).unique().tolist())
     pos_vocab = ["UTG","HJ","CO","BTN","SB","BB"]
 
-    ds_tr = RangeNetParquetDataset(tr_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
-    ds_va = RangeNetParquetDataset(va_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
+    ds_tr = RangeNetDataset(tr_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
+    ds_va = RangeNetDataset(va_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
 
     input_dim = len(pos_vocab) + len(ctx_vocab) + 1 + 169
     out_dim   = ds_tr.out_dim

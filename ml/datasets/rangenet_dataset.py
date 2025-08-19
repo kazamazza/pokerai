@@ -1,4 +1,4 @@
-# ml/datasets/rangenet_parquet_dataset.py
+# ml/datasets/rangenet_dataset.py
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
@@ -30,7 +30,7 @@ HAND169 = hand169_order()
 HAND2IDX: Dict[str, int] = {h: i for i, h in enumerate(HAND169)}
 
 # ---------- Dataset ----------
-class RangeNetParquetDataset(Dataset):
+class RangeNetDataset(Dataset):
     def __init__(
         self,
         path: Path | str,

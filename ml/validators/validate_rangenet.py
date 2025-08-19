@@ -9,7 +9,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 import sys; sys.path.append(str(ROOT))
 
-from ml.datasets.rangenet_parquet_dataset import RangeNetParquetDataset
+from ml.datasets.rangenet_dataset import RangeNetDataset
 from ml.models.range_net import RangeNet
 from ml.trainers.train_rangenet import load_cfg, set_seed, load_section
 
@@ -70,7 +70,7 @@ def validate(
     if not split_path.exists():
         raise FileNotFoundError(f"Missing {split} split parquet at {split_path}")
 
-    ds = RangeNetParquetDataset(split_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
+    ds = RangeNetDataset(split_path, ctx_vocab=ctx_vocab, pos_vocab=pos_vocab)
     if max_rows is not None and max_rows > 0 and len(ds) > max_rows:
         # cheap subsample by slicing (deterministic with seed)
         indices = list(range(max_rows))

@@ -18,9 +18,18 @@ settings:
 # ===== Types (fixed enums, not vendor-dependent) =====
 types:
   positions: ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
-  action_contexts: ["OPEN", "VS_OPEN", "VS_3BET", "VS_4BET", "VS_LIMP", "VS_ISO"]
+  action_contexts:
+    - OPEN        # hero opens
+    - VS_OPEN     # hero faces open
+    - VS_3BET     # hero faces 3-bet
+    - VS_4BET     # hero faces 4-bet
+    - VS_LIMP     # hero faces limp
+    - VS_ISO      # hero isolates limp
+    - VS_SQUEEZE  # hero faces squeeze
+    - CHECK_TO    # postflop, villain checks to hero
   multiway_contexts: ["HU", "3WAY", "4WAY_PLUS"]
   villain_profiles: ["GTO", "TAG", "LAG", "NIT", "MANIAC", "FISH"]
+  streets: ["preflop","flop","turn","river"]
 
 board_clustering:
   flop:
@@ -128,15 +137,17 @@ training:
         model_dir: "models"
         model_path: "exploitnet_dev.pt"
         curve_path: "exploitnet_dev_training.json"
-        batch_size: 512
-        epochs: 4
+        batch_size: 256
+        epochs: 2
         lr: 1e-3
-        val_split: 0.1
-        hidden: 192
+        val_split: 0.05
+        hidden: 96
         dropout: 0.10
         num_workers: 0
-        lambda_size: 0.5
-        early_stop_patience: 4
+        lambda_size: 0.0       # disable size regression in dev
+        early_stop_patience: 2
+        max_rows: 100000       # <-- new, cap dataset size
+        keep_prob: 0.25
       prod:
         data_path: "s3://.../exploitnet.latest.jsonl.gz"
         model_dir: "models"
@@ -148,7 +159,7 @@ training:
         val_split: 0.1                # keep enough for validation
         hidden: 384
         dropout: 0.15
-        num_workers: 2
+        num_workers: 0
         lambda_size: 0.7
         early_stop_patience: 6        # allow a bit more patience
 
