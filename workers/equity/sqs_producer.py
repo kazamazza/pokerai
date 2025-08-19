@@ -11,10 +11,9 @@ import eval7
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.schema.equity_net_schema import EquityNetFeatures, EquityNetLabel
-from features.types import STACK_BUCKETS, POSITIONS, ACTION_CONTEXTS
+from ml.schema.equity_net_schema import EquityNetFeatures
+from ml.types import STACK_BUCKETS, POSITIONS, ACTION_CONTEXTS
 from utils.ec2 import is_ec2_instance, shutdown_instance
-from utils.expected_counts import update_expected_count
 
 # Load AWS credentials from .env
 load_dotenv()

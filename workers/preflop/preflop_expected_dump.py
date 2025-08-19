@@ -1,12 +1,12 @@
 # tools/preflop_expected_dump.py
-import json, itertools, os, sys
+import itertools, sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 # import the SAME symbols the producer uses
-from features.types import VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS, STACK_BUCKETS
+from ml.types import VILLAIN_PROFILES, EXPLOIT_SETTINGS, MULTIWAY_CONTEXTS, POPULATION_TYPES, ACTION_CONTEXTS, STACK_BUCKETS
 from preflop.matchups import MATCHUPS
 from utils.keys import build_preflop_s3_key
 

@@ -1,1 +1,0 @@
-POSITION_ORDER = ["UTG","MP","CO","BTN","SB","BB"]

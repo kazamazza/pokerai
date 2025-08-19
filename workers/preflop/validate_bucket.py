@@ -160,7 +160,7 @@ def main(limit: int | None = None, max_workers: int = 16, progress_every: int = 
                 if len(bad_samples) < 200:
                     bad_samples.append(bad)
 
-    # parallel validation
+    # parallel validators
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = [ex.submit(_check_one, k) for k in keys]
         for f in as_completed(futures):

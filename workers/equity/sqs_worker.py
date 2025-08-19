@@ -11,7 +11,6 @@ sys.path.append(str(ROOT_DIR))
 
 load_dotenv()
 from utils.files import compress_json_gzip
-from generate_equity_simulations import generate_simulation
 from workers.base import SQSWorker
 
 REGION = os.getenv("AWS_REGION")
