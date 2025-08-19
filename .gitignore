@@ -19,3 +19,6 @@ __pycache__/
 crash.log
 *.tfplan
 .terraform.lock.hcl
+
+data/vendor/
+postflop/strategy_templates/
