@@ -14,7 +14,6 @@ from ml.core.types import Act
 # Group-by keys for a “cell” (populationnet granularity)
 GRP = ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
 
-
 def _rename_counts(pivot: pl.DataFrame) -> pl.DataFrame:
     """
     Normalize pivoted action count columns to fixed names:
@@ -133,5 +132,5 @@ if __name__ == "__main__":
     ap.add_argument("--out", type=str, default=None, help="output parquet path")
     args = ap.parse_args()
 
-    out = args.out or f"data/datasets/populationnet_nl{args.stake}.parquet"
+    out = args.out or f"data/processed/populationnet_nl{args.stake}.parquet"
     build_population_parquet(args.stake, args.input, args.coverage, out)
