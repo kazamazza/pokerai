@@ -147,9 +147,9 @@ def write_manifest(df: pd.DataFrame, out_parquet: Path, out_jsonl: Path | None =
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=str, default="datasets/vendor/monker",
+    ap.add_argument("--root", type=str, default="data/vendor/monker",
                     help="Root folder containing stack subfolders (e.g., 12bb, 15bb, ...)")
-    ap.add_argument("--out", type=str, default="datasets/artifacts/monker_manifest.parquet")
+    ap.add_argument("--out", type=str, default="data/artifacts/monker_manifest.parquet")
     args = ap.parse_args()
 
     root = Path(args.root)

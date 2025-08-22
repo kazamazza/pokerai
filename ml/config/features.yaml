@@ -1,6 +1,0 @@
-board_clustering:
-  type: rule                # 'rule' or 'kmeans'
-  artifact: data/artifacts/board_clusters_v1.pkl
-  kmeans:
-    n_clusters: 24
-    random_state: 42

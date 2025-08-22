@@ -1,0 +1,40 @@
+name: equitynet_postflop
+
+inputs:
+  manifest: data/artifacts/monker_manifest.parquet
+
+outputs:
+  postflop_parquet: data/datasets/equitynet_postflop.parquet
+
+board_clustering:
+  type: rule        # or 'kmeans'
+  # artifact: data/artifacts/board_clusters_kmeans.pkl  # if kmeans
+
+equity_mc:
+  postflop_samples: 5000
+  seed: 42
+  max_resample: 30
+
+dataset:
+  x_cols: ["stack_bb", "hero_pos_id", "opener_action_id", "board_cluster_id", "hand_id"]
+  y_cols: ["p_win","p_tie","p_lose"]
+  weight_col: weight
+  min_weight: 5
+
+model:
+  hidden_dims: [128, 128]
+  dropout: 0.10
+  lr: 0.001
+  weight_decay: 0.0001
+
+train:
+  batch_size: 2048
+  max_epochs: 10
+  patience: 3
+  num_workers: 0
+  accelerator: auto
+  devices: auto
+  seed: 42
+  monitor: val_loss
+  mode: min
+  checkpoints_dir: checkpoints/equity_postflop
