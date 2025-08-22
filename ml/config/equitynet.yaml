@@ -1,15 +1,15 @@
 data:
-  monker_manifest: "artifacts/monker_manifest.parquet"
-  out_dir: "datasets/equitynet"
+  monker_manifest: "data/interim/monker_manifest.parquet"
+  out_dir: "data/processed"
   use_coverage: true
 
 coverage:
   group_by: ["stack", "hero_pos"]
   min_per_group: 10
-  output: "artifacts/coverage/equitynet_coverage.json"
+  output: "reports/coverage/equitynet_coverage.json"
 
 train:
-  parquet: "datasets/datasets/equitynet_12_15bb.parquet"
+  parquet: "data/processed/equitynet_12_15bb.parquet"
   batch_size: 2048
   max_epochs: 10
   lr: 1e-3
@@ -17,7 +17,7 @@ train:
   precision: "16-mixed"
   accelerator: "auto"
   devices: "auto"
-  checkpoints_dir: "checkpoints/equitynet"
+  checkpoints_dir: "ml/checkpoints/equitynet"
   monitor: "val_loss"
   mode: "min"
   seed: 42

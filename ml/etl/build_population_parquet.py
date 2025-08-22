@@ -8,7 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from infra.storage.s3_client import S3Client
-from ml.config.coverage.coverage_populationnet import resolve_input_path
+from ml.coverage.coverage_populationnet import resolve_input_path
 from ml.core.types import Act
 
 # Group-by keys for a “cell” (populationnet granularity)

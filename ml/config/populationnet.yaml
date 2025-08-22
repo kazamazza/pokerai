@@ -1,7 +1,5 @@
-# ml/config/populationnet.yaml
-
 data:
-  parquet: "datasets/datasets/populationnet_nl10.parquet"
+  parquet: "data/processed/populationnet_nl10.parquet"
   use_coverage: true          # informative only; parquet was already built using coverage
   filters:
     keep_ctx_ids: null
@@ -10,7 +8,7 @@ data:
 
 coverage:
   # kept for symmetry/traceability; actual coverage was applied at parquet-build time
-  output: "ml/config/coverage/populationnet_nl10.json"
+  output: "reports/coverage/populationnet_nl10.json"
   group_by: ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
   min_rows_per_cell: 50
   min_cells_per_ctx: 10
@@ -33,4 +31,4 @@ train:
   seed: 42
   monitor: "val_loss"
   mode: "min"
-  checkpoints_dir: "checkpoints/popnet"
+  checkpoints_dir: "ml/checkpoints/popnet"
