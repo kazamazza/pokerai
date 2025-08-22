@@ -2,6 +2,7 @@ from typing import List
 
 RANKS = "AKQJT98765432"
 SUITS = "cdhs"
+RANK_TO_I = {r: i for i, r in enumerate(RANKS)}
 
 def _pair(code: str) -> bool:
     return len(code) == 2 and code[0] == code[1]
