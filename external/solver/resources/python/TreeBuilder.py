@@ -168,7 +168,7 @@ class TreeBuilder:
                 node_type = "Chance"
 
         one_json = {
-            "data": {
+            "datasets": {
                 "text": text},
             "children": children,
             "children_actions": children_actions,
@@ -203,7 +203,7 @@ class TreeBuilder:
             one_json["meta"]["node_type"] = node_type
             one_json["meta"]["round"] = {1:"preflop",2:"flop",3:"turn",4:"river"}[root.betting_round + 1]
             text = "Chance [DealCard]\nround:{}".format(one_json["meta"]["round"])
-            one_json["data"]["text"] = text
+            one_json["datasets"]["text"] = text
 
             new_root = deepcopy(root)
             new_root.betting_round += 1

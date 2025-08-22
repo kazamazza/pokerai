@@ -1,0 +1,29 @@
+data:
+  monker_manifest: "artifacts/monker_manifest.parquet"
+  out_dir: "datasets/equitynet"
+  use_coverage: true
+
+coverage:
+  group_by: ["stack", "hero_pos"]
+  min_per_group: 10
+  output: "artifacts/coverage/equitynet_coverage.json"
+
+train:
+  parquet: "datasets/datasets/equitynet_12_15bb.parquet"
+  batch_size: 2048
+  max_epochs: 10
+  lr: 1e-3
+  patience: 3
+  precision: "16-mixed"
+  accelerator: "auto"
+  devices: "auto"
+  checkpoints_dir: "checkpoints/equitynet"
+  monitor: "val_loss"
+  mode: "min"
+  seed: 42
+  num_workers: 0
+
+model:
+  hidden_dims: [128, 64]
+  dropout: 0.1
+  soft_labels: true

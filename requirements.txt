@@ -1,3 +1,4 @@
+pytorch-lightning
 annotated-types==0.7.0
 anyio==4.9.0
 boto3==1.39.16

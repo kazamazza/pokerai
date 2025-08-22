@@ -1,14 +1,4 @@
 seed: 42
 paths:
-  data_root: data
+  data_root: datasets
   out_dir: models
-populationnet:
-  inputs: [stakes, hero_pos, villain_pos, context]
-  actions: [fold, call, raise]   # v1 merged raise
-  context_filter: [VS_OPEN]       # v1 scope
-  min_examples_per_key: 200       # coverage gate
-train:
-  batch_size: 512
-  lr: 1e-3
-  max_epochs: 15
-  num_workers: 4

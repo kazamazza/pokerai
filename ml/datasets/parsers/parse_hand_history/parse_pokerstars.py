@@ -10,11 +10,11 @@ from typing import Literal, Optional
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from parsers.parse_hand_history.build_postflop_decisions import build_postflop_decision_rows
-from parsers.parse_hand_history.build_preflop_decisions import build_preflop_decision_rows
+from ml.datasets.parsers.parse_hand_history.build_postflop_decisions import build_postflop_decision_rows
+from ml.datasets.parsers.parse_hand_history.build_preflop_decisions import build_preflop_decision_rows
 from ml.core.types import Act, Street, Pos, Stakes, POSITIONS, Ctx
 from infra.storage.s3_client import S3Client
-from parsers.parse_hand_history.regex_patterns import FLOP_RE, TURN_RE, RIVER_RE, TABLE_RE, SEATLINE_RE, HOLE_CARDS_RE, \
+from ml.datasets.parsers.parse_hand_history.regex_patterns import FLOP_RE, TURN_RE, RIVER_RE, TABLE_RE, SEATLINE_RE, HOLE_CARDS_RE, \
     SHOWDOWN_RE, HAND_SPLIT_RE, BB_RE, ACTION_RAISE, ACTION_BET, ACTION_CALL, ACTION_CHECK, ACTION_FOLD
 from ml.core.hand_schema import RawSeat, HandSchema, StakeObj
 

@@ -1,0 +1,42 @@
+{
+  "dataset": {
+    "parquet": "data/datasets/populationnet_nl10.parquet",
+    "x_cols": [
+      "stakes_id",
+      "street_id",
+      "ctx_id",
+      "hero_pos_id",
+      "villain_pos_id"
+    ],
+    "y_cols": [
+      "y_fold",
+      "y_call",
+      "y_raise"
+    ],
+    "weight_col": "w",
+    "keep_ctx_ids": null,
+    "keep_street_ids": null,
+    "min_weight": 10
+  },
+  "model": {
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001
+  },
+  "train": {
+    "batch_size": 2048,
+    "max_epochs": 10,
+    "patience": 3,
+    "num_workers": 0,
+    "accelerator": "auto",
+    "devices": "auto",
+    "seed": 42,
+    "monitor": "val_loss",
+    "mode": "min",
+    "checkpoints_dir": "checkpoints/popnet"
+  }
+}
