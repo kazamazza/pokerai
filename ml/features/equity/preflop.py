@@ -1,11 +1,114 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import random
 import eval7
 from ml.config.types_hands import SUITS, RANKS
 from ml.features.equity.shared import expand_hand_code_to_combos, villain_combo_distribution, _to_ev7, \
-    _sample_discrete
+    _sample_discrete, EquityTuple, _build_remaining_deck, _evaluate_hand, _normalize_probs
 
+# Module-level cache
+_EQ_PREFLOP_CACHE: Dict[str, Any] = {}
+
+
+def _cache_key_vill(vill_range: Dict[str, float]) -> Tuple[Tuple[str, float], ...]:
+    """Stable key for villain range dict."""
+    return tuple(sorted(vill_range.items()))
+
+def equity_preflop_vs_range_cached(
+    hero_code: str,
+    vill_range: Dict[str, float],
+    n_samples: int = 20000,
+    seed: int = 42,
+    max_resample: int = 50,
+) -> EquityTuple:
+    """
+    Monte Carlo estimate of hero preflop equity vs a villain range (no board).
+    Uses caching for:
+      - hero_code -> concrete combos
+      - vill_range -> expanded base villain combo list + weights
+
+    Notes:
+      - Villain is sampled with rejection to respect hero blockers (no overlap).
+      - Board is drawn uniformly from the remaining 52 minus {hero,villain}.
+    """
+    rng = random.Random(seed)
+
+    # ---- Cache hero combos (uniform over concrete combos of the code) ----
+    hero_key = f"hero:{hero_code}"
+    if hero_key not in _EQ_PREFLOP_CACHE:
+        combos = expand_hand_code_to_combos(hero_code)  # List[Tuple[str,str]]
+        if not combos:
+            # If the code is invalid or fully blocked somehow, return neutral tie.
+            return (0.0, 1.0, 0.0)
+        _EQ_PREFLOP_CACHE[hero_key] = combos
+    hero_combos: List[Tuple[str, str]] = _EQ_PREFLOP_CACHE[hero_key]
+
+    # ---- Cache villain base combos & weights (before hero blockers) ----
+    vill_key = ("vill:", _cache_key_vill(vill_range))
+    if vill_key not in _EQ_PREFLOP_CACHE:
+        # Expand range into concrete combos with weights proportional to hand prob / #combos
+        base_combos: List[Tuple[str, str]] = []
+        base_weights: List[float] = []
+        for code, p in vill_range.items():
+            if p <= 0:
+                continue
+            c_list = expand_hand_code_to_combos(code)
+            if not c_list:
+                continue
+            w = float(p) / float(len(c_list))
+            for c in c_list:
+                base_combos.append(c)
+                base_weights.append(w)
+        # Normalize weights (defensive)
+        s = float(sum(base_weights))
+        if s > 0:
+            base_weights = [w / s for w in base_weights]
+        _EQ_PREFLOP_CACHE[vill_key] = (base_combos, base_weights)
+    vill_base_combos, vill_base_weights = _EQ_PREFLOP_CACHE[vill_key]
+
+    # If villain has nothing, neutral tie
+    if not vill_base_combos:
+        return (0.0, 1.0, 0.0)
+
+    wins = ties = losses = 0
+
+    # Preconvert all 52 once for speed (tiny micro-opt)
+    # (We’ll still call _to_ev7 for the two drawn hero/villain cards)
+    for _ in range(n_samples):
+        # 1) Draw concrete hero combo uniformly
+        h = rng.choice(hero_combos)
+        h1c, h2c = _to_ev7(h[0]), _to_ev7(h[1])
+
+        # 2) Sample villain combo with rejection until no overlap with hero
+        v_combo = None
+        for _try in range(max_resample):
+            idx = _sample_discrete(vill_base_weights, rng)
+            cand = vill_base_combos[idx]
+            v1c, v2c = _to_ev7(cand[0]), _to_ev7(cand[1])
+            # No overlap with hero cards
+            if v1c != h1c and v1c != h2c and v2c != h1c and v2c != h2c:
+                v_combo = (v1c, v2c)
+                break
+        if v_combo is None:
+            # Couldn’t draw a non-overlapping villain hand this round
+            continue
+        v1c, v2c = v_combo
+
+        # 3) Build remaining deck and sample a full 5-card board
+        used = [h1c, h2c, v1c, v2c]
+        remaining = _build_remaining_deck(used)
+        # Defensive: ensure we have at least 5 cards left
+        if len(remaining) < 5:
+            continue
+        board = rng.sample(remaining, k=5)
+
+        # 4) Evaluate once
+        w, t, l = _evaluate_hand((h[0], h[1]), (str(v1c), str(v2c)), board)
+        wins += w
+        ties += t
+        losses += l
+
+    return _normalize_probs(wins, ties, losses)
 
 def equity_preflop_vs_range(
     hero_code: str,

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Dict
 from ml.config.types_hands import HAND_TO_ID
 
+_RANGE_CACHE: dict[str, dict] = {}
 
 def parse_monker_range_text(text: str) -> Dict[str, float]:
     """
@@ -49,3 +50,11 @@ def load_range_file(path: Path) -> Dict[str, float]:
     if not lines:
         return {}
     return parse_monker_range_text(lines[-1])
+
+def load_range_file_cached(path: Path) -> dict[str, float]:
+    key = str(path)
+    if key in _RANGE_CACHE:
+        return _RANGE_CACHE[key]
+    rng = load_range_file(path)  # your existing function
+    _RANGE_CACHE[key] = rng
+    return rng

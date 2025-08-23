@@ -11,15 +11,17 @@ outputs:
   # (optional) evaluated parquet (if you separate “build” and “evaluate”)
   evaluated_out: data/artifacts/equitynet_preflop_evaluated.parquet
 
-dataset:
-  x_cols: ["stack_bb", "hero_pos_id", "opener_action_id", "hand_id"]  # ids after mapping
-  y_cols: ["p_win","p_tie","p_lose"]
-  weight_col: weight
-  min_weight: 5
-
 equity_mc:
-  preflop_samples: 5000
+  preflop_samples: 10
   seed: 42
+
+dataset:
+  x_cols: ["stack_bb","hero_pos","opener_action","hand_id"]
+  y_cols: ["y_win","y_tie","y_lose"]
+  weight_col: "weight"
+  scenario_keys: ["stack_bb","hero_pos","opener_action"]
+  keep_values: null
+  min_weight: null
 
 model:
   hidden_dims: [128, 128]
@@ -34,7 +36,9 @@ train:
   num_workers: 0
   accelerator: auto
   devices: auto
+  precision: 16-mixed
   seed: 42
   monitor: val_loss
   mode: min
-  checkpoints_dir: checkpoints/equity_preflop
+  train_frac: 0.8
+  checkpoints_dir: checkpoints/equity_pre

@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+
 @dataclass
 class CardsInfo:
     """Cardinalities for each feature (after ID encoding)."""
@@ -132,3 +133,21 @@ class EquityDatasetParquet(Dataset):
 
     def id_maps(self) -> Dict[str, Dict[Any, int]]:
         return {k: dict(v) for k, v in self._encoders.items()}
+
+def equity_collate_fn(batch):
+    """
+    Batch a list of (x_dict, y, w) into stacked tensors:
+      x_dict: {feature_name: LongTensor[B]}
+      y:      FloatTensor[B, 3]
+      w:      FloatTensor[B]
+    """
+    # batch[i] = (x_dict, y, w)
+    x_keys = batch[0][0].keys()
+    x_dict = {k: torch.stack([item[0][k].long() for item in batch], dim=0) for k in x_keys}
+    y = torch.stack([item[1].float() for item in batch], dim=0)
+    w = torch.stack([item[2].float() for item in batch], dim=0)
+    return x_dict, y, w
+
+
+
+

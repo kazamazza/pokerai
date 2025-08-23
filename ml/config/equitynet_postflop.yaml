@@ -7,19 +7,21 @@ outputs:
   postflop_parquet: data/datasets/equitynet_postflop.parquet
 
 board_clustering:
-  type: rule        # or 'kmeans'
-  # artifact: data/artifacts/board_clusters_kmeans.pkl  # if kmeans
-
+  type: rule
+  n_clusters_limit: 6        # was 24
+  boards_per_cluster: 2      # was 8
 equity_mc:
-  postflop_samples: 5000
+  postflop_samples: 30       # was 50
   seed: 42
-  max_resample: 30
+  max_resample: 20
 
 dataset:
-  x_cols: ["stack_bb", "hero_pos_id", "opener_action_id", "board_cluster_id", "hand_id"]
+  parquet: data/datasets/equitynet_postflop.parquet
+  x_cols: ["stack_bb","hero_pos","opener_action","board_cluster_id","hand_id"]
   y_cols: ["p_win","p_tie","p_lose"]
-  weight_col: weight
-  min_weight: 5
+  weight_col: "weight"
+  min_weight: 1
+  stratify_by: ["stack_bb","hero_pos","opener_action","board_cluster_id"]
 
 model:
   hidden_dims: [128, 128]
@@ -32,9 +34,12 @@ train:
   max_epochs: 10
   patience: 3
   num_workers: 0
+  pin_memory: true
   accelerator: auto
   devices: auto
+  precision: "16-mixed"
   seed: 42
   monitor: val_loss
   mode: min
-  checkpoints_dir: checkpoints/equity_postflop
+  train_frac: 0.8
+  checkpoints_dir: checkpoints/equity_post

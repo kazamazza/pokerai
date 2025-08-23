@@ -9,7 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from ml.config.types_hands import ALL_HANDS, HAND_TO_ID
-from ml.etl.utils.monker_parser import load_range_file
+from ml.etl.utils.monker_parser import load_range_file_cached
 
 REQUIRED_MANIFEST_COLS = [
     "stack_bb",       # int, e.g. 12
@@ -60,7 +60,7 @@ def build_equity_parquet(
             if not path.exists():
                 # Skip missing files quietly (or log)
                 continue
-            d = load_range_file(path)  # dict hand -> prob
+            d = load_range_file_cached(path)  # dict hand -> prob
             if not d:
                 continue
             # convert to vector

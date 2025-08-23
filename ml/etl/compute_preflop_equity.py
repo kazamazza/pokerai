@@ -1,31 +1,19 @@
-# ml/etl/compute_preflop_equity.py
 from __future__ import annotations
-import argparse
+import random
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
-import pandas as pd
+from typing import Dict, List, Tuple, Any
+import eval7
 import numpy as np
-import eval7  # pip install eval7
+import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.config.types_hands import ALL_HANDS
-from ml.features.equity.preflop import equity_preflop_vs_range
+from ml.features.equity.preflop import equity_preflop_vs_range_cached
+from ml.features.hands import hand_code_from_id, enumerate_suited_combos
+from ml.etl.utils.monker_parser import load_range_file_cached
 
-# --- Imports you already have in the repo (do not re-declare) ---
-# Hand ID mapping (0..168) and parsing helpers
-from ml.features.hands import HANDS_169, hand_code_from_id, enumerate_suited_combos
-# ^ expected helpers:
-# - HANDS_169: List[str] like ["AA","AKs","AQs",...,"72o"]
-# - hand_code_from_id(hid:int) -> str like "AKs"
-# - enumerate_suited_combos(code:str) -> List[Tuple[eval7.Card, eval7.Card]]
-#
-# Monker parsing: read a file and return a dict {"AA": 1.0, "AKs": 0.5, ...} for the OPENER
-from ml.etl.utils.monker_parser import parse_monker_range_text, load_range_file
-
-# Manifest columns (we rely on your existing manifest builder)
 REQ_MANIFEST_COLS = ["stack_bb", "hero_pos", "opener_action", "rel_path", "abs_path"]
 
 def load_manifest(manifest_parquet: str | Path) -> pd.DataFrame:
@@ -36,15 +24,10 @@ def load_manifest(manifest_parquet: str | Path) -> pd.DataFrame:
     return df
 
 def aggregate_villain_range(manifest_rows: pd.DataFrame, root: Path) -> Dict[str, float]:
-    """
-    Merge all Monker range files in this group into one villain distribution.
-    Sum-prob merge then normalize to 1.0 (if any prob mass exists).
-    Expects manifest_rows to have 'rel_path' or 'abs_path'.
-    """
     agg: Dict[str, float] = {}
     for _, r in manifest_rows.iterrows():
         path = Path(r["abs_path"]) if "abs_path" in r and r["abs_path"] else (root / r["rel_path"])
-        d = load_range_file(path)  # <-- correct helper; no actor kwarg
+        d = load_range_file_cached(path)  # <-- correct helper; no actor kwarg
         # sum-merge
         for hand, prob in d.items():
             if prob <= 0:
@@ -132,83 +115,82 @@ def _preflop_equity_vs_range(hero_code: str,
         return 0.5
     return float(total_wins / total)
 
-def compute_equity_for_group(df_rows: pd.DataFrame,
-                             manifest: pd.DataFrame,
-                             root: Path,
-                             n_samples: int,
-                             seed: int) -> pd.DataFrame:
-    """
-    df_rows: rows for ONE (stack_bb, hero_pos, opener_action) group from the **hand grid** you want to score
-             (e.g., one row per hand_id)
-    manifest: the full manifest; we’ll filter it to the same group to build the villain range.
-    """
-    # Sanity: df_rows must contain grouping keys
-    for col in ("stack_bb", "hero_pos", "opener_action"):
-        if col not in df_rows.columns:
-            raise ValueError(f"df_rows missing '{col}'. Has: {list(df_rows.columns)}")
 
-    # Grab the group context from the first row
-    gb = df_rows.iloc[0]
-    stack_bb = gb["stack_bb"]
-    hero_pos = gb["hero_pos"]
-    opener_action = gb["opener_action"]
 
-    # Filter manifest to this exact scenario
-    msub = manifest[
+def _sample_discrete(weights: List[float], rng: random.Random) -> int:
+    """Return index sampled according to weights (sum ~1)."""
+    r = rng.random()
+    cum = 0.0
+    for i, w in enumerate(weights):
+        cum += float(w)
+        if r <= cum:
+            return i
+    return len(weights) - 1
+
+
+def compute_equity_for_group(
+    key: tuple,
+    df_rows: pd.DataFrame,
+    manifest: pd.DataFrame,
+    root: Path,
+    n_samples: int,
+    seed: int
+) -> pd.DataFrame:
+    """
+    Compute preflop equity for all hero hands in a scenario group.
+    key = (stack_bb, hero_pos, opener_action)
+    df_rows = the rows for this scenario (different hero hand_ids)
+    """
+    stack_bb, hero_pos, opener_action = key
+
+    # 2) Aggregate villain range from all manifest rows for this scenario
+    mask = (
         (manifest["stack_bb"] == stack_bb) &
         (manifest["hero_pos"] == hero_pos) &
         (manifest["opener_action"] == opener_action)
-    ]
-    if msub.empty:
-        # No files? return the input with NaNs or zeros, your choice
-        out = df_rows.copy()
-        out["p_win"] = 0.0
-        out["p_tie"] = 0.0
-        out["p_lose"] = 1.0
-        return out
+    )
+    mrows = manifest[mask]
+    vill_range: Dict[str, float] = {}
+    for _, mr in mrows.iterrows():
+        path = root / mr["rel_path"]  # or abs_path if you prefer
+        r = load_range_file_cached(path)  # dict {hand_code -> prob}
+        for k, v in r.items():
+            vill_range[k] = vill_range.get(k, 0.0) + v
 
-    # Build villain distribution from the Monker files
-    vill_dist = aggregate_villain_range(msub, root)
+    # normalize
+    s = sum(vill_range.values())
+    if s > 0:
+        for k in list(vill_range.keys()):
+            vill_range[k] /= s
 
-    # Compute equity for each hero hand_id vs villain range (preflop = exact enumeration)
-    out_rows = []
+    # 3) For each hero hand_id in df_rows, run MC directly
+    rng = random.Random(seed)
+    out = []
     for _, row in df_rows.iterrows():
-        hid = int(row["hand_id"])
-        # convert hand_id -> canonical code (e.g., 0->'AA', 1->'KK', ...).
-        # If you have HANDS_169 and ID->code helper:
-        # hero_code = hand_code_from_id(hid)
-        # Or with your current types file:
-        hero_code = ALL_HANDS[hid]  # from ml.config.types.hands
+        hand_id = int(row["hand_id"])
+        hero_code = hand_code_from_id(hand_id)
 
-        # exact preflop equity vs distribution
-        p_win, p_tie, p_lose = equity_preflop_vs_range(hero_code, vill_dist)
-        out = dict(row)
-        out["p_win"] = p_win
-        out["p_tie"] = p_tie
-        out["p_lose"] = p_lose
-        out_rows.append(out)
+        p_win, p_tie, p_lose = equity_preflop_vs_range_cached(
+            hero_code=hero_code,
+            vill_range=vill_range,
+            n_samples=n_samples,
+            seed=rng.randint(0, 2**32 - 1),  # keep RNG moving per hand
+        )
 
-    return pd.DataFrame(out_rows)
+        out.append({
+            "stack_bb": stack_bb,
+            "hero_pos": hero_pos,
+            "opener_action": opener_action,
+            "hand_id": hand_id,
+            "p_win": p_win,
+            "p_tie": p_tie,
+            "p_lose": p_lose,
+            "weight": float(row.get("weight", 1.0)),
+        })
+
+    return pd.DataFrame(out)
 
 def run_from_config(cfg: dict) -> None:
-    """
-    Drive the preflop equity computation entirely from YAML config.
-    Expected config keys:
-
-    inputs:
-      manifest: data/artifacts/monker_manifest.parquet
-      parquet_in: data/processed/equitynet_preflop.parquet
-
-    outputs:
-      parquet_out: data/artifacts/equitynet_preflop_evaluated.parquet
-
-    monker:
-      root: data/vendor/monker
-
-    equity_mc:
-      preflop_samples: 50000
-      seed: 42
-    """
     def get(path: str, default=None):
         cur = cfg
         for p in path.split("."):
@@ -236,19 +218,13 @@ def run_from_config(cfg: dict) -> None:
     miss = need_cols - set(in_df.columns)
     if miss:
         raise ValueError(f"Input parquet missing columns: {sorted(miss)}")
-
-    groups = in_df.groupby(["stack_bb", "hero_pos", "opener_action"],
-                           as_index=False, group_keys=False)
+    groups = in_df.groupby(["stack_bb", "hero_pos", "opener_action"], sort=False)
 
     out_df = groups.apply(
         lambda g: compute_equity_for_group(
-            df_rows=g,
-            manifest=manifest,
-            root=monker_root,
-            n_samples=samples,
-            seed=seed
+            g.name, g, manifest, monker_root, samples, seed
         )
-    )
+    ).reset_index(drop=True)
 
     parquet_out.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_parquet(parquet_out, index=False)
@@ -273,7 +249,6 @@ def main():
         cfg.setdefault("outputs", {})["parquet_out"] = args.out
 
     run_from_config(cfg)
-
 
 if __name__ == "__main__":
     main()

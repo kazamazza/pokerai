@@ -1,22 +1,21 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 import argparse
 import random
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
-
+from typing import Dict, List, Any
 import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.config.types_hands import HAND_TO_ID, RANKS, SUITS, ALL_HANDS
-from ml.etl.utils.monker_parser import load_range_file
+from ml.features.equity.shared import expand_range_to_combos_weighted
+from ml.config.types_hands import RANKS, SUITS, ALL_HANDS
+from ml.etl.utils.monker_parser import load_range_file_cached
 from ml.features.boards import load_board_clusterer
-from ml.features.equity.postflop import equity_postflop_vs_range
 from ml.utils.config import load_model_config
+from ml.features.equity.postflop import equity_postflop_vs_range_cached_combos
 
 
 def sha1_file(path: Path) -> str:
@@ -37,7 +36,7 @@ def aggregate_villain_range(manifest_rows: pd.DataFrame) -> Dict[str, float]:
     n = 0
     for _, r in manifest_rows.iterrows():
         p = Path(r["abs_path"])
-        rng_map = load_range_file(p)
+        rng_map = load_range_file_cached(p)
         if not rng_map:
             continue
         for k, v in rng_map.items():
@@ -56,7 +55,6 @@ def aggregate_villain_range(manifest_rows: pd.DataFrame) -> Dict[str, float]:
             acc[k] /= s
     return dict(acc)
 
-# ----- Board sampling by cluster (flop only) -----
 
 def _all_52() -> List[str]:
     return [r + s for r in RANKS for s in SUITS]
@@ -119,11 +117,6 @@ def compute_postflop_equity(
     out_parquet: Path,
     cfg: Dict[str, Any],
 ) -> None:
-    """
-    Build postflop equity parquet:
-      columns = [stack_bb, hero_pos, opener_action, hand_id, board_cluster_id, y_win, y_tie, y_lose, weight]
-    """
-    # Load manifest
     manifest = pd.read_parquet(manifest_path)
     required = {"stack_bb", "hero_pos", "opener_action", "abs_path"}
     missing = sorted([c for c in required if c not in manifest.columns])
@@ -155,35 +148,48 @@ def compute_postflop_equity(
     gcols = ["stack_bb", "hero_pos", "opener_action"]
     for keys, df_g in manifest.groupby(gcols):
         stack_bb, hero_pos, opener_action = keys
+
+        # 1) Aggregate villain range for this scenario (merges all Monker files)
         vill_range = aggregate_villain_range(df_g)
         if not vill_range:
-            # skip scenarios with no parsable ranges
             continue
 
-        # For each hero hand id (0..168)
+        # 2) Pre-expand once per scenario into concrete combos + weights
+        #    This avoids recomputing expansion & normalization on every call.
+        vill_combos, vill_weights = expand_range_to_combos_weighted(vill_range)
+        # (optional safety normalize)
+        s = sum(vill_weights)
+        if s > 0:
+            vill_weights = [w / s for w in vill_weights]
+        else:
+            # if somehow empty, skip scenario
+            continue
+
+        # 3) For each hero hand and each cluster, average equity across sampled boards
         for hand_id, hero_code in enumerate(ALL_HANDS):
-            # For each cluster, average equity across boards_for_cluster
             for cluster_id, boards in cluster_to_boards.items():
                 wins = ties = loses = 0.0
-                # To reduce variance, evaluate multiple boards within the cluster and average
+
                 for i, board_cards in enumerate(boards):
-                    w, t, l = equity_postflop_vs_range(
+                    w, t, l = equity_postflop_vs_range_cached_combos(
                         board_cards=board_cards,
                         hero_code=hero_code,
-                        vill_range=vill_range,
+                        vill_combos=vill_combos,
+                        vill_weights=vill_weights,
                         n_samples=n_samples_per_eval,
-                        seed=seed + i + hand_id * 17 + cluster_id * 101,  # decorrelate
+                        seed=seed + i + hand_id * 17 + cluster_id * 101,
                     )
-                    wins += w; ties += t; loses += l
+                    wins += w;
+                    ties += t;
+                    loses += l
 
                 n = len(boards)
                 if n == 0:
                     continue
+
                 y_win = wins / n
                 y_tie = ties / n
                 y_lose = loses / n
-
-                # Weight: proportional to number of board samples x MC samples
                 weight = float(n * n_samples_per_eval)
 
                 rows.append({
@@ -205,28 +211,7 @@ def compute_postflop_equity(
     print("   Schema: stack_bb:int, hero_pos:str, opener_action:str, hand_id:int, "
           "board_cluster_id:int, y_win:float, y_tie:float, y_lose:float, weight:float")
 
-
 def run_from_config(cfg: dict) -> None:
-    """
-    Drive postflop equity computation entirely from YAML.
-
-    Expected config keys:
-
-    inputs:
-      manifest: data/artifacts/monker_manifest.parquet
-
-    outputs:
-      postflop_parquet: data/datasets/equitynet_postflop.parquet
-
-    # Used inside compute_postflop_equity via cfg:
-    board_clustering:
-      type: rule  # or kmeans
-      # ... (kmeans artifact etc.)
-
-    equity_mc:
-      postflop_samples: 50000
-      seed: 42
-    """
     def get(path: str, default=None):
         cur = cfg
         for p in path.split("."):
