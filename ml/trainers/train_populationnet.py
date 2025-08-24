@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Mapping, Any
+from typing import Mapping, Any, Optional
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader, Subset
@@ -14,7 +14,50 @@ sys.path.append(str(ROOT_DIR))
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import categorical_cardinalities, stratified_indices
 from ml.models.population_net import PopulationNetLit
+from ml.utils.sidecar import save_sidecar_json
 
+def _write_popnet_sidecar(
+    *,
+    best_ckpt: str | Path,
+    ds,                   # PopulationDatasetParquet instance
+    model,                # PopulationNetLit instance
+    model_name: str = "PopulationNet",
+) -> Optional[Path]:
+    # feature order: prefer dataset (ground truth); else model.hparams
+    feature_order = list(getattr(ds, "x_cols", getattr(ds, "feature_order", [])))
+    if not feature_order:
+        feature_order = list(getattr(model.hparams, "feature_order", []))
+
+    # cards: prefer dataset-provided; else model.cards
+    cards = {}
+    if hasattr(ds, "cards") and callable(getattr(ds, "cards", None)):
+        cards = ds.cards()
+    elif hasattr(ds, "cards"):
+        cards = dict(ds.cards)
+
+    # id maps (only if dataset exposes them)
+    id_maps = None
+    if hasattr(ds, "id_maps") and callable(ds.id_maps):
+        id_maps = ds.id_maps()
+
+    extra = {
+        "actions": ["FOLD", "CALL", "RAISE"],
+        "soft_labels": True,
+        "notes": "PopulationNet trained on soft labels (p_fold,p_call,p_raise).",
+    }
+
+    if not feature_order or not cards:
+        # Don’t write a misleading sidecar if we can’t describe inputs properly
+        return None
+
+    return save_sidecar_json(
+        best_ckpt,
+        model_name=model_name,
+        feature_order=feature_order,
+        cards=cards,
+        id_maps=id_maps,
+        extra=extra,
+    )
 
 def make_collate_fn(feature_order):
     """
@@ -186,8 +229,25 @@ def run_train(cfg: Mapping[str, Any]):
     else:
         trainer.fit(model, train_dl, val_dl)
 
-    print(f"✅ training complete. Best checkpoint: {ckpt_cb.best_model_path}")
-    return ckpt_cb.best_model_path
+    # pick best (fallback to last)
+    best_ckpt = None
+    for cb in trainer.callbacks:
+        if hasattr(cb, "best_model_path") and cb.best_model_path:
+            best_ckpt = cb.best_model_path
+            break
+    if best_ckpt is None and 'ckpt_cb' in locals() and hasattr(ckpt_cb, "last_model_path"):
+        best_ckpt = ckpt_cb.last_model_path
+
+    print(f"✅ training complete. Best checkpoint: {best_ckpt}")
+
+    # write sidecar next to best checkpoint
+    if best_ckpt:
+        sidecar_path = _write_popnet_sidecar(best_ckpt=best_ckpt, ds=ds, model=model)
+        if sidecar_path:
+            print(f"💾 wrote sidecar → {sidecar_path}")
+        else:
+            print("⚠️ Skipped sidecar (missing feature_order/cards)")
+    return best_ckpt
 
 if __name__ == "__main__":
     import argparse

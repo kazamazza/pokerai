@@ -21,7 +21,29 @@ from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 
-# Project imports – adjust paths if your package layout differs
+def _write_equity_preflop_sidecar(best_ckpt: str, ds, model) -> None:
+    """
+    Save sidecar JSON next to the best checkpoint for EquityNet (preflop).
+    """
+    feature_order = list(getattr(ds, "feature_order", [])) or list(getattr(model.hparams, "feature_order", []))
+    cards = getattr(ds, "cards", None) or getattr(model.hparams, "cards", {})
+
+    if not feature_order or not cards:
+        print("⚠️ Skipped sidecar (missing feature_order/cards)")
+        return
+
+    from ml.utils.sidecar import save_sidecar_json
+    sidecar_path = save_sidecar_json(
+        best_ckpt,
+        model_name="EquityNetPreflop",
+        feature_order=feature_order,
+        cards=cards,
+        extra={
+            "labels": ["p_win", "p_tie", "p_lose"],
+            "weight_col": getattr(ds, "weight_col", "weight"),
+        },
+    )
+    print(f"💾 wrote sidecar → {sidecar_path}")
 
 
 def _get(cfg: Dict[str, Any], path: str, default=None):
@@ -214,9 +236,10 @@ def run_train(config_name_or_path: str, **cli_overrides):
     else:
         trainer.fit(model, train_dl, val_dl)
 
-    print("✅ training complete")
-    print(f" Best ckpt: {ckpt_cb.best_model_path or '(n/a)'}  ({monitor}={ckpt_cb.best_model_score})")
-    print(f" Last ckpt: {Path(ckpt_dir, 'last.ckpt')}")
+    print(f"✅ training complete. Best checkpoint: {ckpt_cb.best_model_path}")
+
+    if ckpt_cb.best_model_path:
+        _write_equity_preflop_sidecar(ckpt_cb.best_model_path, ds, model)
 
 
 def main():

@@ -1,0 +1,8 @@
+inputs:
+  monker_manifest: data/artifacts/monker_manifest.parquet
+
+outputs:
+  rangenet_preflop: data/datasets/rangenet_preflop.parquet
+
+etl:
+  min_files_per_scenario: 1  # optional; requires 'n_files' in manifest to be useful
