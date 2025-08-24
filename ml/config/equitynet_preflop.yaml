@@ -8,8 +8,6 @@ inputs:
 outputs:
   # built by compute_preflop_equity
   parquet_out: data/datasets/equitynet_preflop.parquet
-  # (optional) evaluated parquet (if you separate “build” and “evaluate”)
-  evaluated_out: data/artifacts/equitynet_preflop_evaluated.parquet
 
 equity_mc:
   preflop_samples: 10
