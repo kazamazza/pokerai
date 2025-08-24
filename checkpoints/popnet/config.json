@@ -1,0 +1,79 @@
+{
+  "inputs": {
+    "parquet": "data/datasets/populationnet_nl10.parquet"
+  },
+  "dataset": {
+    "x_cols": [
+      "stakes_id",
+      "street_id",
+      "ctx_id",
+      "hero_pos_id",
+      "villain_pos_id"
+    ],
+    "y_cols": [
+      "p_fold",
+      "p_call",
+      "p_raise"
+    ],
+    "weight_col": "w",
+    "filters": {
+      "keep_ctx_ids": null,
+      "keep_street_ids": null,
+      "min_weight": 10
+    }
+  },
+  "coverage": {
+    "enabled": true,
+    "output": "reports/coverage/populationnet_nl10.json",
+    "group_by": [
+      "stakes_id",
+      "street_id",
+      "ctx_id",
+      "hero_pos_id",
+      "villain_pos_id"
+    ],
+    "min_rows_per_cell": 50,
+    "min_cells_per_ctx": 10,
+    "alpha": 1.0,
+    "input_decisions": null
+  },
+  "model": {
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "soft_labels": true
+  },
+  "train": {
+    "batch_size": 2048,
+    "max_epochs": 10,
+    "patience": 3,
+    "num_workers": 0,
+    "accelerator": "auto",
+    "devices": "auto",
+    "precision": "16-mixed",
+    "seed": 42,
+    "monitor": "val_loss",
+    "mode": "min",
+    "checkpoints_dir": "checkpoints/popnet"
+  },
+  "eval": {
+    "use_best_ckpt": true,
+    "output_dir": "reports/eval/populationnet",
+    "filters": {}
+  },
+  "logging": {
+    "logger": "tensorboard",
+    "tb_log_dir": "logs/tb/popnet",
+    "csv_log_dir": "logs/csv/popnet"
+  },
+  "build": {
+    "stake": 10,
+    "decisions_in": null,
+    "coverage_json": null,
+    "out_parquet": "data/datasets/populationnet_nl10.parquet"
+  }
+}

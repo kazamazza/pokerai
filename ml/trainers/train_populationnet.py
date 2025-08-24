@@ -79,7 +79,7 @@ def run_train(cfg: Mapping[str, Any]):
     pl.seed_everything(seed)
 
     # -------- Dataset --------
-    parquet_path = get("dataset.parquet", get("parquet", "datasets/datasets/populationnet_nl10.parquet"))
+    parquet_path = get("inputs.parquet", get("parquet", "data/datasets/populationnet_nl10.parquet"))
     keep_ctx_ids = get("dataset.keep_ctx_ids", None)
     keep_street_ids = get("dataset.keep_street_ids", None)
     min_weight = get("dataset.min_weight", get("min_weight", None))
@@ -195,32 +195,29 @@ def run_train(cfg: Mapping[str, Any]):
 
 if __name__ == "__main__":
     import argparse
-    from pathlib import Path
-    from omegaconf import OmegaConf
+    from ml.utils.config import load_model_config  # same helper used elsewhere
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="ml/config/populationnet.yaml")
-    # optional overrides (all under train.*)
+    # accepts either a short name ("populationnet") or a path ("ml/config/populationnet.yaml")
+    ap.add_argument("--config", type=str, default="populationnet",
+                    help="Model name or YAML path (resolved by load_model_config)")
+    # lightweight overrides (train.* only)
     ap.add_argument("--batch_size", type=int)
     ap.add_argument("--max_epochs", type=int)
     ap.add_argument("--patience", type=int)
     args = ap.parse_args()
 
-    # Load base YAML (or empty if missing)
-    if args.config and Path(args.config).exists():
-        base_cfg = OmegaConf.load(args.config)
-    else:
-        base_cfg = OmegaConf.create({})
+    # Load base config (dict-like)
+    cfg = load_model_config(args.config)
 
-    # Build overrides (nested under train)
-    overrides = {"train": {}}
+    # Merge CLI overrides into train.*
+    train_cfg = cfg.setdefault("train", {})
     if args.batch_size is not None:
-        overrides["train"]["batch_size"] = args.batch_size
+        train_cfg["batch_size"] = int(args.batch_size)
     if args.max_epochs is not None:
-        overrides["train"]["max_epochs"] = args.max_epochs
+        train_cfg["max_epochs"] = int(args.max_epochs)
     if args.patience is not None:
-        overrides["train"]["patience"] = args.patience
+        train_cfg["patience"] = int(args.patience)
 
-    # Merge and run
-    cfg = OmegaConf.merge(base_cfg, overrides)
+    # Run
     run_train(cfg)
