@@ -1,0 +1,5116 @@
+{
+  "populationnet": {
+    "generated_from": "decisions_nl10.jsonl",
+    "thresholds": {
+      "min_rows_per_cell": 50,
+      "min_cells_per_ctx": 10,
+      "alpha": 1.0
+    },
+    "include_contexts": [
+      {
+        "stakes_id": 2,
+        "street": "TURN",
+        "ctx": "VS_DONK",
+        "cells_ok": 12,
+        "cells_total": 25,
+        "rows_total": 1435,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "PREFLOP",
+        "ctx": "LIMPED_MULTI",
+        "cells_ok": 20,
+        "cells_total": 28,
+        "rows_total": 5857,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "FLOP",
+        "ctx": "VS_CBET",
+        "cells_ok": 30,
+        "cells_total": 30,
+        "rows_total": 9683,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "PREFLOP",
+        "ctx": "VS_4BET",
+        "cells_ok": 30,
+        "cells_total": 30,
+        "rows_total": 3034,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "TURN",
+        "ctx": "VS_CBET",
+        "cells_ok": 29,
+        "cells_total": 30,
+        "rows_total": 4059,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "PREFLOP",
+        "ctx": "LIMPED_SINGLE",
+        "cells_ok": 30,
+        "cells_total": 30,
+        "rows_total": 26946,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "FLOP",
+        "ctx": "VS_CHECK_RAISE",
+        "cells_ok": 11,
+        "cells_total": 31,
+        "rows_total": 1436,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "PREFLOP",
+        "ctx": "VS_OPEN",
+        "cells_ok": 30,
+        "cells_total": 30,
+        "rows_total": 136979,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "RIVER",
+        "ctx": "VS_CBET",
+        "cells_ok": 13,
+        "cells_total": 30,
+        "rows_total": 1735,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "PREFLOP",
+        "ctx": "VS_3BET",
+        "cells_ok": 30,
+        "cells_total": 30,
+        "rows_total": 28231,
+        "min_rows_per_cell": 50
+      },
+      {
+        "stakes_id": 2,
+        "street": "FLOP",
+        "ctx": "VS_DONK",
+        "cells_ok": 11,
+        "cells_total": 24,
+        "rows_total": 1007,
+        "min_rows_per_cell": 50
+      }
+    ],
+    "ok_cells": [
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2
+      }
+    ],
+    "freq_cells": [
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 175,
+        "p_fold": 0.42696629213483145,
+        "p_call": 0.5674157303370787,
+        "p_raise": 0.0056179775280898875,
+        "entropy": 0.714014415105218
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 1027,
+        "p_fold": 0.9980582524271845,
+        "p_call": 0.000970873786407767,
+        "p_raise": 0.000970873786407767,
+        "entropy": 0.015410373935697465
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 735,
+        "p_fold": 0.7818428184281843,
+        "p_call": 0.21680216802168023,
+        "p_raise": 0.0013550135501355014,
+        "entropy": 0.5328018215993888
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 96,
+        "p_fold": 0.8181818181818182,
+        "p_call": 0.1717171717171717,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.5131500685414565
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 156,
+        "p_fold": 0.44025157232704404,
+        "p_call": 0.5534591194968553,
+        "p_raise": 0.006289308176100629,
+        "entropy": 0.7204746008490724
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 1321,
+        "p_fold": 0.8013595166163142,
+        "p_call": 0.19788519637462235,
+        "p_raise": 0.0007552870090634441,
+        "entropy": 0.5034743724041926
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 60,
+        "p_fold": 0.5555555555555556,
+        "p_call": 0.42857142857142855,
+        "p_raise": 0.015873015873015872,
+        "entropy": 0.7554398448925588
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 79,
+        "p_fold": 0.012195121951219513,
+        "p_call": 0.012195121951219513,
+        "p_raise": 0.975609756097561,
+        "entropy": 0.1315713109940516
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 206,
+        "p_fold": 0.42105263157894735,
+        "p_call": 0.5741626794258373,
+        "p_raise": 0.004784688995215311,
+        "entropy": 0.7083407169956499
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 610,
+        "p_fold": 0.7308319738988581,
+        "p_call": 0.26753670473083196,
+        "p_raise": 0.0016313213703099511,
+        "entropy": 0.5923853889754922
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 117,
+        "p_fold": 0.6166666666666667,
+        "p_call": 0.375,
+        "p_raise": 0.008333333333333333,
+        "entropy": 0.7058198349726047
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 320,
+        "p_fold": 0.9938080495356038,
+        "p_call": 0.0030959752321981426,
+        "p_raise": 0.0030959752321981426,
+        "entropy": 0.04194767763224137
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 51,
+        "p_fold": 0.5555555555555556,
+        "p_call": 0.42592592592592593,
+        "p_raise": 0.018518518518518517,
+        "entropy": 0.7639416684828466
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 54,
+        "p_fold": 0.017543859649122806,
+        "p_call": 0.017543859649122806,
+        "p_raise": 0.9649122807017544,
+        "entropy": 0.17632626453706068
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 1712,
+        "p_fold": 0.9352769679300291,
+        "p_call": 0.0641399416909621,
+        "p_raise": 0.0005830903790087463,
+        "entropy": 0.2430965666680565
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 1362,
+        "p_fold": 0.843956043956044,
+        "p_call": 0.15531135531135531,
+        "p_raise": 0.0007326007326007326,
+        "entropy": 0.43770980479027966
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 65,
+        "p_fold": 0.5294117647058824,
+        "p_call": 0.45588235294117646,
+        "p_raise": 0.014705882352941176,
+        "entropy": 0.7568564533575259
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 1084,
+        "p_fold": 0.9981600735970562,
+        "p_call": 0.0009199632014719411,
+        "p_raise": 0.0009199632014719411,
+        "entropy": 0.01470148363854289
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 4793,
+        "p_fold": 0.96371976647206,
+        "p_call": 0.036071726438698916,
+        "p_raise": 0.0002085070892410342,
+        "entropy": 0.15722035495083303
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 259,
+        "p_fold": 0.5229007633587787,
+        "p_call": 0.4732824427480916,
+        "p_raise": 0.003816793893129771,
+        "entropy": 0.7143280878287926
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 86,
+        "p_fold": 0.5393258426966292,
+        "p_call": 0.449438202247191,
+        "p_raise": 0.011235955056179775,
+        "entropy": 0.7428742721096319
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 1066,
+        "p_fold": 0.8465855940130963,
+        "p_call": 0.15247895229186156,
+        "p_raise": 0.0009354536950420954,
+        "entropy": 0.43428956885185316
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 128,
+        "p_fold": 0.46564885496183206,
+        "p_call": 0.5267175572519084,
+        "p_raise": 0.007633587786259542,
+        "entropy": 0.7307953802074426
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 753,
+        "p_fold": 0.9973544973544973,
+        "p_call": 0.0013227513227513227,
+        "p_raise": 0.0013227513227513227,
+        "entropy": 0.02017650120563506
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 265,
+        "p_fold": 0.5634328358208955,
+        "p_call": 0.43283582089552236,
+        "p_raise": 0.0037313432835820895,
+        "entropy": 0.7065626613757975
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 734,
+        "p_fold": 0.9972862957937585,
+        "p_call": 0.0013568521031207597,
+        "p_raise": 0.0013568521031207597,
+        "entropy": 0.02062748930786313
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 1670,
+        "p_fold": 0.85833831440526,
+        "p_call": 0.14106395696353854,
+        "p_raise": 0.0005977286312014345,
+        "entropy": 0.41183337915275686
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 104,
+        "p_fold": 0.616822429906542,
+        "p_call": 0.37383177570093457,
+        "p_raise": 0.009345794392523364,
+        "entropy": 0.7095354593345928
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 78,
+        "p_fold": 0.4691358024691358,
+        "p_call": 0.5185185185185185,
+        "p_raise": 0.012345679012345678,
+        "entropy": 0.7498763393916101
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 4793,
+        "p_fold": 0.7781484570475397,
+        "p_call": 0.22164303586321935,
+        "p_raise": 0.0002085070892410342,
+        "entropy": 0.5309030879877723
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 76,
+        "p_fold": 0.6835443037974683,
+        "p_call": 0.3037974683544304,
+        "p_raise": 0.012658227848101266,
+        "entropy": 0.6773158215422302
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 64,
+        "p_fold": 0.6417910447761194,
+        "p_call": 0.34328358208955223,
+        "p_raise": 0.014925373134328358,
+        "entropy": 0.7144243814597031
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 396,
+        "p_fold": 0.9949874686716792,
+        "p_call": 0.002506265664160401,
+        "p_raise": 0.002506265664160401,
+        "entropy": 0.03501980427329307
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 97,
+        "p_fold": 0.45,
+        "p_call": 0.54,
+        "p_raise": 0.01,
+        "entropy": 0.7381206804437392
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 114,
+        "p_fold": 0.4017094017094017,
+        "p_call": 0.5897435897435898,
+        "p_raise": 0.008547008547008548,
+        "entropy": 0.7184962758410498
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 327,
+        "p_fold": 0.4575757575757576,
+        "p_call": 0.5393939393939394,
+        "p_raise": 0.0030303030303030303,
+        "entropy": 0.7082843898786025
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 6315,
+        "p_fold": 0.8654637543526432,
+        "p_call": 0.13437796771130103,
+        "p_raise": 0.00015827793605571383,
+        "entropy": 0.39614564280435316
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 273,
+        "p_fold": 0.5,
+        "p_call": 0.4963768115942029,
+        "p_raise": 0.0036231884057971015,
+        "entropy": 0.7146095780686886
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 291,
+        "p_fold": 0.4557823129251701,
+        "p_call": 0.5408163265306123,
+        "p_raise": 0.003401360544217687,
+        "entropy": 0.7098848647967737
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 287,
+        "p_fold": 0.9827586206896551,
+        "p_call": 0.013793103448275862,
+        "p_raise": 0.0034482758620689655,
+        "entropy": 0.09572715118081301
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 197,
+        "p_fold": 0.47,
+        "p_call": 0.525,
+        "p_raise": 0.005,
+        "entropy": 0.719639635045435
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 79,
+        "p_fold": 0.573170731707317,
+        "p_call": 0.4146341463414634,
+        "p_raise": 0.012195121951219513,
+        "entropy": 0.7377778433914698
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 1665,
+        "p_fold": 0.9124700239808153,
+        "p_call": 0.08693045563549161,
+        "p_raise": 0.0005995203836930455,
+        "entropy": 0.30037076749080843
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 339,
+        "p_fold": 0.4649122807017544,
+        "p_call": 0.5321637426900585,
+        "p_raise": 0.0029239766081871343,
+        "entropy": 0.7088312481678113
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 64,
+        "p_fold": 0.43283582089552236,
+        "p_call": 0.5522388059701493,
+        "p_raise": 0.014925373134328358,
+        "entropy": 0.7531173680828311
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 168,
+        "p_fold": 0.5380116959064327,
+        "p_call": 0.45614035087719296,
+        "p_raise": 0.005847953216374269,
+        "entropy": 0.7216177227552163
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 4490,
+        "p_fold": 0.8949476964166481,
+        "p_call": 0.10482973514355665,
+        "p_raise": 0.00022256843979523704,
+        "entropy": 0.33763696094437534
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 77,
+        "p_fold": 0.95,
+        "p_call": 0.0375,
+        "p_raise": 0.0125,
+        "entropy": 0.22663200057381302
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 1689,
+        "p_fold": 0.8351063829787234,
+        "p_call": 0.16430260047281323,
+        "p_raise": 0.000591016548463357,
+        "entropy": 0.4516143413811151
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 56,
+        "p_fold": 0.423728813559322,
+        "p_call": 0.559322033898305,
+        "p_raise": 0.01694915254237288,
+        "entropy": 0.7579332888162982
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 319,
+        "p_fold": 0.45652173913043476,
+        "p_call": 0.5403726708074534,
+        "p_raise": 0.003105590062111801,
+        "entropy": 0.7084980911320844
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 1143,
+        "p_fold": 0.9982547993019197,
+        "p_call": 0.0008726003490401396,
+        "p_raise": 0.0008726003490401396,
+        "entropy": 0.014036928075292008
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 1161,
+        "p_fold": 0.9982817869415808,
+        "p_call": 0.000859106529209622,
+        "p_raise": 0.000859106529209622,
+        "entropy": 0.01384666327757791
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 98,
+        "p_fold": 0.8118811881188119,
+        "p_call": 0.1782178217821782,
+        "p_raise": 0.009900990099009901,
+        "entropy": 0.5222722998303414
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 224,
+        "p_fold": 0.9251101321585903,
+        "p_call": 0.07048458149779736,
+        "p_raise": 0.004405286343612335,
+        "entropy": 0.2828619073175881
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 97,
+        "p_fold": 0.91,
+        "p_call": 0.08,
+        "p_raise": 0.01,
+        "entropy": 0.3339327117203709
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 5888,
+        "p_fold": 0.7793243931420811,
+        "p_call": 0.22050585639110507,
+        "p_raise": 0.00016975046681378373,
+        "entropy": 0.5291485416199797
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 51,
+        "p_fold": 0.42592592592592593,
+        "p_call": 0.5555555555555556,
+        "p_raise": 0.018518518518518517,
+        "entropy": 0.7639416684828466
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 56,
+        "p_fold": 0.6610169491525424,
+        "p_call": 0.3220338983050847,
+        "p_raise": 0.01694915254237288,
+        "entropy": 0.7076519387634215
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 95,
+        "p_fold": 0.4387755102040816,
+        "p_call": 0.5510204081632653,
+        "p_raise": 0.01020408163265306,
+        "entropy": 0.7366333614298781
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 403,
+        "p_fold": 0.7980295566502463,
+        "p_call": 0.19950738916256158,
+        "p_raise": 0.0024630541871921183,
+        "entropy": 0.5164238969258699
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 96,
+        "p_fold": 0.9292929292929293,
+        "p_call": 0.06060606060606061,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.2844622147388623
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 6315,
+        "p_fold": 0.7758784425451092,
+        "p_call": 0.22396327951883507,
+        "p_raise": 0.00015827793605571383,
+        "entropy": 0.5333818231730393
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 105,
+        "p_fold": 0.8611111111111112,
+        "p_call": 0.12962962962962962,
+        "p_raise": 0.009259259259259259,
+        "entropy": 0.436959417140975
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 4793,
+        "p_fold": 0.8655129274395329,
+        "p_call": 0.13427856547122602,
+        "p_raise": 0.0002085070892410342,
+        "entropy": 0.3963855231128437
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 2609,
+        "p_fold": 0.9950229709035222,
+        "p_call": 0.004594180704441042,
+        "p_raise": 0.00038284839203675346,
+        "entropy": 0.0327071382376214
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 310,
+        "p_fold": 0.43450479233226835,
+        "p_call": 0.5623003194888179,
+        "p_raise": 0.003194888178913738,
+        "entropy": 0.7042662972885341
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 85,
+        "p_fold": 0.5568181818181818,
+        "p_call": 0.4318181818181818,
+        "p_raise": 0.011363636363636364,
+        "entropy": 0.7395246704181229
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 284,
+        "p_fold": 0.5749128919860628,
+        "p_call": 0.42160278745644597,
+        "p_raise": 0.003484320557491289,
+        "entropy": 0.7020896749524349
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 4793,
+        "p_fold": 0.8869891576313594,
+        "p_call": 0.1128023352793995,
+        "p_raise": 0.0002085070892410342,
+        "entropy": 0.35428521801684804
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 89,
+        "p_fold": 0.6630434782608695,
+        "p_call": 0.32608695652173914,
+        "p_raise": 0.010869565217391304,
+        "entropy": 0.6870143687369464
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 169,
+        "p_fold": 0.436046511627907,
+        "p_call": 0.5581395348837209,
+        "p_raise": 0.005813953488372093,
+        "entropy": 0.7173256692747813
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 74,
+        "p_fold": 0.8961038961038961,
+        "p_call": 0.09090909090909091,
+        "p_raise": 0.012987012987012988,
+        "entropy": 0.3727051639208386
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 1064,
+        "p_fold": 0.9981255857544518,
+        "p_call": 0.0009372071227741331,
+        "p_raise": 0.0009372071227741331,
+        "entropy": 0.014942208915571877
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 213,
+        "p_fold": 0.9907407407407407,
+        "p_call": 0.004629629629629629,
+        "p_raise": 0.004629629629629629,
+        "entropy": 0.05898735576136776
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 6315,
+        "p_fold": 0.8676796454574233,
+        "p_call": 0.13216207660652105,
+        "p_raise": 0.00015827793605571383,
+        "entropy": 0.3919970984828108
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 1032,
+        "p_fold": 0.4714975845410628,
+        "p_call": 0.527536231884058,
+        "p_raise": 0.000966183574879227,
+        "entropy": 0.6985780788239535
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 104,
+        "p_fold": 0.4672897196261682,
+        "p_call": 0.5233644859813084,
+        "p_raise": 0.009345794392523364,
+        "entropy": 0.7380545825656758
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 4793,
+        "p_fold": 0.8748957464553795,
+        "p_call": 0.12489574645537949,
+        "p_raise": 0.0002085070892410342,
+        "entropy": 0.3785151180290842
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 997,
+        "p_fold": 0.998,
+        "p_call": 0.001,
+        "p_raise": 0.001,
+        "entropy": 0.015813509220296028
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 331,
+        "p_fold": 0.38922155688622756,
+        "p_call": 0.6077844311377245,
+        "p_raise": 0.0029940119760479044,
+        "entropy": 0.6873077824805611
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 340,
+        "p_fold": 0.9941690962099126,
+        "p_call": 0.0029154518950437317,
+        "p_raise": 0.0029154518950437317,
+        "entropy": 0.03985311551956025
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 735,
+        "p_fold": 0.9308943089430894,
+        "p_call": 0.06775067750677506,
+        "p_raise": 0.0013550135501355014,
+        "entropy": 0.2579887988140561
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 1019,
+        "p_fold": 0.9980430528375733,
+        "p_call": 0.0009784735812133072,
+        "p_raise": 0.0009784735812133072,
+        "entropy": 0.015515729269570466
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 145,
+        "p_fold": 0.8716216216216216,
+        "p_call": 0.12162162162162163,
+        "p_raise": 0.006756756756756757,
+        "entropy": 0.4097630048098538
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 88,
+        "p_fold": 0.4835164835164835,
+        "p_call": 0.5054945054945055,
+        "p_raise": 0.01098901098901099,
+        "entropy": 0.7457842523281153
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 96,
+        "p_fold": 0.9191919191919192,
+        "p_call": 0.0707070707070707,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.3111846366323925
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 142,
+        "p_fold": 0.6,
+        "p_call": 0.3931034482758621,
+        "p_raise": 0.006896551724137931,
+        "entropy": 0.7078514762829665
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 60,
+        "p_fold": 0.5396825396825397,
+        "p_call": 0.4444444444444444,
+        "p_raise": 0.015873015873015872,
+        "entropy": 0.7590397403273392
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 98,
+        "p_fold": 0.8811881188118812,
+        "p_call": 0.10891089108910891,
+        "p_raise": 0.009900990099009901,
+        "entropy": 0.39863056726457113
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 116,
+        "p_fold": 0.8151260504201681,
+        "p_call": 0.17647058823529413,
+        "p_raise": 0.008403361344537815,
+        "entropy": 0.5128887359066806
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 278,
+        "p_fold": 0.9928825622775801,
+        "p_call": 0.0035587188612099642,
+        "p_raise": 0.0035587188612099642,
+        "entropy": 0.047222686668251065
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 1289,
+        "p_fold": 0.9179566563467493,
+        "p_call": 0.08126934984520123,
+        "p_raise": 0.0007739938080495357,
+        "entropy": 0.2881115836259732
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 163,
+        "p_fold": 0.6024096385542169,
+        "p_call": 0.39156626506024095,
+        "p_raise": 0.006024096385542169,
+        "entropy": 0.7032396489437508
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 80,
+        "p_fold": 0.8795180722891566,
+        "p_call": 0.10843373493975904,
+        "p_raise": 0.012048192771084338,
+        "entropy": 0.40705072345795307
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 73,
+        "p_fold": 0.39473684210526316,
+        "p_call": 0.5921052631578947,
+        "p_raise": 0.013157894736842105,
+        "entropy": 0.7342105312105804
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 3480,
+        "p_fold": 0.9948320413436692,
+        "p_call": 0.004880849842090152,
+        "p_raise": 0.0002871088142405972,
+        "entropy": 0.03347415103307643
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 238,
+        "p_fold": 0.48132780082987553,
+        "p_call": 0.5145228215767634,
+        "p_raise": 0.004149377593360996,
+        "entropy": 0.7166169488263984
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 1094,
+        "p_fold": 0.9981768459434822,
+        "p_call": 0.0009115770282588879,
+        "p_raise": 0.0009115770282588879,
+        "entropy": 0.014584179265477032
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 856,
+        "p_fold": 0.9976717112922002,
+        "p_call": 0.0011641443538998836,
+        "p_raise": 0.0011641443538998836,
+        "entropy": 0.018054956628173587
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 113,
+        "p_fold": 0.5775862068965517,
+        "p_call": 0.41379310344827586,
+        "p_raise": 0.008620689655172414,
+        "entropy": 0.7231414495277312
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 275,
+        "p_fold": 0.4172661870503597,
+        "p_call": 0.579136690647482,
+        "p_raise": 0.0035971223021582736,
+        "entropy": 0.7012809520659218
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 247,
+        "p_fold": 0.436,
+        "p_call": 0.56,
+        "p_raise": 0.004,
+        "entropy": 0.7087134845461294
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 150,
+        "p_fold": 0.9084967320261438,
+        "p_call": 0.08496732026143791,
+        "p_raise": 0.006535947712418301,
+        "entropy": 0.3295476053622059
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 317,
+        "p_fold": 0.3625,
+        "p_call": 0.634375,
+        "p_raise": 0.003125,
+        "entropy": 0.6745795085600813
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 103,
+        "p_fold": 0.6226415094339622,
+        "p_call": 0.36792452830188677,
+        "p_raise": 0.009433962264150943,
+        "entropy": 0.7068719509694418
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 161,
+        "p_fold": 0.6036585365853658,
+        "p_call": 0.3902439024390244,
+        "p_raise": 0.006097560975609756,
+        "entropy": 0.7030043394166655
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 1259,
+        "p_fold": 0.9984152139461173,
+        "p_call": 0.000792393026941363,
+        "p_raise": 0.000792393026941363,
+        "entropy": 0.012899620014672045
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 52,
+        "p_fold": 0.01818181818181818,
+        "p_call": 0.01818181818181818,
+        "p_raise": 0.9636363636363636,
+        "entropy": 0.18141552307924447
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 116,
+        "p_fold": 0.907563025210084,
+        "p_call": 0.08403361344537816,
+        "p_raise": 0.008403361344537815,
+        "entropy": 0.3362997665593178
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 3782,
+        "p_fold": 0.9635402906208719,
+        "p_call": 0.03619550858652576,
+        "p_raise": 0.0002642007926023778,
+        "entropy": 0.15808991019676322
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 205,
+        "p_fold": 0.5096153846153846,
+        "p_call": 0.4855769230769231,
+        "p_raise": 0.004807692307692308,
+        "entropy": 0.7199817519250183
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 284,
+        "p_fold": 0.9337979094076655,
+        "p_call": 0.0627177700348432,
+        "p_raise": 0.003484320557491289,
+        "entropy": 0.25735259060316973
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 800,
+        "p_fold": 0.9975093399750934,
+        "p_call": 0.0012453300124533001,
+        "p_raise": 0.0012453300124533001,
+        "entropy": 0.019145973468349828
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 263,
+        "p_fold": 0.9774436090225563,
+        "p_call": 0.018796992481203006,
+        "p_raise": 0.0037593984962406013,
+        "entropy": 0.11799099439445963
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 3866,
+        "p_fold": 0.6859653657275782,
+        "p_call": 0.31377616955285603,
+        "p_raise": 0.0002584647195657793,
+        "entropy": 0.62438499598214
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 141,
+        "p_fold": 0.6319444444444444,
+        "p_call": 0.3611111111111111,
+        "p_raise": 0.006944444444444444,
+        "entropy": 0.6923626852725314
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 96,
+        "p_fold": 0.8686868686868687,
+        "p_call": 0.12121212121212122,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.42448603927040135
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 284,
+        "p_fold": 0.9407665505226481,
+        "p_call": 0.05574912891986063,
+        "p_raise": 0.003484320557491289,
+        "entropy": 0.2381046949015769
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 227,
+        "p_fold": 0.5,
+        "p_call": 0.4956521739130435,
+        "p_raise": 0.004347826086956522,
+        "entropy": 0.7181061877082553
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 84,
+        "p_fold": 0.39080459770114945,
+        "p_call": 0.5977011494252874,
+        "p_raise": 0.011494252873563218,
+        "entropy": 0.7261273002241848
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 114,
+        "p_fold": 0.4017094017094017,
+        "p_call": 0.5897435897435898,
+        "p_raise": 0.008547008547008548,
+        "entropy": 0.7184962758410498
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 107,
+        "p_fold": 0.8909090909090909,
+        "p_call": 0.1,
+        "p_raise": 0.00909090909090909,
+        "entropy": 0.37590163023943335
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 140,
+        "p_fold": 0.5104895104895105,
+        "p_call": 0.4825174825174825,
+        "p_raise": 0.006993006993006993,
+        "entropy": 0.7295796790607992
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 4992,
+        "p_fold": 0.9903903903903903,
+        "p_call": 0.00940940940940941,
+        "p_raise": 0.0002002002002002002,
+        "entropy": 0.05517296074454943
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 1570,
+        "p_fold": 0.901462174189447,
+        "p_call": 0.0979020979020979,
+        "p_raise": 0.0006357279084551812,
+        "entropy": 0.32569823781162993
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 7604,
+        "p_fold": 0.763375838043907,
+        "p_call": 0.2364927040883397,
+        "p_raise": 0.00013145786775338504,
+        "entropy": 0.5482740972064082
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 1121,
+        "p_fold": 0.998220640569395,
+        "p_call": 0.0008896797153024911,
+        "p_raise": 0.0008896797153024911,
+        "entropy": 0.01427715092686074
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 103,
+        "p_fold": 0.4339622641509434,
+        "p_call": 0.5566037735849056,
+        "p_raise": 0.009433962264150943,
+        "entropy": 0.7323804768549558
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 1005,
+        "p_fold": 0.998015873015873,
+        "p_call": 0.000992063492063492,
+        "p_raise": 0.000992063492063492,
+        "entropy": 0.015703830807239912
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 78,
+        "p_fold": 0.4567901234567901,
+        "p_call": 0.5308641975308642,
+        "p_raise": 0.012345679012345678,
+        "entropy": 0.748331034389692
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 298,
+        "p_fold": 0.9933554817275747,
+        "p_call": 0.0033222591362126247,
+        "p_raise": 0.0033222591362126247,
+        "entropy": 0.04454339283951286
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 326,
+        "p_fold": 0.19148936170212766,
+        "p_call": 0.8054711246200608,
+        "p_raise": 0.00303951367781155,
+        "entropy": 0.5083802685465195
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 5888,
+        "p_fold": 0.864199626548973,
+        "p_call": 0.13563062298421322,
+        "p_raise": 0.00016975046681378373,
+        "entropy": 0.39857043982389095
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 76,
+        "p_fold": 0.5189873417721519,
+        "p_call": 0.46835443037974683,
+        "p_raise": 0.012658227848101266,
+        "entropy": 0.7509615549613263
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 84,
+        "p_fold": 0.6436781609195402,
+        "p_call": 0.3448275862068966,
+        "p_raise": 0.011494252873563218,
+        "entropy": 0.7020504619730433
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 722,
+        "p_fold": 0.9972413793103448,
+        "p_call": 0.001379310344827586,
+        "p_raise": 0.001379310344827586,
+        "entropy": 0.02092356158162393
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 76,
+        "p_fold": 0.8860759493670886,
+        "p_call": 0.10126582278481013,
+        "p_raise": 0.012658227848101266,
+        "entropy": 0.39438203883245426
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 7604,
+        "p_fold": 0.877086893650585,
+        "p_call": 0.12278164848166163,
+        "p_raise": 0.00013145786775338504,
+        "entropy": 0.37371987999349104
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 470,
+        "p_fold": 0.9957716701902748,
+        "p_call": 0.0021141649048625794,
+        "p_raise": 0.0021141649048625794,
+        "entropy": 0.030262064426073085
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 992,
+        "p_fold": 0.9979899497487437,
+        "p_call": 0.0010050251256281408,
+        "p_raise": 0.0010050251256281408,
+        "entropy": 0.015882888515536178
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 735,
+        "p_fold": 0.9566395663956639,
+        "p_call": 0.04200542005420054,
+        "p_raise": 0.0013550135501355014,
+        "entropy": 0.18451027309439877
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 1390,
+        "p_fold": 0.9985642498205313,
+        "p_call": 0.0007178750897343862,
+        "p_raise": 0.0007178750897343862,
+        "entropy": 0.011828423191372022
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 224,
+        "p_fold": 0.9911894273127754,
+        "p_call": 0.004405286343612335,
+        "p_raise": 0.004405286343612335,
+        "entropy": 0.056568561548911336
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 7351,
+        "p_fold": 0.9549904813706827,
+        "p_call": 0.044873538210497686,
+        "p_raise": 0.00013598041881968996,
+        "entropy": 0.1844749648937389
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 434,
+        "p_fold": 0.4645308924485126,
+        "p_call": 0.5331807780320366,
+        "p_raise": 0.002288329519450801,
+        "entropy": 0.7053959561308258
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 51,
+        "p_fold": 0.5370370370370371,
+        "p_call": 0.4444444444444444,
+        "p_raise": 0.018518518518518517,
+        "entropy": 0.7681531021546366
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 735,
+        "p_fold": 0.9227642276422764,
+        "p_call": 0.07588075880758807,
+        "p_raise": 0.0013550135501355014,
+        "entropy": 0.27878715092675943
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 98,
+        "p_fold": 0.8712871287128713,
+        "p_call": 0.1188118811881188,
+        "p_raise": 0.009900990099009901,
+        "entropy": 0.41883814583293105
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 332,
+        "p_fold": 0.5253731343283582,
+        "p_call": 0.4716417910447761,
+        "p_raise": 0.0029850746268656717,
+        "entropy": 0.7099657606430352
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 5888,
+        "p_fold": 0.8742149040909862,
+        "p_call": 0.12561534544219996,
+        "p_raise": 0.00016975046681378373,
+        "entropy": 0.37958642173864054
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 104,
+        "p_fold": 0.8411214953271028,
+        "p_call": 0.14953271028037382,
+        "p_raise": 0.009345794392523364,
+        "entropy": 0.473349489734043
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 1365,
+        "p_fold": 0.9480994152046783,
+        "p_call": 0.05116959064327485,
+        "p_raise": 0.0007309941520467836,
+        "entropy": 0.20791563984478614
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 317,
+        "p_fold": 0.68125,
+        "p_call": 0.315625,
+        "p_raise": 0.003125,
+        "entropy": 0.6434863211376829
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 96,
+        "p_fold": 0.9696969696969697,
+        "p_call": 0.020202020202020204,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.15508226687873972
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 288,
+        "p_fold": 0.9896907216494846,
+        "p_call": 0.006872852233676976,
+        "p_raise": 0.003436426116838488,
+        "entropy": 0.06397992476205841
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 119,
+        "p_fold": 0.7213114754098361,
+        "p_call": 0.27049180327868855,
+        "p_raise": 0.00819672131147541,
+        "entropy": 0.6286899856935678
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 4,
+        "n_rows": 3862,
+        "p_fold": 0.9994825355756791,
+        "p_call": 0.000258732212160414,
+        "p_raise": 0.000258732212160414,
+        "entropy": 0.0047914401957941605
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 77,
+        "p_fold": 0.7,
+        "p_call": 0.2875,
+        "p_raise": 0.0125,
+        "entropy": 0.6628258640766468
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 718,
+        "p_fold": 0.4160887656033287,
+        "p_call": 0.5825242718446602,
+        "p_raise": 0.0013869625520110957,
+        "entropy": 0.6887643506891971
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 159,
+        "p_fold": 0.4506172839506173,
+        "p_call": 0.5432098765432098,
+        "p_raise": 0.006172839506172839,
+        "entropy": 0.7221075767237377
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 93,
+        "p_fold": 0.4583333333333333,
+        "p_call": 0.53125,
+        "p_raise": 0.010416666666666666,
+        "entropy": 0.7411455752008351
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 54,
+        "p_fold": 0.8771929824561403,
+        "p_call": 0.10526315789473684,
+        "p_raise": 0.017543859649122806,
+        "entropy": 0.4228458803442584
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 146,
+        "p_fold": 0.912751677852349,
+        "p_call": 0.08053691275167785,
+        "p_raise": 0.006711409395973154,
+        "entropy": 0.31978560622729757
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 100,
+        "p_fold": 0.970873786407767,
+        "p_call": 0.019417475728155338,
+        "p_raise": 0.009708737864077669,
+        "entropy": 0.15023080414965492
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 401,
+        "p_fold": 0.5074257425742574,
+        "p_call": 0.4900990099009901,
+        "p_raise": 0.0024752475247524753,
+        "entropy": 0.7086081507282203
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 1670,
+        "p_fold": 0.8822474596533174,
+        "p_call": 0.11715481171548117,
+        "p_raise": 0.0005977286312014345,
+        "entropy": 0.3661771697071007
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 1644,
+        "p_fold": 0.930783242258652,
+        "p_call": 0.06860959319975714,
+        "p_raise": 0.0006071645415907711,
+        "entropy": 0.2550883599105326
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 71,
+        "p_fold": 0.013513513513513514,
+        "p_call": 0.013513513513513514,
+        "p_raise": 0.972972972972973,
+        "entropy": 0.14298454496933213
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 1,
+        "n_rows": 205,
+        "p_fold": 0.5144230769230769,
+        "p_call": 0.4807692307692308,
+        "p_raise": 0.004807692307692308,
+        "entropy": 0.7197029648606589
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 159,
+        "p_fold": 0.5061728395061729,
+        "p_call": 0.4876543209876543,
+        "p_raise": 0.006172839506172839,
+        "entropy": 0.7262546153493629
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 175,
+        "p_fold": 0.9269662921348315,
+        "p_call": 0.06741573033707865,
+        "p_raise": 0.0056179775280898875,
+        "entropy": 0.28122240988991765
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 368,
+        "p_fold": 0.46630727762803237,
+        "p_call": 0.5309973045822103,
+        "p_raise": 0.0026954177897574125,
+        "entropy": 0.7078177488321994
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 116,
+        "p_fold": 0.9159663865546218,
+        "p_call": 0.07563025210084033,
+        "p_raise": 0.008403361344537815,
+        "entropy": 0.3158298766463224
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 61,
+        "p_fold": 0.53125,
+        "p_call": 0.453125,
+        "p_raise": 0.015625,
+        "entropy": 0.7596981316917151
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 89,
+        "p_fold": 0.6195652173913043,
+        "p_call": 0.3695652173913043,
+        "p_raise": 0.010869565217391304,
+        "entropy": 0.7136344454860529
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 56,
+        "p_fold": 0.5932203389830508,
+        "p_call": 0.3898305084745763,
+        "p_raise": 0.01694915254237288,
+        "entropy": 0.7461213571484835
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 202,
+        "p_fold": 0.8926829268292683,
+        "p_call": 0.1024390243902439,
+        "p_raise": 0.004878048780487805,
+        "entropy": 0.3607127246857891
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 194,
+        "p_fold": 0.5532994923857868,
+        "p_call": 0.4416243654822335,
+        "p_raise": 0.005076142131979695,
+        "entropy": 0.7152294876896816
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 1078,
+        "p_fold": 0.8371877890841813,
+        "p_call": 0.16188714153561518,
+        "p_raise": 0.0009250693802035153,
+        "entropy": 0.4500093759294107
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 124,
+        "p_fold": 0.5196850393700787,
+        "p_call": 0.47244094488188976,
+        "p_raise": 0.007874015748031496,
+        "entropy": 0.7325501832503148
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 833,
+        "p_fold": 0.8050239234449761,
+        "p_call": 0.1937799043062201,
+        "p_raise": 0.0011961722488038277,
+        "entropy": 0.5006439083465963
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 52,
+        "p_fold": 0.34545454545454546,
+        "p_call": 0.6363636363636364,
+        "p_raise": 0.01818181818181818,
+        "entropy": 0.7276691351150737
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 638,
+        "p_fold": 0.9968798751950078,
+        "p_call": 0.0015600624024961,
+        "p_raise": 0.0015600624024961,
+        "entropy": 0.023280710666118247
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 5,
+        "n_rows": 98,
+        "p_fold": 0.44554455445544555,
+        "p_call": 0.5445544554455446,
+        "p_raise": 0.009900990099009901,
+        "entropy": 0.7368716333981575
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 6761,
+        "p_fold": 0.9943820224719101,
+        "p_call": 0.005470136014192785,
+        "p_raise": 0.00014784151389710232,
+        "entropy": 0.03539697577846891
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 1262,
+        "p_fold": 0.8988142292490119,
+        "p_call": 0.10039525691699605,
+        "p_raise": 0.0007905138339920949,
+        "entropy": 0.33230360876763204
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 74,
+        "p_fold": 0.948051948051948,
+        "p_call": 0.03896103896103896,
+        "p_raise": 0.012987012987012988,
+        "entropy": 0.23342391445020488
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 3,
+        "n_rows": 58,
+        "p_fold": 0.5245901639344263,
+        "p_call": 0.45901639344262296,
+        "p_raise": 0.01639344262295082,
+        "entropy": 0.7632464022933119
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 310,
+        "p_fold": 0.7092651757188498,
+        "p_call": 0.28753993610223644,
+        "p_raise": 0.003194888178913738,
+        "entropy": 0.6203972828522655
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 157,
+        "p_fold": 0.56875,
+        "p_call": 0.425,
+        "p_raise": 0.00625,
+        "entropy": 0.7163316961995231
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 104,
+        "p_fold": 0.40186915887850466,
+        "p_call": 0.5887850467289719,
+        "p_raise": 0.009345794392523364,
+        "entropy": 0.7219027341085348
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 132,
+        "p_fold": 0.007407407407407408,
+        "p_call": 0.007407407407407408,
+        "p_raise": 0.9851851851851852,
+        "entropy": 0.08737526692807207
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 119,
+        "p_fold": 0.4426229508196721,
+        "p_call": 0.5491803278688525,
+        "p_raise": 0.00819672131147541,
+        "entropy": 0.7292706839625062
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 1035,
+        "p_fold": 0.9980732177263969,
+        "p_call": 0.0009633911368015414,
+        "p_raise": 0.0009633911368015414,
+        "entropy": 0.015306526111150182
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 284,
+        "p_fold": 0.9059233449477352,
+        "p_call": 0.09059233449477352,
+        "p_raise": 0.003484320557491289,
+        "entropy": 0.3267723410089008
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 50,
+        "p_fold": 0.5283018867924528,
+        "p_call": 0.4528301886792453,
+        "p_raise": 0.018867924528301886,
+        "entropy": 0.7707632680159822
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 50,
+        "p_fold": 0.4528301886792453,
+        "p_call": 0.5283018867924528,
+        "p_raise": 0.018867924528301886,
+        "entropy": 0.7707632680159822
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 84,
+        "p_fold": 0.9425287356321839,
+        "p_call": 0.04597701149425287,
+        "p_raise": 0.011494252873563218,
+        "entropy": 0.24871092646597096
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 155,
+        "p_fold": 0.47468354430379744,
+        "p_call": 0.5189873417721519,
+        "p_raise": 0.006329113924050633,
+        "entropy": 0.7261229647271819
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 1365,
+        "p_fold": 0.9327485380116959,
+        "p_call": 0.06652046783625731,
+        "p_raise": 0.0007309941520467836,
+        "entropy": 0.2505030023933295
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 2,
+        "n_rows": 1073,
+        "p_fold": 0.9981412639405205,
+        "p_call": 0.0009293680297397769,
+        "p_raise": 0.0009293680297397769,
+        "entropy": 0.014832854637036447
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 5,
+        "villain_pos_id": 3,
+        "n_rows": 105,
+        "p_fold": 0.8888888888888888,
+        "p_call": 0.10185185185185185,
+        "p_raise": 0.009259259259259259,
+        "entropy": 0.3807027606240498
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 436,
+        "p_fold": 0.7699316628701595,
+        "p_call": 0.22779043280182232,
+        "p_raise": 0.002277904328018223,
+        "entropy": 0.5521382940013981
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 213,
+        "p_fold": 0.5833333333333334,
+        "p_call": 0.41203703703703703,
+        "p_raise": 0.004629629629629629,
+        "entropy": 0.7046295318383564
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 636,
+        "p_fold": 0.5273865414710485,
+        "p_call": 0.47104851330203446,
+        "p_raise": 0.001564945226917058,
+        "entropy": 0.7021452412005794
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 284,
+        "p_fold": 0.9163763066202091,
+        "p_call": 0.08013937282229965,
+        "p_raise": 0.003484320557491289,
+        "entropy": 0.3020157438781454
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 224,
+        "p_fold": 0.8325991189427313,
+        "p_call": 0.16299559471365638,
+        "p_raise": 0.004405286343612335,
+        "entropy": 0.4721123583854127
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 5888,
+        "p_fold": 0.9626548973009675,
+        "p_call": 0.03717535223221864,
+        "p_raise": 0.00016975046681378373,
+        "entropy": 0.160497885718761
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 106,
+        "p_fold": 0.4954128440366973,
+        "p_call": 0.4954128440366973,
+        "p_raise": 0.009174311926605505,
+        "entropy": 0.7389600195753031
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 78,
+        "p_fold": 0.8148148148148148,
+        "p_call": 0.1728395061728395,
+        "p_raise": 0.012345679012345678,
+        "entropy": 0.5245230362946522
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 4426,
+        "p_fold": 0.9945811695642357,
+        "p_call": 0.005193045834274102,
+        "p_raise": 0.00022578460149017836,
+        "entropy": 0.034617472967962214
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 161,
+        "p_fold": 0.5426829268292683,
+        "p_call": 0.45121951219512196,
+        "p_raise": 0.006097560975609756,
+        "entropy": 0.7218819534110216
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 50,
+        "p_fold": 0.4528301886792453,
+        "p_call": 0.5283018867924528,
+        "p_raise": 0.018867924528301886,
+        "entropy": 0.7707632680159822
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 92,
+        "p_fold": 0.47368421052631576,
+        "p_call": 0.5157894736842106,
+        "p_raise": 0.010526315789473684,
+        "entropy": 0.7433610321545399
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 249,
+        "p_fold": 0.4722222222222222,
+        "p_call": 0.5238095238095238,
+        "p_raise": 0.003968253968253968,
+        "entropy": 0.7149626213906735
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 171,
+        "p_fold": 0.5862068965517241,
+        "p_call": 0.40804597701149425,
+        "p_raise": 0.005747126436781609,
+        "entropy": 0.7084949645855001
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 2,
+        "n_rows": 670,
+        "p_fold": 0.5289747399702823,
+        "p_call": 0.46953937592867756,
+        "p_raise": 0.0014858841010401188,
+        "entropy": 0.7015077669719105
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 5,
+        "villain_pos_id": 0,
+        "n_rows": 224,
+        "p_fold": 0.8678414096916299,
+        "p_call": 0.1277533039647577,
+        "p_raise": 0.004405286343612335,
+        "entropy": 0.4097838781348279
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 211,
+        "p_fold": 0.4439252336448598,
+        "p_call": 0.5514018691588785,
+        "p_raise": 0.004672897196261682,
+        "entropy": 0.7138307328272636
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 865,
+        "p_fold": 0.9331797235023042,
+        "p_call": 0.06566820276497695,
+        "p_raise": 0.001152073732718894,
+        "entropy": 0.2511552366891223
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 1455,
+        "p_fold": 0.9986282578875172,
+        "p_call": 0.0006858710562414266,
+        "p_raise": 0.0006858710562414266,
+        "entropy": 0.011363696468446274
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 1,
+        "villain_pos_id": 0,
+        "n_rows": 303,
+        "p_fold": 0.7679738562091504,
+        "p_call": 0.22875816993464052,
+        "p_raise": 0.0032679738562091504,
+        "entropy": 0.5588881648012354
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 69,
+        "p_fold": 0.4444444444444444,
+        "p_call": 0.5416666666666666,
+        "p_raise": 0.013888888888888888,
+        "entropy": 0.751909826115174
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 5,
+        "villain_pos_id": 4,
+        "n_rows": 87,
+        "p_fold": 0.5888888888888889,
+        "p_call": 0.4,
+        "p_raise": 0.011111111111111112,
+        "entropy": 0.7283413014085715
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 1,
+        "villain_pos_id": 2,
+        "n_rows": 60,
+        "p_fold": 0.5555555555555556,
+        "p_call": 0.42857142857142855,
+        "p_raise": 0.015873015873015872,
+        "entropy": 0.7554398448925588
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 448,
+        "p_fold": 0.44567627494456763,
+        "p_call": 0.5521064301552107,
+        "p_raise": 0.0022172949002217295,
+        "entropy": 0.7016889409640099
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 150,
+        "p_fold": 0.9084967320261438,
+        "p_call": 0.08496732026143791,
+        "p_raise": 0.006535947712418301,
+        "entropy": 0.3295476053622059
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 1591,
+        "p_fold": 0.8795483061480552,
+        "p_call": 0.11982434127979925,
+        "p_raise": 0.0006273525721455458,
+        "entropy": 0.3717480139742338
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 5959,
+        "p_fold": 0.8960080509896008,
+        "p_call": 0.10382422006038242,
+        "p_raise": 0.0001677289500167729,
+        "entropy": 0.33501272059925635
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 1,
+        "villain_pos_id": 5,
+        "n_rows": 84,
+        "p_fold": 0.9770114942528736,
+        "p_call": 0.011494252873563218,
+        "p_raise": 0.011494252873563218,
+        "entropy": 0.12538677610357338
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 5,
+        "n_rows": 410,
+        "p_fold": 0.9951573849878934,
+        "p_call": 0.002421307506053269,
+        "p_raise": 0.002421307506053269,
+        "entropy": 0.03400010831408023
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 5,
+        "villain_pos_id": 1,
+        "n_rows": 516,
+        "p_fold": 0.5144508670520231,
+        "p_call": 0.4836223506743738,
+        "p_raise": 0.0019267822736030828,
+        "entropy": 0.7053064274500864
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 101,
+        "p_fold": 0.5192307692307693,
+        "p_call": 0.47115384615384615,
+        "p_raise": 0.009615384615384616,
+        "entropy": 0.7395415421971081
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 116,
+        "p_fold": 0.9747899159663865,
+        "p_call": 0.01680672268907563,
+        "p_raise": 0.008403361344537815,
+        "entropy": 0.13372217773493122
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 51,
+        "p_fold": 0.2962962962962963,
+        "p_call": 0.6851851851851852,
+        "p_raise": 0.018518518518518517,
+        "entropy": 0.6933288183451114
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 0,
+        "villain_pos_id": 2,
+        "n_rows": 96,
+        "p_fold": 0.5050505050505051,
+        "p_call": 0.48484848484848486,
+        "p_raise": 0.010101010101010102,
+        "entropy": 0.7424047107882963
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 0,
+        "villain_pos_id": 4,
+        "n_rows": 84,
+        "p_fold": 0.45977011494252873,
+        "p_call": 0.5287356321839081,
+        "p_raise": 0.011494252873563218,
+        "entropy": 0.7455324588463443
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 4,
+        "villain_pos_id": 1,
+        "n_rows": 1035,
+        "p_fold": 0.9980732177263969,
+        "p_call": 0.0009633911368015414,
+        "p_raise": 0.0009633911368015414,
+        "entropy": 0.015306526111150182
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "hero_pos_id": 3,
+        "villain_pos_id": 1,
+        "n_rows": 122,
+        "p_fold": 0.464,
+        "p_call": 0.528,
+        "p_raise": 0.008,
+        "entropy": 0.73213047661581
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "hero_pos_id": 2,
+        "villain_pos_id": 1,
+        "n_rows": 307,
+        "p_fold": 0.7516129032258064,
+        "p_call": 0.24516129032258063,
+        "p_raise": 0.0032258064516129032,
+        "entropy": 0.5777732860485487
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 2,
+        "villain_pos_id": 4,
+        "n_rows": 90,
+        "p_fold": 0.8709677419354839,
+        "p_call": 0.11827956989247312,
+        "p_raise": 0.010752688172043012,
+        "entropy": 0.42155401434112033
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 2,
+        "villain_pos_id": 0,
+        "n_rows": 68,
+        "p_fold": 0.4084507042253521,
+        "p_call": 0.5774647887323944,
+        "p_raise": 0.014084507042253521,
+        "entropy": 0.7428484150033244
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 692,
+        "p_fold": 0.9309352517985612,
+        "p_call": 0.06762589928057554,
+        "p_raise": 0.0014388489208633094,
+        "entropy": 0.25820682423451813
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 5,
+        "n_rows": 116,
+        "p_fold": 0.008403361344537815,
+        "p_call": 0.008403361344537815,
+        "p_raise": 0.9831932773109243,
+        "entropy": 0.09698609503006336
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "hero_pos_id": 1,
+        "villain_pos_id": 4,
+        "n_rows": 55,
+        "p_fold": 0.43103448275862066,
+        "p_call": 0.5517241379310345,
+        "p_raise": 0.017241379310344827,
+        "entropy": 0.7608663810383113
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 297,
+        "p_fold": 0.5,
+        "p_call": 0.49666666666666665,
+        "p_raise": 0.0033333333333333335,
+        "entropy": 0.7131714956521619
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "hero_pos_id": 3,
+        "villain_pos_id": 0,
+        "n_rows": 1469,
+        "p_fold": 0.998641304347826,
+        "p_call": 0.0006793478260869565,
+        "p_raise": 0.0006793478260869565,
+        "entropy": 0.011268610925774376
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 2,
+        "villain_pos_id": 3,
+        "n_rows": 50,
+        "p_fold": 0.018867924528301886,
+        "p_call": 0.018867924528301886,
+        "p_raise": 0.9622641509433962,
+        "entropy": 0.18683705941816686
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 2,
+        "n_rows": 52,
+        "p_fold": 0.01818181818181818,
+        "p_call": 0.01818181818181818,
+        "p_raise": 0.9636363636363636,
+        "entropy": 0.18141552307924447
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "hero_pos_id": 4,
+        "villain_pos_id": 0,
+        "n_rows": 150,
+        "p_fold": 0.9607843137254902,
+        "p_call": 0.032679738562091505,
+        "p_raise": 0.006535947712418301,
+        "entropy": 0.1831125630976398
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 4,
+        "villain_pos_id": 3,
+        "n_rows": 77,
+        "p_fold": 0.0125,
+        "p_call": 0.0125,
+        "p_raise": 0.975,
+        "entropy": 0.1342355286485297
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 0,
+        "villain_pos_id": 3,
+        "n_rows": 60,
+        "p_fold": 0.015873015873015872,
+        "p_call": 0.015873015873015872,
+        "p_raise": 0.9682539682539683,
+        "entropy": 0.16276479441119962
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "hero_pos_id": 2,
+        "villain_pos_id": 5,
+        "n_rows": 73,
+        "p_fold": 0.013157894736842105,
+        "p_call": 0.013157894736842105,
+        "p_raise": 0.9736842105263158,
+        "entropy": 0.13993311795295527
+      }
+    ],
+    "ctx_summaries": [
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 10,
+        "cells_ok": 13,
+        "rows_total": 1162,
+        "p_fold_mean": 0.6074004068645846,
+        "p_call_mean": 0.3802067822339224,
+        "p_raise_mean": 0.01239281090149291,
+        "entropy_mean": 0.718688115076547,
+        "entropy_med": 0.7068719509694418,
+        "street": "RIVER",
+        "ctx": "VS_CBET"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 14,
+        "cells_ok": 11,
+        "rows_total": 748,
+        "p_fold_mean": 0.4431511855359675,
+        "p_call_mean": 0.5420077166834323,
+        "p_raise_mean": 0.01484109778060021,
+        "entropy_mean": 0.7419204960467973,
+        "entropy_med": 0.748331034389692,
+        "street": "FLOP",
+        "ctx": "VS_DONK"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 10,
+        "cells_ok": 30,
+        "rows_total": 9683,
+        "p_fold_mean": 0.4733780679330337,
+        "p_call_mean": 0.5226048259652338,
+        "p_raise_mean": 0.004017106101732441,
+        "entropy_mean": 0.7116747458816586,
+        "entropy_med": 0.7115686281475986,
+        "street": "FLOP",
+        "ctx": "VS_CBET"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 3,
+        "ctx_id": 14,
+        "cells_ok": 8,
+        "rows_total": 716,
+        "p_fold_mean": 0.5931701971511822,
+        "p_call_mean": 0.3951767856195235,
+        "p_raise_mean": 0.011653017229294169,
+        "entropy_mean": 0.723212317745977,
+        "entropy_med": 0.7304596464596005,
+        "street": "RIVER",
+        "ctx": "VS_DONK"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 10,
+        "cells_ok": 29,
+        "rows_total": 4010,
+        "p_fold_mean": 0.4831038866850892,
+        "p_call_mean": 0.5078738466530991,
+        "p_raise_mean": 0.009022266661811619,
+        "entropy_mean": 0.730106342532757,
+        "entropy_med": 0.7295796790607992,
+        "street": "TURN",
+        "ctx": "VS_CBET"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 1,
+        "cells_ok": 30,
+        "rows_total": 136979,
+        "p_fold_mean": 0.8949019254135305,
+        "p_call_mean": 0.10464866429677651,
+        "p_raise_mean": 0.00044941028969298224,
+        "entropy_mean": 0.29807990546088703,
+        "entropy_med": 0.34596108948061166,
+        "street": "PREFLOP",
+        "ctx": "VS_OPEN"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 1,
+        "ctx_id": 13,
+        "cells_ok": 11,
+        "rows_total": 816,
+        "p_fold_mean": 0.014165975942508846,
+        "p_call_mean": 0.014165975942508846,
+        "p_raise_mean": 0.9716680481149823,
+        "entropy_mean": 0.14744045718617457,
+        "entropy_med": 0.14298454496933213,
+        "street": "FLOP",
+        "ctx": "VS_CHECK_RAISE"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 2,
+        "cells_ok": 30,
+        "rows_total": 28231,
+        "p_fold_mean": 0.8783496009736284,
+        "p_call_mean": 0.11966481694156474,
+        "p_raise_mean": 0.0019855820848069116,
+        "entropy_mean": 0.3565999790093173,
+        "entropy_med": 0.32623528941026536,
+        "street": "PREFLOP",
+        "ctx": "VS_3BET"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 3,
+        "cells_ok": 30,
+        "rows_total": 3034,
+        "p_fold_mean": 0.8973096245404101,
+        "p_call_mean": 0.09259633686465553,
+        "p_raise_mean": 0.01009403859493449,
+        "entropy_mean": 0.35027908656748674,
+        "entropy_med": 0.37430339708013594,
+        "street": "PREFLOP",
+        "ctx": "VS_4BET"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 6,
+        "cells_ok": 20,
+        "rows_total": 5590,
+        "p_fold_mean": 0.7496524731435574,
+        "p_call_mean": 0.24624213225623137,
+        "p_raise_mean": 0.004105394600211367,
+        "entropy_mean": 0.4252191459821968,
+        "entropy_med": 0.534281095463634,
+        "street": "PREFLOP",
+        "ctx": "LIMPED_MULTI"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 2,
+        "ctx_id": 14,
+        "cells_ok": 12,
+        "rows_total": 1224,
+        "p_fold_mean": 0.4918481143099355,
+        "p_call_mean": 0.49660120921511147,
+        "p_raise_mean": 0.011550676474953094,
+        "entropy_mean": 0.7420571341630385,
+        "entropy_med": 0.7441904369248344,
+        "street": "TURN",
+        "ctx": "VS_DONK"
+      },
+      {
+        "stakes_id": 2,
+        "street_id": 0,
+        "ctx_id": 5,
+        "cells_ok": 30,
+        "rows_total": 26946,
+        "p_fold_mean": 0.9967570616100568,
+        "p_call_mean": 0.0016214691949715738,
+        "p_raise_mean": 0.0016214691949715738,
+        "entropy_mean": 0.022873331414461635,
+        "entropy_med": 0.015609780038405189,
+        "street": "PREFLOP",
+        "ctx": "LIMPED_SINGLE"
+      }
+    ],
+    "actions": [
+      "FOLD",
+      "CALL",
+      "RAISE"
+    ]
+  }
+}
