@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -12,8 +13,11 @@ from torch.utils.data import DataLoader, Subset
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
 from ml.datasets.equitynet import equity_collate_fn, EquityDatasetParquet
-from ml.models.equitynet import EquityNetLit
+from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 

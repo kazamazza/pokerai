@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
-from ml.models.equitynet import EquityNetLit
+from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 

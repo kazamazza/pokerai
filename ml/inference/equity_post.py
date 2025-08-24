@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from ml.datasets.equitynet import EquityDatasetParquet
 from ml.features.boards import load_board_clusterer
-from ml.models.equitynet import EquityNetLit
+from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 

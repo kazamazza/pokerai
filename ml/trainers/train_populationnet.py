@@ -13,12 +13,8 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import categorical_cardinalities, stratified_indices
-from ml.models.populationnet import PopulationNetLit
+from ml.models.population_net import PopulationNetLit
 
-def load_config(path: str, overrides: dict) -> dict:
-    cfg = OmegaConf.load(path)
-    cfg = OmegaConf.merge(cfg, overrides or {})
-    return OmegaConf.to_container(cfg, resolve=True)
 
 def make_collate_fn(feature_order):
     """

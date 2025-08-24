@@ -3,7 +3,7 @@ import torch
 from pathlib import Path
 
 from ml.datasets.equitynet import EquityDatasetParquet
-from ml.models.equitynet import EquityNetLit
+from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 import torch.nn.functional as F

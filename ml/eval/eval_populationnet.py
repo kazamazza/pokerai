@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
-from ml.models.populationnet import PopulationNetLit
+from ml.models.population_net import PopulationNetLit
 
 
 @torch.no_grad()
