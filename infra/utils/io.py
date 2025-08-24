@@ -1,13 +1,10 @@
-from pathlib import Path
-
-from infra.storage.s3_client import S3Client
-
-
 import gzip
 import json
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
+from infra.storage.s3_client import S3Client
+
 
 def compress_json_gzip(obj: dict) -> bytes:
     return gzip.compress(json.dumps(obj, separators=(",", ":")).encode("utf-8"))
@@ -23,10 +20,6 @@ def parse_s3_url(url: str) -> tuple[str, str]:
     key = p.path.lstrip("/")
     return bucket, key
 
-def gunzip_file(src_gz: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(src_gz, "rb") as f_in, dst.open("wb") as f_out:
-        shutil.copyfileobj(f_in, f_out)
 
 def resolve_input_path(stake: int, inp: str | None, s3: S3Client | None = None) -> Path:
     """

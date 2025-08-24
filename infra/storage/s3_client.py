@@ -2,12 +2,12 @@ import gzip
 import io
 import json
 import os
+import shutil
 import boto3
 from botocore.exceptions import ClientError
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
-from utils.files import gunzip_file
 
 load_dotenv()
 
@@ -86,6 +86,11 @@ class S3Client:
         """
         self.download_file_if_missing(s3_key, local_gz)
         if not local_out.exists():
-            gunzip_file(local_gz, local_out)
+            self.gunzip_file(local_gz, local_out)
             print(f"✅ Unzipped: {local_gz} → {local_out}")
         return local_out
+
+    def gunzip_file(self, src_gz: Path, dst: Path) -> None:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(src_gz, "rb") as f_in, dst.open("wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
