@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
 from ml.etl.utils.monker_parser import load_range_file_cached

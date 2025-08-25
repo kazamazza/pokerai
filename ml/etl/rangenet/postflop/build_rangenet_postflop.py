@@ -1,11 +1,17 @@
 from __future__ import annotations
+
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 import numpy as np
 import pandas as pd
-from ml.etl.rangenet.utils import hand_range_to_vec169, avg_vecs, infer_node_key
+
+ROOT_DIR = Path(__file__).resolve().parents[4]
+sys.path.append(str(ROOT_DIR))
+
+from ml.etl.rangenet.utils import hand_range_to_vec169, avg_vecs
 from ml.features.boards import load_board_clusterer
-from ml.range.solvers.adapter_cache_first import load_villain_range_cached_only
+from ml.range.solvers.adapter_cached import load_villain_range_cached_only
 from ml.utils.config import load_model_config
 
 

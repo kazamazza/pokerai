@@ -1,4 +1,4 @@
-name: equitynet_postflop
+
 
 inputs:
   manifest: data/artifacts/monker_manifest.parquet

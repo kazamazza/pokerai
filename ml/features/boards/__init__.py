@@ -3,6 +3,7 @@ from ml.features.boards.board_clusterers.rule_based import RuleBasedBoardCluster
 
 
 def load_board_clusterer(cfg):
+    print(cfg)
     kind = cfg["board_clustering"]["type"]  # "rule" or "kmeans"
     if kind == "rule":
         return RuleBasedBoardClusterer()

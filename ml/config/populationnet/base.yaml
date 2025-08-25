@@ -1,4 +1,4 @@
-name: populationnet
+
 
 inputs:
   parquet: data/datasets/populationnet_nl10.parquet
