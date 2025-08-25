@@ -254,7 +254,7 @@ if __name__ == "__main__":
     from ml.utils.config import load_model_config  # same helper used elsewhere
 
     ap = argparse.ArgumentParser()
-    # accepts either a short name ("populationnet") or a path ("ml/config/populationnet.yaml")
+    # accepts either a short name ("populationnet") or a path ("ml/config/base.yaml")
     ap.add_argument("--config", type=str, default="populationnet",
                     help="Model name or YAML path (resolved by load_model_config)")
     # lightweight overrides (train.* only)

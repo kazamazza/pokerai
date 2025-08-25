@@ -1,8 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Optional
 import json, hashlib, subprocess, tempfile, shutil, time
-
 from infra.storage.s3_client import S3Client
 from ml.config.types_hands import HAND_TO_ID, RANK_TO_I
 
@@ -90,11 +89,6 @@ def load_villain_range_from_solver(
     finally:
         # keep cache, remove temp run_dir
         shutil.rmtree(run_dir, ignore_errors=True)
-
-
-# -------------------------
-# Internals
-# -------------------------
 
 def build_command_text(
     *,

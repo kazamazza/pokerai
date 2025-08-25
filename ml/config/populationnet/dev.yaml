@@ -1,0 +1,18 @@
+# DEV overrides: faster iterations, looser coverage thresholds, separate outputs
+coverage:
+  min_rows_per_cell: 20
+  min_cells_per_ctx: 5
+  output: reports/coverage/populationnet_nl10_dev.json
+
+train:
+  batch_size: 1024
+  max_epochs: 5
+  patience: 2
+  checkpoints_dir: checkpoints/popnet/dev
+
+logging:
+  tb_log_dir: logs/tb/popnet_dev
+  csv_log_dir: logs/csv/popnet_dev
+
+build:
+  out_parquet: data/datasets/populationnet_nl10_dev.parquet

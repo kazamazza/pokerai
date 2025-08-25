@@ -1,0 +1,37 @@
+rangenet_postflop:
+  inputs:
+    manifest: data/artifacts/rangenet_postflop_manifest.parquet
+
+  outputs:
+    parquet: data/datasets/rangenet_postflop.parquet
+
+  board_clustering:
+    type: rule            # dev.yaml may use rule; prod likely kmeans
+    artifact: null        # required if type=kmeans
+    n_clusters: 96
+
+  manifest_build:
+    stacks_bb: [25, 50, 75, 100]
+    ip_oop_pairs: [["BTN", "BB"], ["CO", "BB"], ["SB", "BB"]]
+    streets: [1]          # 1=flop only for now
+    boards_per_cluster: 4
+    board_clusters_limit: 48
+
+  solver:
+    binary: external/solver/console_solver
+    accuracy: 0.5
+    max_iterations: 200
+    threads: 8
+    bet_tree:            # coarse sizes
+      oop:
+        flop: { bet: [50], raise: [60], allin: true }
+      ip:
+        flop: { bet: [50], raise: [60], allin: true }
+    allin_threshold: 0.67
+
+  train:
+    batch_size: 1024
+    max_epochs: 5
+    patience: 2
+    checkpoints_dir: checkpoints/rangenet_postflop
+    seed: 42

@@ -78,7 +78,7 @@ def parse_population_coverage(d: Dict[str, Any]) -> Dict[str, Any]:
 
 def parse_generic_coverage(d: Dict[str, Any], model: str) -> Dict[str, Any]:
     """
-    Generic reader for coverage JSONs you might add for equity/exploit:
+    Generic reader for coverage JSONs you might add for equitynet/exploit:
     Prefer keys: {"summary": {"total_cells": X, "ok_cells": Y, ...}}
     Otherwise, try to infer from simple lists.
     """

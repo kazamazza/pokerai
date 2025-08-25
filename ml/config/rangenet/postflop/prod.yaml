@@ -1,0 +1,17 @@
+rangenet_postflop:
+  board_clustering:
+    type: kmeans
+    artifact: data/artifacts/board_clusters_kmeans_246.pkl
+    n_clusters: 246
+  manifest_build:
+    stacks_bb: [25, 40, 60, 80, 100, 150]
+    boards_per_cluster: 8
+    board_clusters_limit: 246
+  solver:
+    accuracy: 0.25
+    max_iterations: 800
+    threads: 16
+  train:
+    batch_size: 2048
+    max_epochs: 10
+    patience: 4

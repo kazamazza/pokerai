@@ -1,0 +1,15 @@
+rangenet_postflop:
+  board_clustering:
+    type: rule
+    n_clusters: 48
+  manifest_build:
+    stacks_bb: [50, 100]
+    boards_per_cluster: 2
+    board_clusters_limit: 24
+  solver:
+    accuracy: 0.75
+    max_iterations: 100
+    threads: 4
+  train:
+    batch_size: 512
+    max_epochs: 3

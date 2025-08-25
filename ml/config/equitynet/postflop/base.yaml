@@ -6,14 +6,16 @@ inputs:
 outputs:
   postflop_parquet: data/datasets/equitynet_postflop.parquet
 
+# Reasonable defaults (good middle ground)
 board_clustering:
-  type: rule
-  n_clusters_limit: 6        # was 24
-  boards_per_cluster: 2      # was 8
+  type: rule        # swap to kmeans + artifact in prod if you like
+  n_clusters_limit: 24
+  boards_per_cluster: 8
+
 equity_mc:
-  postflop_samples: 30       # was 50
+  postflop_samples: 1500
   seed: 42
-  max_resample: 20
+  max_resample: 30
 
 dataset:
   parquet: data/datasets/equitynet_postflop.parquet

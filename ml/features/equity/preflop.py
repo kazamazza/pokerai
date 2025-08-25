@@ -22,7 +22,7 @@ def equity_preflop_vs_range_cached(
     max_resample: int = 50,
 ) -> EquityTuple:
     """
-    Monte Carlo estimate of hero preflop equity vs a villain range (no board).
+    Monte Carlo estimate of hero preflop equitynet vs a villain range (no board).
     Uses caching for:
       - hero_code -> concrete combos
       - vill_range -> expanded base villain combo list + weights

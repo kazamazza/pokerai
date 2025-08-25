@@ -2,15 +2,13 @@ name: equitynet_preflop
 
 inputs:
   manifest: data/artifacts/monker_manifest.parquet
-  # optional: precomputed parquet with (stack_bb, hero_pos, opener_action, hand_id, p_freq, weight)
-  parquet_in: data/processed/equitynet_preflop.parquet
+  parquet_in: data/processed/equitynet_preflop.parquet   # optional pre-agg input
 
 outputs:
-  # built by compute_preflop_equity
-  parquet_out: data/datasets/equitynet_preflop.parquet
+  parquet_out: data/datasets/equitynet_preflop.parquet   # built by compute_preflop_equity
 
 equity_mc:
-  preflop_samples: 10
+  preflop_samples: 1500
   seed: 42
 
 dataset:
@@ -34,7 +32,7 @@ train:
   num_workers: 0
   accelerator: auto
   devices: auto
-  precision: 16-mixed
+  precision: "16-mixed"
   seed: 42
   monitor: val_loss
   mode: min

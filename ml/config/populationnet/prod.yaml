@@ -1,0 +1,19 @@
+# PROD overrides: stricter coverage, bigger batches/epochs, separate outputs
+coverage:
+  min_rows_per_cell: 200
+  min_cells_per_ctx: 50
+  output: reports/coverage/populationnet_nl10_prod.json
+  alpha: 1.0
+
+train:
+  batch_size: 4096
+  max_epochs: 25
+  patience: 6
+  checkpoints_dir: checkpoints/popnet/prod
+
+logging:
+  tb_log_dir: logs/tb/popnet_prod
+  csv_log_dir: logs/csv/popnet_prod
+
+build:
+  out_parquet: data/datasets/populationnet_nl10_prod.parquet

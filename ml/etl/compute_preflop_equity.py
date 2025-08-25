@@ -61,7 +61,7 @@ def _preflop_equity_vs_range(hero_code: str,
                              n_samples: int = 50_000,
                              rng_seed: int | None = 42) -> float:
     """
-    Monte Carlo: equity(hero hand) vs weighted villain range.
+    Monte Carlo: equitynet(hero hand) vs weighted villain range.
     """
     rng = np.random.default_rng(rng_seed)
     # expand hero to all combos; we’ll average
@@ -137,7 +137,7 @@ def compute_equity_for_group(
     seed: int
 ) -> pd.DataFrame:
     """
-    Compute preflop equity for all hero hands in a scenario group.
+    Compute preflop equitynet for all hero hands in a scenario group.
     key = (stack_bb, hero_pos, opener_action)
     df_rows = the rows for this scenario (different hero hand_ids)
     """

@@ -20,7 +20,7 @@ s3 = boto3.client("s3", region_name=REGION)
 
 def handle_equity_task(_: str) -> bool:
     """
-    Generate one equity sample, upload gzipped JSON to S3, and verify it exists.
+    Generate one equitynet sample, upload gzipped JSON to S3, and verify it exists.
     Return True on success so SQSWorker will delete the message.
     """
     try:
@@ -34,7 +34,7 @@ def handle_equity_task(_: str) -> bool:
             "label": lab_to_dict(),
         }
 
-        key = f"equity/simulations/{features.hash()}.json.gz"
+        key = f"equitynet/simulations/{features.hash()}.json.gz"
 
         s3.put_object(
             Bucket=BUCKET,
@@ -61,7 +61,7 @@ def handle_equity_task(_: str) -> bool:
         return False
 
     except Exception as e:
-        print(f"❌ Failed to process equity task: {e}")
+        print(f"❌ Failed to process equitynet task: {e}")
         traceback.print_exc()
         return False
 

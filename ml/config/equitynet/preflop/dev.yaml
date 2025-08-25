@@ -1,0 +1,8 @@
+equity_mc:
+  preflop_samples: 50
+
+train:
+  batch_size: 1024
+  max_epochs: 6
+  patience: 2
+  checkpoints_dir: checkpoints/equity_pre/dev

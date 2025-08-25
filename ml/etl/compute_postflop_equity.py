@@ -165,7 +165,7 @@ def compute_postflop_equity(
             # if somehow empty, skip scenario
             continue
 
-        # 3) For each hero hand and each cluster, average equity across sampled boards
+        # 3) For each hero hand and each cluster, average equitynet across sampled boards
         for hand_id, hero_code in enumerate(ALL_HANDS):
             for cluster_id, boards in cluster_to_boards.items():
                 wins = ties = loses = 0.0

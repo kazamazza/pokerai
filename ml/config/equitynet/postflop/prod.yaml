@@ -1,0 +1,18 @@
+# If you have a trained kmeans artifact, enable it here:
+# board_clustering:
+#   type: kmeans
+#   artifact: data/artifacts/board_clusters/kmeans_96.pkl
+
+board_clustering:
+  n_clusters_limit: 96       # or 128 if you have the kmeans artifact
+  boards_per_cluster: 12
+
+equity_mc:
+  postflop_samples: 5000     # increase if budget allows (e.g., 8000–12000)
+  max_resample: 50
+
+train:
+  batch_size: 4096
+  max_epochs: 20
+  patience: 6
+  checkpoints_dir: checkpoints/equity_post/prod

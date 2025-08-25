@@ -184,7 +184,7 @@ def equity_postflop_vs_range_using_combos(
     max_resample: int = 30,
 ) -> EquityTuple:
     """
-    Monte Carlo hero equity vs *pre-expanded* villain combos.
+    Monte Carlo hero equitynet vs *pre-expanded* villain combos.
     Assumes helpers exist:
       - _to_ev7, _remaining_board_cards_needed, _build_remaining_deck
       - expand_hand_code_to_combos, _overlaps_board

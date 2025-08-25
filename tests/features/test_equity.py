@@ -63,5 +63,5 @@ def test_postflop_equity_draw_vs_made_hand():
         seed=42,
     )
     assert _sum_to_one(win, tie, lose)
-    # Some equity but < 50%
+    # Some equitynet but < 50%
     assert 0.50 < win < 0.62

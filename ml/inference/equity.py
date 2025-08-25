@@ -1,4 +1,4 @@
-# ml/inference/equity.py
+# ml/inference/equitynet.py
 from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union

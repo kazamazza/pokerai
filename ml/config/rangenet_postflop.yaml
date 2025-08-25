@@ -1,7 +1,0 @@
-solver:
-  bin: external/solver/console_solver
-  work_dir: data/solver_work         # tmp files
-  upload_s3: false                    # set true if you want auto-upload
-  s3_bucket: your-bucket
-  s3_prefix: solver/outputs
-  timeout_sec: 900
