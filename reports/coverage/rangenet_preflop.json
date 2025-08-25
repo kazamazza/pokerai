@@ -1,0 +1,497 @@
+{
+  "summary": {
+    "rangenet_preflop": {
+      "total_cells": 54,
+      "ok_cells": 54,
+      "ok_pct": 100.0
+    }
+  },
+  "cells": [
+    {
+      "stack_bb": 12,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 12,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 15,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "BTN",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "CO",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "HJ",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "SB",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "ALL_IN",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "FOLD",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    },
+    {
+      "stack_bb": 18,
+      "hero_pos": "UTG",
+      "opener_pos": "UTG",
+      "opener_action": "Min",
+      "n_rows": 1,
+      "total_weight": 1.0,
+      "ok": true
+    }
+  ]
+}

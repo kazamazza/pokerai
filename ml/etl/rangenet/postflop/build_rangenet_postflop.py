@@ -241,8 +241,8 @@ def run_from_config(cfg: Dict[str, Any]) -> None:
             cur = cur[p]
         return cur
 
-    manifest = Path(get("rangenet_postflop.inputs.manifest"))
-    out_pq   = Path(get("rangenet_postflop.outputs.parquet", "data/datasets/rangenet_postflop.parquet"))
+    manifest = Path(get("inputs.manifest"))
+    out_pq   = Path(get("outputs.parquet", "data/datasets/rangenet_postflop.parquet"))
 
     if not manifest.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest}")
@@ -254,7 +254,7 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     # as with your other scripts: pass a short name or a yaml path
-    ap.add_argument("--config", type=str, default="rangenet_postflop",
+    ap.add_argument("--config", type=str, default="rangenet/postflop",
                     help="Model name or YAML path (resolved by load_model_config)")
     # optional one-off override for output
     ap.add_argument("--out", type=str, default=None)

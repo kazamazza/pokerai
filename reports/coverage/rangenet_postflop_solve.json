@@ -1,0 +1,201 @@
+{
+  "summary": {
+    "rangenet_postflop_solve": {
+      "planned": 38,
+      "solved": 0,
+      "pct": 0.0
+    }
+  },
+  "by_bucket": [
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 1,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 3,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 5,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 7,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 9,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 10,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 11,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 16,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 17,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 25,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 27,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 29,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 31,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 33,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 34,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 35,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 73,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 75,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    },
+    {
+      "effective_stack_bb": 100.0,
+      "pot_bb": 20.0,
+      "positions": "IPvOOP",
+      "street": 1,
+      "board_cluster_id": 77,
+      "planned": 2,
+      "solved": 0,
+      "pct": 0.0
+    }
+  ]
+}

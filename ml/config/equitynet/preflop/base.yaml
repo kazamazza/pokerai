@@ -1,5 +1,3 @@
-
-
 inputs:
   manifest: data/artifacts/monker_manifest.parquet
   parquet_in: data/processed/equitynet_preflop.parquet   # optional pre-agg input
