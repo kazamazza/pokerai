@@ -1,5 +1,5 @@
 inputs:
-  parquet: data/datasets/populationnet_nl10.parquet
+  parquet: data/datasets/populationnet_nl10_dev.parquet
 
 dataset:
   # Categorical feature columns (order matters for embeddings)

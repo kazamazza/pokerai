@@ -1,16 +1,13 @@
-# ml/etl/populationnet/build_population_parquet.py
 from __future__ import annotations
-
 import sys
 from pathlib import Path
 from typing import Optional
-
-import json
 import polars as pl
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from infra.storage.s3_client import S3Client
 # --- constants ---
 # Cell granularity for PopulationNet
 GRP = ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
@@ -171,24 +168,76 @@ def run_from_config(cfg: dict, overrides: Optional[dict] = None) -> Path:
 
 def main():
     import argparse
+    from pathlib import Path
+
     from ml.utils.config import load_model_config
+
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="populationnet",
                     help="model name or path to YAML")
+    ap.add_argument("--stake", type=int, default=10, help="e.g. 10 for NL10")
+    ap.add_argument("--s3-prefix", type=str, default="parsed",
+                    help="S3 prefix under the bucket, e.g. 'parsed'")
+    ap.add_argument("--bucket", type=str, default=None,
+                    help="Override S3 bucket name if not in S3Client config")
+    ap.add_argument("--local-cache", type=Path, default=Path("data/processed"),
+                    help="Local cache dir for downloads (will create nl<stake>/)")
     ap.add_argument("--decisions", type=str, default=None,
-                    help="override decisions_in path (.jsonl or .jsonl.gz)")
+                    help="override decisions_in path (.jsonl or .jsonl.gz); if omitted we download from S3")
     ap.add_argument("--out", type=str, default=None,
                     help="override out_parquet path")
     ap.add_argument("--weight", type=str, default=None,
                     help="override weight_mode: count|sqrt|log1p")
     args = ap.parse_args()
 
+    # Load YAML config
     cfg = load_model_config(args.config)
-    overrides = {}
-    if args.decisions: overrides["decisions_in"] = args.decisions
-    if args.out:       overrides["out_parquet"]  = args.out
-    if args.weight:    overrides["weight_mode"]  = args.weight
+
+    # Resolve decisions input: either user-provided path OR download from S3
+    decisions_path: Path
+    if args.decisions:
+        decisions_path = Path(args.decisions)
+    else:
+        s3 = S3Client()
+        stake_str = f"nl{args.stake}"
+        local_dir = (args.local_cache / stake_str)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # S3 keys (match your validator layout)
+        decisions_key = f"{args.s3_prefix}/{stake_str}/decisions.jsonl.gz"
+        hands_key     = f"{args.s3_prefix}/{stake_str}/hands.jsonl.gz"
+
+        # Local cache targets
+        decisions_path = local_dir / f"decisions_{stake_str}.jsonl.gz"
+        hands_path     = local_dir / f"hands_{stake_str}.jsonl.gz"
+
+        # Best-effort downloader accommodating both .download and .download_file APIs
+        def _dl(key: str, dest: Path, label: str):
+            print(f"⬇️  downloading {label}: s3://{s3.bucket}/{key} → {dest}")
+            if hasattr(s3, "download"):
+                s3.download(key, dest)
+            elif hasattr(s3, "download_file"):
+                s3.download_file(key, dest)
+            else:
+                raise RuntimeError("S3Client has no download method (expected .download or .download_file)")
+            print(f"✅ Downloaded: s3://{s3.bucket}/{key} → {dest}")
+
+        # Download both (hands is not strictly needed for the builder, but useful for audits)
+        _dl(decisions_key, decisions_path, "decisions")
+        _dl(hands_key, hands_path, "hands")
+
+    # Build overrides
+    overrides = {
+        "stake": args.stake,                 # let run_from_config use this stake
+        "decisions_in": str(decisions_path)  # point builder at the cached file
+    }
+    if args.out:
+        overrides["out_parquet"] = args.out
+    if args.weight:
+        overrides["weight_mode"] = args.weight
+
+    # Kick off the build
 
     run_from_config(cfg, overrides=overrides)
 

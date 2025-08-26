@@ -1,0 +1,26 @@
+{
+  "model_name": "PopulationNet",
+  "created_utc": "2025-08-26T14:41:41Z",
+  "feature_order": [
+    "stakes_id",
+    "street_id",
+    "ctx_id",
+    "hero_pos_id",
+    "villain_pos_id"
+  ],
+  "cards": {
+    "stakes_id": 3,
+    "street_id": 4,
+    "ctx_id": 15,
+    "hero_pos_id": 6,
+    "villain_pos_id": 6
+  },
+  "id_maps": null,
+  "actions": [
+    "FOLD",
+    "CALL",
+    "RAISE"
+  ],
+  "soft_labels": true,
+  "notes": "PopulationNet trained on soft labels (p_fold,p_call,p_raise)."
+}

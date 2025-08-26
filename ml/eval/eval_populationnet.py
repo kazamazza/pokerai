@@ -1,9 +1,15 @@
 # ml/eval/eval_populationnet.py
 from __future__ import annotations
 import json
+import sys
+from pathlib import Path
 from typing import Dict, Any
 import torch
 from torch.utils.data import DataLoader, Subset
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.population_net import PopulationNetLit

@@ -2,7 +2,7 @@
 import polars as pl, json, random
 
 PARQUET = "data/datasets/populationnet_nl10_dev.parquet"
-DECISIONS = "data/processed/nl10/decisions_nl10.jsonl.gz"  # the validator just downloaded this
+DECISIONS = "data/processed/nl10/decisions.jsonl.gz"  # the validator just downloaded this
 
 df = pl.read_parquet(PARQUET)
 dec = pl.read_ndjson(DECISIONS)

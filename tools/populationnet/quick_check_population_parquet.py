@@ -1,4 +1,3 @@
-# quick_check_population_parquet.py
 import polars as pl, sys
 p = "data/datasets/populationnet_nl10_dev.parquet"
 df = pl.read_parquet(p)

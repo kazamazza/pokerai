@@ -1,6 +1,6 @@
 {
   "inputs": {
-    "parquet": "data/datasets/populationnet_nl10.parquet"
+    "parquet": "data/datasets/populationnet_nl10_dev.parquet"
   },
   "dataset": {
     "x_cols": [
@@ -24,7 +24,7 @@
   },
   "coverage": {
     "enabled": true,
-    "output": "reports/coverage/populationnet_nl10.json",
+    "output": "reports/coverage/populationnet_nl10_dev.json",
     "group_by": [
       "stakes_id",
       "street_id",
@@ -32,8 +32,8 @@
       "hero_pos_id",
       "villain_pos_id"
     ],
-    "min_rows_per_cell": 50,
-    "min_cells_per_ctx": 10,
+    "min_rows_per_cell": 20,
+    "min_cells_per_ctx": 5,
     "alpha": 1.0,
     "input_decisions": null
   },
@@ -48,9 +48,9 @@
     "soft_labels": true
   },
   "train": {
-    "batch_size": 2048,
-    "max_epochs": 10,
-    "patience": 3,
+    "batch_size": 1024,
+    "max_epochs": 5,
+    "patience": 2,
     "num_workers": 0,
     "accelerator": "auto",
     "devices": "auto",
@@ -58,7 +58,7 @@
     "seed": 42,
     "monitor": "val_loss",
     "mode": "min",
-    "checkpoints_dir": "checkpoints/popnet"
+    "checkpoints_dir": "checkpoints/popnet/dev"
   },
   "eval": {
     "use_best_ckpt": true,
@@ -67,13 +67,13 @@
   },
   "logging": {
     "logger": "tensorboard",
-    "tb_log_dir": "logs/tb/popnet",
-    "csv_log_dir": "logs/csv/popnet"
+    "tb_log_dir": "logs/tb/popnet_dev",
+    "csv_log_dir": "logs/csv/popnet_dev"
   },
   "build": {
     "stake": 10,
-    "decisions_in": null,
+    "decisions_in": "data/processed/decisions.jsonl.gz",
     "coverage_json": null,
-    "out_parquet": "data/datasets/populationnet_nl10.parquet"
+    "out_parquet": "data/datasets/populationnet_nl10_dev.parquet"
   }
 }

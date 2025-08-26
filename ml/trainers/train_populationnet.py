@@ -1,8 +1,9 @@
 from __future__ import annotations
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Any, Optional
+from typing import Mapping, Any, Optional, Dict
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader, Subset
@@ -14,7 +15,7 @@ sys.path.append(str(ROOT_DIR))
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import categorical_cardinalities, stratified_indices
 from ml.models.population_net import PopulationNetLit
-from ml.utils.sidecar import save_sidecar_json
+from ml.utils.sidecar import save_sidecar_json  # ensure this import is present
 
 def _write_popnet_sidecar(
     *,
@@ -23,32 +24,44 @@ def _write_popnet_sidecar(
     model,                # PopulationNetLit instance
     model_name: str = "PopulationNet",
 ) -> Optional[Path]:
-    # feature order: prefer dataset (ground truth); else model.hparams
-    feature_order = list(getattr(ds, "x_cols", getattr(ds, "feature_order", [])))
-    if not feature_order:
-        feature_order = list(getattr(model.hparams, "feature_order", []))
+    """
+    Write a single sidecar JSON next to the checkpoint using save_sidecar_json.
+    Produces: <checkpoint>.sidecar.json
+    """
+    # feature_order: prefer dataset; else model.hparams
+    feature_order = list(getattr(ds, "x_cols", getattr(ds, "feature_order", []))) or \
+                    list(getattr(getattr(model, "hparams", object()), "feature_order", []))
 
-    # cards: prefer dataset-provided; else model.cards
-    cards = {}
+    # cards: prefer dataset.cards() if callable; else dataset.cards; else model.cards
+    cards: Dict[str, int] = {}
     if hasattr(ds, "cards") and callable(getattr(ds, "cards", None)):
-        cards = ds.cards()
+        got = ds.cards() or {}
+        cards = dict(got)
     elif hasattr(ds, "cards"):
-        cards = dict(ds.cards)
+        got = ds.cards or {}
+        cards = dict(got)
+    elif hasattr(model, "cards"):
+        got = model.cards or {}
+        cards = dict(got)
 
-    # id maps (only if dataset exposes them)
+    if not feature_order or not cards:
+        # Don’t write a misleading sidecar if we can’t describe inputs properly
+        return None
+
+    # id_maps optional (dataset may expose for categorical encodings)
     id_maps = None
-    if hasattr(ds, "id_maps") and callable(ds.id_maps):
-        id_maps = ds.id_maps()
+    if hasattr(ds, "id_maps") and callable(getattr(ds, "id_maps", None)):
+        try:
+            id_maps = ds.id_maps()
+        except Exception:
+            id_maps = None
 
+    # Extra keys appended at top-level (per save_sidecar_json semantics)
     extra = {
         "actions": ["FOLD", "CALL", "RAISE"],
         "soft_labels": True,
         "notes": "PopulationNet trained on soft labels (p_fold,p_call,p_raise).",
     }
-
-    if not feature_order or not cards:
-        # Don’t write a misleading sidecar if we can’t describe inputs properly
-        return None
 
     return save_sidecar_json(
         best_ckpt,
