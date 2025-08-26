@@ -1,5 +1,3 @@
-
-
 inputs:
   parquet: data/datasets/populationnet_nl10.parquet
 
@@ -26,7 +24,7 @@ coverage:
   min_rows_per_cell: 50
   min_cells_per_ctx: 10
   alpha: 1.0
-  input_decisions: null   # e.g. s3://bucket/decisions_nl10.jsonl.gz (or local path)
+  input_decisions: null   # e.g. s3://bucket/decisions.jsonl.gz (or local path)
 
 model:
   hidden_dims: [64, 64]
@@ -60,6 +58,6 @@ logging:
 
 build:
   stake: 10
-  decisions_in: null      # s3://.../decisions_nl10.jsonl.gz or local path
+  decisions_in: data/processed/decisions.jsonl.gz      # s3://.../decisions.jsonl.gz or local path
   coverage_json: null     # reports/coverage/populationnet_nl10.json
   out_parquet: data/datasets/populationnet_nl10.parquet

@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Literal, Optional
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
 from ml.datasets.parsers.parse_hand_history.build_postflop_decisions import build_postflop_decision_rows
@@ -287,19 +287,24 @@ def parse_hand_block(text: str, stake_obj: StakeObj) -> dict:
 
     return HandSchema(**hand_raw).dict()
 
-# ── MAIN ───────────────────────────────────────────────────────────────────────
+
 def parse_all_hands(stake: int):
     stake_enum = Stakes[f"NL{stake}"]
     stake_obj = StakeObj(id=stake_enum.value, name=stake_enum.name)
 
     raw_dir = Path(f"data/raw/{stake_enum.name.upper()}")
-    hands_jsonl = Path(f"hands_{stake_enum.name.lower()}.jsonl")
-    decisions_jsonl = Path(f"decisions_{stake_enum.name.lower()}.jsonl")
+
+    # cleaner local filenames
+    hands_jsonl = Path("hands.jsonl")
+    decisions_jsonl = Path("decisions.jsonl")
 
     hands_gz = Path(f"{hands_jsonl}.gz")
     decisions_gz = Path(f"{decisions_jsonl}.gz")
-    hands_s3_key = f"parsed/{hands_gz.name}"
-    decisions_s3_key = f"parsed/{decisions_gz.name}"
+
+    # S3 structure: parsed/<stake>/hands.jsonl.gz, parsed/<stake>/decisions.jsonl.gz
+    stake_folder = stake_enum.name.lower()
+    hands_s3_key = f"parsed/{stake_folder}/{hands_gz.name}"
+    decisions_s3_key = f"parsed/{stake_folder}/{decisions_gz.name}"
 
     total_hands = 0
     total_rows = 0

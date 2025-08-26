@@ -43,7 +43,7 @@ def resolve_input_path(stake: int, inp: str | None, s3: S3Client | None = None) 
             if s3.bucket and bucket and s3.bucket != bucket:
                 raise ValueError(f"S3 bucket mismatch: resolver={bucket} client={s3.bucket}")
 
-            local_gz = Path("tmp") / Path(key).name  # e.g., tmp/decisions_nl10.jsonl.gz
+            local_gz = Path("tmp") / Path(key).name  # e.g., tmp/decisions.jsonl.gz
             local_jsonl = local_gz.with_suffix("")    # remove .gz → .jsonl
             s3.download_file_if_missing(key, local_gz)
             if not local_jsonl.exists():
