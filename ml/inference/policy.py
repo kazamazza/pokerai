@@ -1,4 +1,6 @@
 from typing import Optional, Dict, Any
+
+from ml.features.boards import BoardClusterer
 from ml.inference.equity import EquityNetInfer
 from ml.inference.exploit import ExploitNetInfer
 from ml.inference.population import PopulationNetInfer

@@ -1,5 +1,5 @@
 import pickle
-from typing import List
+from typing import List, Sequence, Optional
 from ml.config.types_hands import RANK_TO_I
 from ml.features.boards.board_features import featurize_board
 
@@ -7,16 +7,13 @@ from ml.features.boards.board_features import featurize_board
 class RuleBasedBoardClusterer:
     """
     Fast, interpretable bucketizer.
-    Produces small integers (cluster ids) based on texture rules.
     """
-    def __init__(self, version: str = "v1") -> None:
+    def __init__(self, n_clusters: Optional[int] = None, version: str = "v1") -> None:
         self.version = version
+        self.n_clusters = n_clusters  # for protocol compatibility; rule-based may ignore
 
     def predict_one(self, board_str: str) -> int:
         f = featurize_board(board_str)
-
-        # Example scheme (customize freely):
-        # First key on suits → then pairs → then connectivity → then top-card bin.
         if f.monotone: suit_bucket = 3
         elif f.has_3suited: suit_bucket = 2
         elif f.has_2suited: suit_bucket = 1
@@ -31,10 +28,7 @@ class RuleBasedBoardClusterer:
         elif f.connectivity <= 2.0: conn_bucket = 1
         else: conn_bucket = 0
 
-        # high-card bucket (A/K/Q present)
         high_bucket = 1 if f.max_rank >= RANK_TO_I['Q'] else 0
-
-        # compact id: base-4 mix (<= 4*4*3*2 = 96 buckets theoretical)
         cid = suit_bucket * 24 + pair_bucket * 6 + conn_bucket * 2 + high_bucket
         return int(cid)
 
@@ -43,10 +37,13 @@ class RuleBasedBoardClusterer:
 
     def save(self, path: str) -> None:
         with open(path, "wb") as f:
-            pickle.dump({"type": "rule", "version": self.version}, f)
+            pickle.dump({"type": "rule", "version": self.version, "n_clusters": self.n_clusters}, f)
 
     @staticmethod
     def load(path: str) -> "RuleBasedBoardClusterer":
         with open(path, "rb") as f:
             meta = pickle.load(f)
-        return RuleBasedBoardClusterer(version=meta.get("version", "v1"))
+        return RuleBasedBoardClusterer(
+            n_clusters=meta.get("n_clusters"),
+            version=meta.get("version", "v1"),
+        )
