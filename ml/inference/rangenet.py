@@ -1,10 +1,6 @@
-# ml/infer/rangenet_infer.py
 from __future__ import annotations
-from pathlib import Path
 from typing import Any, Dict, List, Sequence, Optional
-
 import torch
-import json
 import numpy as np
 
 from ml.models.rangenet import RangeNetLit  # your Lightning module
@@ -15,6 +11,20 @@ def _best_device() -> torch.device:
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
+
+def _normalize_device(device: Optional[object]) -> torch.device:
+    """
+    Accepts: None | torch.device | "cpu" | "cuda" | "auto"
+    Returns: torch.device
+    """
+    if isinstance(device, torch.device):
+        return device
+    if isinstance(device, str):
+        if device == "auto":
+            return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        return torch.device(device)
+    # default
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class RangeNetInfer:
     """
@@ -41,39 +51,22 @@ class RangeNetInfer:
         self.device = device or _best_device()
         self.model.to(self.device)
 
-    @staticmethod
-    def from_checkpoint(ckpt_path: str | Path) -> "RangeNetInfer":
-        """
-        ckpt_path can be:
-          - a .ckpt file path, with sidecar files in its parent dir, or
-          - a directory containing 'last.ckpt' or a best *.ckpt, plus sidecar files.
-        """
-        ckpt_path = Path(ckpt_path)
-        ckpt_dir = ckpt_path if ckpt_path.is_dir() else ckpt_path.parent
-
-        # sidecar
-        feature_order = json.loads((ckpt_dir / "feature_order.json").read_text())
-        id_maps = json.loads((ckpt_dir / "id_maps.json").read_text())
-        cards = json.loads((ckpt_dir / "cards.json").read_text())
-
-        # pick checkpoint file
-        if ckpt_path.is_dir():
-            # prefer best, else last
-            best = sorted(ckpt_dir.glob("*.ckpt"))
-            if not best:
-                raise FileNotFoundError(f"No .ckpt in {ckpt_dir}")
-            ckpt_file = best[0]  # or choose by name pattern
-        else:
-            ckpt_file = ckpt_path
-
-        # restore Lightning module
-        model = RangeNetLit.load_from_checkpoint(str(ckpt_file), map_location="cpu")
-
-        return RangeNetInfer(
+    @classmethod
+    def from_checkpoint(
+            cls,
+            checkpoint_path: str,
+            sidecar: dict,
+            device: Optional[torch.device] = None,
+    ):
+        dev = _normalize_device(device)
+        model = RangeNetLit.load_from_checkpoint(checkpoint_path, map_location=dev)
+        model.eval().to(dev)
+        return cls(
             model=model,
-            feature_order=feature_order,
-            id_maps=id_maps,
-            cards=cards,
+            feature_order=sidecar["feature_order"],
+            id_maps=sidecar["id_maps"],
+            cards=sidecar["cards"],
+            device=dev,
         )
 
     def _encode_row(self, row: Dict[str, Any]) -> Dict[str, torch.Tensor]:
