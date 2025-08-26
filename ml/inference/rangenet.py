@@ -1,9 +1,13 @@
 from __future__ import annotations
+
+from pathlib import Path
 from typing import Any, Dict, List, Sequence, Optional
 import torch
 import numpy as np
 
 from ml.models.rangenet import RangeNetLit  # your Lightning module
+from ml.utils.sidecar import load_sidecar
+
 
 def _best_device() -> torch.device:
     if torch.cuda.is_available():
@@ -55,17 +59,18 @@ class RangeNetInfer:
     def from_checkpoint(
             cls,
             checkpoint_path: str,
-            sidecar: dict,
+            sidecar_path: str | Path,
             device: Optional[torch.device] = None,
     ):
         dev = _normalize_device(device)
         model = RangeNetLit.load_from_checkpoint(checkpoint_path, map_location=dev)
         model.eval().to(dev)
+        sc = load_sidecar(sidecar_path)
         return cls(
             model=model,
-            feature_order=sidecar["feature_order"],
-            id_maps=sidecar["id_maps"],
-            cards=sidecar["cards"],
+            feature_order=sc["feature_order"],
+            id_maps=sc["id_maps"],
+            cards=sc["cards"],
             device=dev,
         )
 

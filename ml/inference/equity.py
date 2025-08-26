@@ -1,34 +1,11 @@
-# ml/inference/equitynet.py
 from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
-
-import json
 import torch
 import torch.nn.functional as F
-
 from ml.models.equity_net import EquityNetLit  # your LightningModule
-
-DeviceLike = Union[str, torch.device]
-
-
-def _to_device(device: Optional[DeviceLike]) -> torch.device:
-    if device is None or (isinstance(device, str) and str(device).lower() == "auto"):
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        try:
-            if torch.backends.mps.is_available():  # type: ignore[attr-defined]
-                return torch.device("mps")
-        except Exception:
-            pass
-        return torch.device("cpu")
-    return torch.device(device)
-
-
-def _load_sidecar(sidecar: Union[dict, str, Path]) -> dict:
-    if isinstance(sidecar, (str, Path)):
-        return json.loads(Path(sidecar).read_text())
-    return sidecar
+from ml.utils.device import DeviceLike, to_device
+from ml.utils.sidecar import load_sidecar
 
 
 class EquityNetInfer:
@@ -65,11 +42,11 @@ class EquityNetInfer:
     def from_checkpoint(
         cls,
         checkpoint_path: Union[str, Path],
-        sidecar: Union[dict, str, Path],
+        sidecar_path: str | Path,
         device: DeviceLike = "auto",
     ) -> "EquityNetInfer":
-        dev = _to_device(device)
-        sc = _load_sidecar(sidecar)
+        dev = to_device(device)
+        sc = load_sidecar(sidecar_path)
 
         model = EquityNetLit.load_from_checkpoint(checkpoint_path, map_location=dev)
         model.eval().to(dev)

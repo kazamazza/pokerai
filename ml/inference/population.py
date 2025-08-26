@@ -9,28 +9,8 @@ import torch
 import torch.nn.functional as F
 
 from ml.models.population_net import PopulationNetLit
-
-DeviceLike = Union[str, torch.device]
-
-
-def _to_device(device: Optional[DeviceLike]) -> torch.device:
-    if device is None or (isinstance(device, str) and device.lower() == "auto"):
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        # guard MPS import/availability
-        try:
-            if torch.backends.mps.is_available():  # type: ignore[attr-defined]
-                return torch.device("mps")
-        except Exception:
-            pass
-        return torch.device("cpu")
-    return torch.device(device)
-
-
-def _load_sidecar(sidecar: Union[dict, str, Path]) -> dict:
-    if isinstance(sidecar, (str, Path)):
-        return json.loads(Path(sidecar).read_text())
-    return sidecar
+from ml.utils.device import to_device, DeviceLike
+from ml.utils.sidecar import load_sidecar
 
 
 class PopulationNetInfer:
@@ -63,11 +43,11 @@ class PopulationNetInfer:
     def from_checkpoint(
         cls,
         checkpoint_path: Union[str, Path],
-        sidecar: Union[dict, str, Path],
+        sidecar_path: str | Path,
         device: DeviceLike = "auto",
     ) -> "PopulationNetInfer":
-        dev = _to_device(device)
-        sc = _load_sidecar(sidecar)
+        dev = to_device(device)
+        sc = load_sidecar(sidecar_path)
 
         model = PopulationNetLit.load_from_checkpoint(checkpoint_path, map_location=dev)
         model.eval().to(dev)

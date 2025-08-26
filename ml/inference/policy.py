@@ -1,32 +1,48 @@
+from typing import Optional, Dict, Any
+from ml.inference.equity import EquityNetInfer
+from ml.inference.exploit import ExploitNetInfer
+from ml.inference.population import PopulationNetInfer
+from ml.inference.rangenet import RangeNetInfer
 from ml.policy.utils import tilt_toward_raise, renormalize_and_mask, hand_to_id, hand_to_169, summarize_169
 
 
 class PolicyInfer:
-    def __init__(self,
-                 pop_infer,        # PopulationNetInfer (optional if not used)
-                 exploit_infer,    # ExploitNetInfer
-                 range_infer,      # RangeNetInfer (pre/post based on street)
-                 equity_infer_pre, # EquityPreInfer
-                 equity_infer_post,# EquityPostInfer
-                 board_clusterer,  # same as you used to build datasets
-                 params: dict      # knobs for blending/guardrails
-                 ):
-        self.pop = pop_infer
-        self.expl = exploit_infer
-        self.rng = range_infer
-        self.eq_pre = equity_infer_pre
-        self.eq_post = equity_infer_post
-        self.clusterer = board_clusterer
-        self.p = params
+    def __init__(
+        self,
+        pop_infer: PopulationNetInfer,   # optional
+        exploit_infer: ExploitNetInfer,           # required
+        range_infer: RangeNetInfer,             # required
+        equity_infer: EquityNetInfer,             # required (unified pre+post)
+        board_clusterer: BoardClusterer,          # your clusterer type
+        params: Dict[str, Any],                     # knobs for blending/guardrails
+    ):
+        if exploit_infer is None:
+            raise ValueError("exploit_infer is required")
+        if range_infer is None:
+            raise ValueError("range_infer is required")
+        if equity_infer is None:
+            raise ValueError("equity_infer is required")
 
-    def predict(self, req: dict) -> dict:
+        # Keep explicit attribute types so IDE/static analysis know predict() exists
+        self.pop: PopulationNetInfer = pop_infer
+        self.expl: ExploitNetInfer = exploit_infer
+        self.rng: RangeNetInfer = range_infer
+        self.eq: EquityNetInfer = equity_infer
+        self.clusterer: BoardClusterer = board_clusterer
+        self.p: Dict[str, Any] = params or {}
+
+    def predict(self, req: Dict[str, Any]) -> Dict[str, Any]:
         street = int(req["street"])
+
         # --- range ---
         rng_feats = self._range_features(req)
+
         # --- equity ---
         eq = self._equity(req, rng_feats)
+
         # --- exploit ---
         ex = self._exploit(req)
+
         # --- population (optional) ---
         pop = self._population(req)
 
@@ -42,7 +58,7 @@ class PolicyInfer:
             "probs": probs,
             "debug": {
                 "equity": eq,
-                "range":  rng_feats.get("summaries", {}),
+                "range": rng_feats.get("summaries", {}),
                 "exploit": ex,
                 "population": pop,
                 "blend": {
@@ -50,57 +66,97 @@ class PolicyInfer:
                     "beta":  self.p.get("beta", 0.35),
                     "gamma": self.p.get("gamma", 0.30),
                 },
-                "guardrails": notes
-            }
+                "guardrails": notes,
+            },
         }
 
     # ---- helpers ----
     def _range_features(self, req):
-        # Preflop vs Postflop inputs differ; postflop needs board cluster
-        if req["street"] == 0:
-            y169 = self.rng.predict_pre(
-                stack_bb=req["stack_bb"],
-                hero_pos=req["hero_pos"],
-                opener_pos=req.get("opener_pos",""),
-                opener_action=req.get("opener_action",""),
-            )
+        """
+        Build the single-row feature dict expected by RangeNetInfer and get a (169,) prob vector.
+        Preflop uses opener_* fields; postflop uses villain_pos + board_cluster_id.
+        """
+        street = int(req["street"])
+        feats = {
+            "stack_bb": req["stack_bb"],
+            "hero_pos": str(req["hero_pos"]),
+            "street": street,
+        }
+
+        if street == 0:
+            # Preflop
+            feats.update({
+                "opener_pos": str(req.get("opener_pos", "")),
+                "opener_action": str(req.get("opener_action", "")),
+            })
         else:
-            board = req.get("board","")
-            cluster_id = self.clusterer.predict([board])[0]
-            y169 = self.rng.predict_post(
-                stack_bb=req["stack_bb"],
-                hero_pos=req["hero_pos"],
-                villain_pos=req["villain_pos"],
-                street=req["street"],
-                board_cluster_id=int(cluster_id),
-            )
-        # Optional: derive quick summaries for blending (e.g., top-pair+, air mass)
-        summaries = summarize_169(y169)   # your small utility
+            # Postflop
+            board = req.get("board", "")
+            if board:
+                cluster_id = int(self.clusterer.predict([board])[0])
+            else:
+                # allow caller to pass precomputed id
+                cluster_id = int(req.get("board_cluster_id", -1))
+            feats.update({
+                "villain_pos": str(req["villain_pos"]),
+                "board_cluster_id": cluster_id,
+                # allow optional node_key for deeper tree extraction; default root
+                "node_key": str(req.get("node_key", "root")),
+            })
+
+        # One-row inference → (169,) np.ndarray
+        y169 = self.rng.predict_one(feats)
+
+        # Optional summaries for blending/diagnostics
+        summaries = summarize_169(y169.tolist())
         return {"y169": y169, "summaries": summaries}
 
-    def _equity(self, req, rng_feats):
-        if req["street"] == 0:
-            p_win, p_tie, p_lose = self.eq_pre.predict(
-                stack_bb=req["stack_bb"],
-                hero_pos=req["hero_pos"],
-                opener_action=req.get("opener_action",""),
-                hand_code=hand_to_169(req.get("hero_hand","")),  # or pass id
-            )
-        else:
-            board = req.get("board","")
-            p_win, p_tie, p_lose = self.eq_post.predict(
-                stack_bb=req["stack_bb"],
-                hero_pos=req["hero_pos"],
-                opener_action=req.get("opener_action",""),
-                board_cluster_id=self.clusterer.predict([board])[0],
-                hand_id=hand_to_id(req.get("hero_hand","")),
-            )
+    def _equity(self, req, _rng_feats):
+        """
+        Unified equity call using a single EquityNetInfer (`self.eq`) for all streets.
+        Expects:
+          - street: int (0=preflop, >0 postflop)
+          - stack_bb, hero_pos, opener_action (always)
+          - hero_hand (always; converted to 169 code preflop, to id postflop)
+          - board (postflop) or board_cluster_id (optional; derived if missing and clusterer available)
+        """
+        if not hasattr(self, "eq") or self.eq is None:
+            raise RuntimeError("Equity infer (`self.eq`) is not initialized on PolicyInfer.")
+
+        street = int(req["street"])
+        hero_hand = req.get("hero_hand", "")
+        opener_action = req.get("opener_action", "")
+
+        if not hero_hand:
+            raise ValueError("`hero_hand` is required for equity computation (e.g., 'AsKd').")
+
+        # derive board_cluster_id if needed (postflop)
+        board_cluster_id = req.get("board_cluster_id", None)
+        if street > 0 and board_cluster_id is None:
+            board = req.get("board", "")
+            if board and getattr(self, "clusterer", None) is not None:
+                board_cluster_id = int(self.clusterer.predict([board])[0])
+            # else: leave as None if not available; Equity wrapper should handle/validate
+
+        # hand representation per street
+        hand_code = hand_to_169(hero_hand) if street == 0 else None
+        hand_id = None if street == 0 else hand_to_id(hero_hand)
+
+        p_win, p_tie, p_lose = self.eq.predict(
+            street=street,
+            stack_bb=req["stack_bb"],
+            hero_pos=req["hero_pos"],
+            opener_action=opener_action,
+            board_cluster_id=board_cluster_id,  # None for preflop
+            hand_code=hand_code,  # used preflop
+            hand_id=hand_id,  # used postflop
+        )
         return {"p_win": p_win, "p_tie": p_tie, "p_lose": p_lose}
 
     def _exploit(self, req):
         # Either use provided rolling stats or have ExploitInfer compute them
         ef = req.get("exploit_features")
-        p_fold, p_call, p_raise, weight = self.expl.predict_features(ef, context=req)
+        p_fold, p_call, p_raise, weight = self.expl.predict(ef, context=req)
         return {"p_fold": p_fold, "p_call": p_call, "p_raise": p_raise, "weight": weight}
 
     def _population(self, req):
