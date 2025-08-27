@@ -7,7 +7,7 @@ from ml.features.boards.board_protocols import BoardClusterer
 
 
 def load_board_clusterer(cfg: Dict[str, Any]) -> BoardClusterer:
-    bc = cfg.get("board_clustering") or cfg.get("rangenet_postflop", {}).get("board_clustering")
+    bc = cfg.get("board_clustering") or cfg.get("board_clustering")
     if not bc:
         raise KeyError("board_clustering section missing in cfg")
 
@@ -19,6 +19,7 @@ def load_board_clusterer(cfg: Dict[str, Any]) -> BoardClusterer:
 
     if kind == "kmeans":
         art = bc.get("artifact")
+        print(art)
         if not art:
             raise ValueError("kmeans clusterer requires 'artifact' path")
         return KMeansBoardClusterer.load(art)

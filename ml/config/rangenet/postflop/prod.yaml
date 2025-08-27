@@ -4,7 +4,7 @@ board_clustering:
   n_clusters: 246
 
 manifest_build:
-  stacks_bb: [ 12, 15, 18, 25, 40, 60, 80, 100, 150 ]   # expand as you purchase
+  stacks_bb: [ 15, 25, 40, 60, 80, 100, 150, 200 ]   # expand as you purchase
   pots_bb:   [ 18, 24, 32, 45 ]                         # 3–4 buckets across SRP/3BP
   position_pairs:
     - [ "BTN", "BB" ]
@@ -14,7 +14,7 @@ manifest_build:
     - [ "SB",  "BB" ]   # BvB OOP (already included above)
   bet_menus: [ "std" ]                                  # single, stable tree
   board_clusters_limit: 246
-  boards_per_cluster: 12
+  boards_per_cluster: 3
   sample_pool: 50000
   seed: 42
 
