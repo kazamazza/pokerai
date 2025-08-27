@@ -1,4 +1,4 @@
-# ml/config/types.py
+# ml/config/board_protocols.py
 from enum import IntEnum
 from typing import Dict
 

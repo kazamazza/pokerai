@@ -3,7 +3,7 @@ from typing import Dict, Any
 
 from ml.features.boards.board_clusterers.kmeans import KMeansBoardClusterer
 from ml.features.boards.board_clusterers.rule_based import RuleBasedBoardClusterer
-from ml.features.boards.types import BoardClusterer
+from ml.features.boards.board_protocols import BoardClusterer
 
 
 def load_board_clusterer(cfg: Dict[str, Any]) -> BoardClusterer:

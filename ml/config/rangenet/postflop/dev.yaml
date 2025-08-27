@@ -1,19 +1,31 @@
 board_clustering:
   type: rule
   n_clusters: 48
+
 manifest_build:
-  stacks_bb: [ 50, 100 ]
-  pots_bb: [ 20 ]                # ✅ add this
-  streets: [ 1 ]                 # 1=flop
-  position_pairs: [ [ "IP","OOP" ], [ "OOP","IP" ] ]
+  stacks_bb: [ 50, 100 ]            # small dev grid
+  pots_bb:   [ 20 ]                 # root pot size in BB on flop
+  position_pairs:
+    - [ "BTN", "BB" ]
+    - [ "CO",  "BB" ]
+    - [ "SB",  "BB" ]
   bet_menus: [ "std" ]
-  board_clusters_limit: 24
-  boards_per_cluster: 2
-  sample_pool: 20000
+  board_clusters_limit: 24          # subset of clusters for dev
+  boards_per_cluster: 2             # 2 reps per cluster → fast
+  sample_pool: 20000                # for picking representative boards
+  seed: 42
+
 solver:
   accuracy: 0.75
   max_iterations: 100
-  threads: 4
+  threads: 1
+  allin_threshold: 0.67
+  s3_prefix: solver/outputs/dev
+  local_cache_dir: data/solver_cache
+
 train:
   batch_size: 512
   max_epochs: 3
+  patience: 1
+  checkpoints_dir: checkpoints/rangenet_postflop/dev
+  seed: 42

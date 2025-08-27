@@ -222,17 +222,6 @@ def build_rangenet_postflop(
         print("   (No rows — likely cache misses or manifest lacks ranges/positions/pot)")
 
 def run_from_config(cfg: Dict[str, Any]) -> None:
-    """
-    Config shape (example):
-
-    rangenet_postflop:
-      inputs:
-        manifest: data/artifacts/solver_manifest.parquet
-      outputs:
-        parquet: data/datasets/rangenet_postflop.parquet
-    board_clustering:
-      type: rule   # or kmeans (+ artifact)
-    """
     def get(path: str, default=None):
         cur = cfg
         for p in path.split("."):
