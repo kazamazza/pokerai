@@ -1,33 +1,44 @@
-# tools/rangenet/worker_flop.py
 from __future__ import annotations
 import os, json, tempfile, shutil, subprocess, uuid
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
-
 import boto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
 
-from workers.base import SQSWorker
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
+from workers.base import SQSWorker
 from ml.range.solvers.command_text import build_command_text
 
 # --------- Config knobs (env or fallback) ----------
 SOLVER_BIN = os.getenv("SOLVER_BIN", "external/solver/console_solver")
 LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).resolve()
-S3_BUCKET = os.getenv("AWS_S3_BUCKET")  # required at runtime
-REGION = os.getenv("AWS_REGION", "us-east-1")
+S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
+REGION = os.getenv("AWS_REGION", "eu-central-1")
 
 # Optional: small bet menu map; extend as needed
 BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, list[int]]]]] = {
     "std": {
         "flop": {
-            "oop": {"bet": [50], "raise": [60], "donk": [], "allin": True},
-            "ip":  {"bet": [50], "raise": [60], "allin": True},
+            "oop": {
+                "bet":   [50],   # one standard c-bet size (50% pot)
+                "raise": [66],   # one standard raise size (~2/3 pot)
+                "donk":  [],     # OOP donk disabled for now
+                "allin": True    # always allow all-in
+            },
+            "ip": {
+                "bet":   [50],   # one standard bet size in position
+                "raise": [66],   # one standard raise size (~2/3 pot)
+                "donk":  [],     # IP donk is nonsensical
+                "allin": True
+            },
         },
-        # "turn": {...}, "river": {...}  # add later if/when you solve deeper trees
     },
 }
 
@@ -95,16 +106,46 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path) -> str:
 
 def _run_solver(cmd_file: Path) -> None:
     """
-    Invoke console solver. Most builds support feeding a command file path.
-    If your solver expects stdin, adjust to: subprocess.run([SOLVER_BIN], input=..., text=True)
+    Run the external console_solver with the given command file.
+    On failure, include the command file path and contents for debugging.
     """
-    cmd = [SOLVER_BIN, str(cmd_file)]
-    proc = subprocess.run(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    if proc.returncode != 0:
+    import os
+    solver_bin = Path(SOLVER_BIN)
+    cmd_file = Path(cmd_file)
+
+    cmd = [str(solver_bin), "-i", str(cmd_file)]
+    print(f"▶️ solver cmd: {' '.join(cmd)}")
+    print(f"    cwd: {os.getcwd()}")
+    try:
+        size = cmd_file.stat().st_size
+    except Exception:
+        size = -1
+    print(f"    cmd_file: {cmd_file.resolve()}  ({size} bytes)")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        # read command file content for debugging
+        try:
+            content = cmd_file.read_text()
+        except Exception as e:
+            content = f"<unable to read command file: {e}>"
+
+        # truncate if massive
+        MAX_SHOW = 20000
+        shown = content if len(content) <= MAX_SHOW else (content[:MAX_SHOW] + "\n…<truncated>…\n")
+
         raise RuntimeError(
-            f"solver failed (code={proc.returncode})\nstdout:\n{proc.stdout}\n\nstderr:\n{proc.stderr}"
+            "solver failed\n"
+            f"  code: {result.returncode}\n"
+            f"  cmd : {' '.join(cmd)}\n"
+            f"  file: {cmd_file.resolve()} ({size} bytes)\n"
+            "\n--- command file contents ---\n"
+            f"{shown}"
+            "\n--- solver stdout ---\n"
+            f"{result.stdout}"
+            "\n--- solver stderr ---\n"
+            f"{result.stderr}"
         )
 
 
@@ -163,13 +204,17 @@ def handle_message(body: str) -> bool:
 
 def main():
     import argparse
+
+
     ap = argparse.ArgumentParser(description="RangeNet FLOP worker (SQS)")
-    ap.add_argument("--queue-url", type=str, default=os.getenv("AWS_SQS_QUEUE_URL"), required=False)
-    ap.add_argument("--dlq-url",   type=str, default=os.getenv("AWS_SQS_DLQ_URL"),   required=False)
-    ap.add_argument("--region",    type=str, default=os.getenv("AWS_REGION", "us-east-1"))
+    ap.add_argument("--queue-url", type=str, default=os.getenv("POST_FLOP_QUEUE_URL"), required=False)
+    ap.add_argument("--dlq-url",   type=str, default=os.getenv("POST_FLOP_DLQ_URL"),   required=False)
+    ap.add_argument("--region",    type=str, default=os.getenv("AWS_REGION", "eu-central-1"))
     ap.add_argument("--batch-size", type=int, default=1)        # single message at a time works well
     ap.add_argument("--threads",    type=int, default=1)        # SQS worker threads; set 1 for vCPU
     args = ap.parse_args()
+
+    print(args)
 
     worker = SQSWorker(
         handler=handle_message,

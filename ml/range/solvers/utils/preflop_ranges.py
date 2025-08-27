@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 from typing import Dict, Tuple, Any, Optional
 
+from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
 from ml.etl.utils.monker_parser import load_range_file_cached
 
 
@@ -73,67 +74,15 @@ def _load_preflop_range_index(manifest_path: str | Path) -> Dict[Tuple[int, str]
 
     return index
 
-def get_ranges_for_pair(
-    *,
-    stack_bb: float | int,
-    ip: str,
-    oop: str,
-    cfg: Dict[str, Any],
-) -> Tuple[str, str]:
+def get_ranges_for_pair(*, stack_bb: float, ip: str, oop: str, cfg: dict) -> Tuple[str, str]:
     """
-    Return compact Monker-like ranges (ip, oop) for a given stack/positions.
-
-    Looks for a preflop manifest at cfg.inputs.preflop_manifest (optional).
-    If present, tries exact stack match first; if not, picks nearest stack.
-    If positions are abstract ("IP","OOP"), skips manifest lookup and uses defaults.
-    Falls back to cfg.defaults.range_ip / cfg.defaults.range_oop.
+    Glue function that your code already calls. Reads manifest path from cfg.
     """
-    stack_bb = int(round(float(stack_bb)))
-
-    # Top-level (no wrapper) access
-    inputs   = cfg.get("inputs", {}) or {}
-    defaults = cfg.get("defaults", {}) or {}
-    preflop_manifest = inputs.get("preflop_manifest")
-
-    index: Optional[Dict[Tuple[int, str], Dict[str, float]]] = None
-    if preflop_manifest:
-        index = _load_preflop_range_index(preflop_manifest)  # assumed existing util
-
-    # If caller passed abstract roles, manifest positions likely won't match → use defaults
-    abstract_roles = {ip.upper(), oop.upper()} <= {"IP", "OOP"}
-
-    def _fetch_from_index(pos: str) -> Optional[str]:
-        if not index or abstract_roles:
-            return None
-        # Exact stack first
-        hit = index.get((stack_bb, pos))
-        if hit:
-            return _range_map_to_compact(hit)
-
-        # Nearest-stack fallback
-        # collect all stacks available for this pos
-        candidates = [s for (s, p) in index.keys() if p == pos]
-        if not candidates:
-            return None
-        nearest = min(candidates, key=lambda s: abs(s - stack_bb))
-        hit = index.get((nearest, pos))
-        if not hit:
-            return None
-        return _range_map_to_compact(hit)
-
-    rng_ip  = _fetch_from_index(ip)
-    rng_oop = _fetch_from_index(oop)
-
-    # Fallback to defaults if missing
-    if rng_ip is None:
-        rng_ip = defaults.get("range_ip")
-    if rng_oop is None:
-        rng_oop = defaults.get("range_oop")
-
-    if rng_ip is None or rng_oop is None:
-        raise RuntimeError(
-            f"No preflop ranges found for stack={stack_bb}, ip={ip}, oop={oop} "
-            f"and no defaults provided in cfg.defaults"
-        )
-
-    return rng_ip, rng_oop
+    # resolve manifest path from config (adjust key to your cfg layout)
+    manifest = (
+        cfg.get("rangenet_postflop", {})
+          .get("inputs", {})
+          .get("monker_manifest", "data/artifacts/monker_manifest.parquet")
+    )
+    lookup = PreflopRangeLookup(manifest)
+    return lookup.ranges_for_pair(stack_bb=stack_bb, ip=ip, oop=oop)

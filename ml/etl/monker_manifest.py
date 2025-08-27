@@ -14,6 +14,11 @@ POS_NAMES = {
     "UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB", "EP", "MP", "BU"
 }
 
+POS_ALIAS = {
+    "BU": "BTN",
+    "EP": "UTG",
+    "MP": "HJ",   # choose HJ as canonical mid position; adjust if you prefer LJ
+}
 
 ACTION_NORMALIZE = {
     "AI": "ALL_IN",
@@ -34,20 +39,17 @@ ACTION_NORMALIZE = {
     "Fold": "FOLD",
 }
 
-# add near the top
-OPENING_ACTIONS = {"OPEN", "RAISE", "ALL_IN", "LIMP", "CALL"}  # treat any non-fold as opener
+OPENING_ACTIONS = {"OPEN", "RAISE", "ALL_IN", "LIMP"}
 
 def first_non_fold_actor(seq: list[dict]) -> tuple[str|None, str|None]:
     """
-    Return (pos, action) of the first non-fold actor in the parsed filename sequence.
-    If none found, returns (None, None).
+    Return (pos, action) of the first *opener* in the sequence.
+    Opener = OPEN/RAISE/LIMP/ALL_IN. CALL is *not* an opener.
     """
     for e in seq:
         act = e.get("action")
-        if act and act != "FOLD":               # skip pure FOLDs
-            # gate on actions we consider to start a pot
-            if act in OPENING_ACTIONS:
-                return e["pos"], act
+        if act in OPENING_ACTIONS:
+            return e["pos"], act
     return None, None
 
 def normalize_action(tok: str) -> str:
@@ -73,17 +75,22 @@ def parse_stack_from_parts(parts: List[str]) -> int | None:
                 pass
     return None
 
+def norm_pos(p: str) -> str:
+    p = p.upper()
+    return POS_ALIAS.get(p, p)
+
 def parse_filename_sequence(stem: str) -> List[Dict[str, str]]:
     toks = stem.split("_")
     seq: List[Dict[str, str]] = []
     i = 0
     while i < len(toks):
-        pos = toks[i]
+        pos_raw = toks[i]
+        pos = norm_pos(pos_raw)
         if pos not in POS_NAMES:
             i += 1
             continue
         action = None
-        if i + 1 < len(toks) and toks[i + 1] not in POS_NAMES:
+        if i + 1 < len(toks) and norm_pos(toks[i + 1]) not in POS_NAMES:
             action = normalize_action(toks[i + 1])
             i += 2
         else:
@@ -100,7 +107,7 @@ def scan_monker(root: Path) -> pd.DataFrame:
         parts = list(path.parts)
         stack_bb = parse_stack_from_parts(parts)
 
-        hero_pos = path.parent.name
+        hero_pos = norm_pos(path.parent.name)
         if hero_pos not in POS_NAMES:
             hero_pos = None
 
@@ -129,17 +136,18 @@ def scan_monker(root: Path) -> pd.DataFrame:
     df = pd.DataFrame(rows)
 
     grouped = (
-        df.groupby(["stack_bb", "hero_pos", "opener_pos", "opener_action"], dropna=False)
-          .agg(
-              sequence=("sequence", "first"),
-              filename_stem=("filename_stem", "first"),
-              rel_path=("rel_path", "first"),
-              abs_path=("abs_path", "first"),
-              file_sha1=("file_sha1", "first"),
-              sig=("sig", "first"),
-              n_files=("rel_path", "count"),
-          )
-          .reset_index()
+        df.groupby(["stack_bb", "hero_pos", "sequence"], dropna=False)
+        .agg(
+            opener_pos=("opener_pos", "first"),
+            opener_action=("opener_action", "first"),
+            filename_stem=("filename_stem", "first"),
+            rel_path=("rel_path", "first"),
+            abs_path=("abs_path", "first"),
+            file_sha1=("file_sha1", "first"),
+            sig=("sig", "first"),
+            n_files=("rel_path", "count"),
+        )
+        .reset_index()
     )
     return grouped
 

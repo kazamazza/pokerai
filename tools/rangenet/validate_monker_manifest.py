@@ -1,147 +1,148 @@
 #!/usr/bin/env python3
-import argparse, json, re, sys
+import argparse, json
 from pathlib import Path
-from collections import Counter
-from typing import Any, Dict, List, Optional
+from collections import Counter, defaultdict
 
-try:
-    import polars as pl
-except ImportError:
-    print("Please `pip install polars`", file=sys.stderr)
-    sys.exit(1)
+import pandas as pd
 
-VALID_POS = {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
-VALID_ACT = {"FOLD", "CALL", "RAISE", "ALL_IN", "CHECK", "BET"}  # allow postflop verbs too
+POS_NAMES = {"UTG","LJ","HJ","CO","BTN","SB","BB","EP","MP","BU"}
+OPENING_ACTIONS = {"OPEN","RAISE","ALL_IN","LIMP","CALL"}  # treat any non-fold as opener
 
-STACK_RE = re.compile(r"(?:^|/)(\d+)bb(?:/|$)")
+def norm_pos(s: str) -> str:
+    alias = {"EP":"UTG","MP":"HJ","BU":"BTN"}
+    return alias.get(s, s)
 
-def _pick_col(df: pl.DataFrame, candidates: List[str]) -> Optional[str]:
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
+def parse_seq(seq_json: str):
+    try:
+        seq = json.loads(seq_json)
+        return seq if isinstance(seq, list) else []
+    except Exception:
+        return []
 
-def _parse_actions(val: Any) -> Optional[List[Dict[str, Any]]]:
-    if val is None:
-        return None
-    if isinstance(val, list):
-        return val
-    if isinstance(val, str):
-        s = val.strip()
-        if not s:
-            return None
-        try:
-            return json.loads(s)
-        except Exception:
-            # sometimes it's already python-literal-like
-            try:
-                import ast
-                return ast.literal_eval(s)
-            except Exception:
-                return None
-    return None
+def first_non_fold_actor(seq):
+    for e in seq:
+        a = e.get("action")
+        if a and a != "FOLD" and a in OPENING_ACTIONS:
+            return e.get("pos"), a
+    return None, None
 
-def validate_manifest_parquet(parquet_path: Path, vendor_root: Path, max_errors: int = 50) -> None:
-    df = pl.read_parquet(str(parquet_path))
+def is_srp_open_call(seq, ip_pos: str, oop_pos: str) -> bool:
+    if not seq: return False
+    pos0, act0 = seq[0].get("pos"), seq[0].get("action")
+    if pos0 != ip_pos or act0 not in ("OPEN","RAISE","ALL_IN","LIMP","CALL"):
+        return False
+    raised = False
+    for step in seq[1:]:
+        act = step.get("action")
+        pos = step.get("pos")
+        if act in ("RAISE","ALL_IN","3BET","4BET","5BET"):
+            raised = True
+        if pos == oop_pos:
+            return (act == "CALL") and (not raised)
+    return False
 
-    # Column mapping (robust to naming differences)
-    PATH_COL     = _pick_col(df, ["path", "abs_path", "file"])
-    RELPATH_COL  = _pick_col(df, ["relpath", "rel_path", "relative_path"])
-    HERO_COL     = _pick_col(df, ["hero_pos", "hero"])
-    STACK_COL    = _pick_col(df, ["stack", "stack_bb", "bb"])
-    ACTIONS_COL  = _pick_col(df, ["actions", "action_seq", "sequence"])
-    HASH_COL     = _pick_col(df, ["hash", "sha1", "fingerprint", "id"])
+def validate(path: Path, sample: int|None = 5) -> int:
+    df = pd.read_parquet(path)
+    print(f"Loaded: {path}  shape={df.shape}")
 
-    errors: List[str] = []
-    seen_hash = set()
-    coverage = Counter()
+    required = {"stack_bb","hero_pos","sequence","abs_path","sig"}
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        print(f"❌ missing columns: {missing}")
+        return 1
 
-    for i, row in enumerate(df.iter_rows(named=True), 1):
-        # Resolve file to check
-        cand: Optional[Path] = None
-        if PATH_COL and row.get(PATH_COL):
-            p = Path(str(row.get(PATH_COL)))
-            cand = p if p.is_absolute() else (vendor_root / p)
-        elif RELPATH_COL and row.get(RELPATH_COL):
-            cand = vendor_root / str(row.get(RELPATH_COL))
+    # Normalize hero_pos and basic cats
+    df["hero_pos"] = df["hero_pos"].fillna("").map(norm_pos)
+    bad_pos = df[~df["hero_pos"].isin(POS_NAMES)].shape[0]
+    if bad_pos:
+        print(f"⚠️ hero_pos outside known set: {bad_pos}")
 
-        if cand is not None and not cand.exists():
-            errors.append(f"[{i}] Missing file: {cand}")
+    # Parse sequences + opener sanity
+    seqs = df["sequence"].astype(str).map(parse_seq)
+    opener_pos = []
+    opener_act = []
+    bad_json = 0
+    bad_opener = 0
+    disagree = 0
+    for i, seq in enumerate(seqs):
+        if not seq:
+            bad_json += 1; opener_pos.append(None); opener_act.append(None); continue
+        p, a = first_non_fold_actor(seq)
+        if p is None:
+            bad_opener += 1
+        opener_pos.append(p); opener_act.append(a)
 
-        # hero position
-        hero = row.get(HERO_COL) if HERO_COL else None
-        if hero not in VALID_POS:
-            errors.append(f"[{i}] Invalid hero_pos={hero!r}")
+        # if manifest has columns, cross-check
+        if "opener_pos" in df.columns and df.at[i,"opener_pos"] and p and df.at[i,"opener_pos"] != p:
+            disagree += 1
+        if "opener_action" in df.columns and df.at[i,"opener_action"] and a and df.at[i,"opener_action"] != a:
+            disagree += 1
 
-        # actions payload
-        acts = _parse_actions(row.get(ACTIONS_COL)) if ACTIONS_COL else None
-        if acts is None:
-            errors.append(f"[{i}] Missing/invalid actions in column={ACTIONS_COL or 'N/A'}")
-        else:
-            for j, step in enumerate(acts, 1):
-                pos = step.get("pos")
-                act = step.get("action")
-                if pos not in VALID_POS:
-                    errors.append(f"[{i}] actions[{j}] invalid pos={pos!r}")
-                if act not in VALID_ACT:
-                    errors.append(f"[{i}] actions[{j}] invalid action={act!r}")
+    print(f"JSON parse failures: {bad_json}  |  no opener found: {bad_opener}  |  opener disagreements: {disagree}")
 
-        # stack vs relpath folder (e.g., ".../12bb/...")
-        stack_val = row.get(STACK_COL) if STACK_COL else None
-        rel = str(row.get(RELPATH_COL) or row.get(PATH_COL) or "")
-        m = STACK_RE.search(rel)
-        stack_from_rel = int(m.group(1)) if m else None
-        if stack_val is not None and stack_from_rel is not None:
-            try:
-                sv = int(stack_val)
-                if sv != stack_from_rel:
-                    errors.append(f"[{i}] stack={sv} mismatch relpath-stack={stack_from_rel} in {rel}")
-            except Exception:
-                errors.append(f"[{i}] non-integer stack value: {stack_val!r}")
+    # Duplicates
+    dup_abs = df["abs_path"].duplicated().sum()
+    dup_sig = df["sig"].duplicated().sum()
+    if dup_abs or dup_sig:
+        print(f"⚠️ duplicates → abs_path: {dup_abs}, sig: {dup_sig}")
 
-        # duplicate hash
-        h = row.get(HASH_COL) if HASH_COL else None
-        if h is not None:
-            if h in seen_hash:
-                errors.append(f"[{i}] Duplicate hash {h!r}")
-            seen_hash.add(h)
+    # Coverage by (stack, hero)
+    cov = (
+        df.groupby(["stack_bb","hero_pos"], dropna=False)["sig"]
+          .count().rename("files").reset_index()
+    )
+    print("\nCoverage by (stack_bb, hero_pos):")
+    for _, r in cov.sort_values(["stack_bb","hero_pos"]).iterrows():
+        print(f"  {int(r['stack_bb']) if pd.notna(r['stack_bb']) else 'NA':>4}bb  {r['hero_pos'] or 'NA':>3}: {int(r['files'])}")
 
-        # coverage
-        cov_stack = str(stack_from_rel if stack_from_rel is not None else stack_val or "?")
-        if hero:
-            coverage[(cov_stack, str(hero))] += 1
+    # Quick SRP pair sniff
+    want_pairs = [("BTN","BB"),("CO","BB"),("SB","BB"),("BTN","SB"),("HJ","BB")]
+    pairs = defaultdict(int)
+    for seq in seqs:
+        if not seq: continue
+        # list of unique positions in order
+        poss = []
+        for s in seq:
+            p = s.get("pos");
+            if p in POS_NAMES and (not poss or poss[-1]!=p):
+                poss.append(p)
+        for ip, oop in want_pairs:
+            if is_srp_open_call(seq, ip, oop):
+                pairs[(ip,oop)] += 1
 
-        if len(errors) >= max_errors:
-            # collect but stop early printing; we’ll show cap at the end
-            pass
+    print("\nSRP OPEN/CALL coverage (want pairs):")
+    for p in want_pairs:
+        n = pairs.get(p, 0)
+        print(f"  {p[0]}v{p[1]}: {n} file(s)")
 
-    # Report
-    total = df.height
-    print(f"✅ rows checked: {total}")
-    print(f"❌ problems   : {len(errors)}")
-    for e in errors[:max_errors]:
-        print("   ", e)
-    if len(errors) > max_errors:
-        print(f"... ({len(errors) - max_errors} more)")
+    # Tiny sample
+    if sample:
+        print("\nSamples:")
+        for _, r in df.sample(min(sample, len(df)), random_state=42).iterrows():
+            seq = parse_seq(r["sequence"])[:6]
+            print({
+                "stack_bb": r["stack_bb"],
+                "hero_pos": r["hero_pos"],
+                "opener_pos": r.get("opener_pos"),
+                "opener_action": r.get("opener_action"),
+                "stem": r.get("filename_stem"),
+                "seq_head": seq,
+            })
 
-    print("\nCoverage by (stack, hero_pos):")
-    for (stack, hero), n in sorted(coverage.items(), key=lambda kv: (int(kv[0][0]) if str(kv[0][0]).isdigit() else 9999, kv[0][1])):
-        print(f"  {stack:>4}bb {hero:>3}: {n}")
+    # Verdict
+    hard_fail = bool(missing or bad_json > 0)
+    if hard_fail:
+        print("\n❌ Manifest failed hard checks.")
+        return 1
+    print("\n✅ Manifest looks structurally sound.")
+    return 0
 
 def main():
-    ap = argparse.ArgumentParser(description="Validate Monker manifest (Parquet) consistency")
-    ap.add_argument("--manifest", type=Path, default=Path("data/artifacts/monker_manifest.parquet"),
-                    help="Path to manifest parquet")
-    ap.add_argument("--vendor-root", type=Path, default=Path("data/vendor/monker"),
-                    help="Root folder to resolve relpaths/files against")
-    ap.add_argument("--max-errors", type=int, default=50)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--manifest", type=Path, default=Path("data/artifacts/monker_manifest.parquet"))
+    ap.add_argument("--sample", type=int, default=5)
     args = ap.parse_args()
-
-    if not args.manifest.exists():
-        print(f"Manifest not found: {args.manifest}", file=sys.stderr)
-        sys.exit(1)
-
-    validate_manifest_parquet(args.manifest, args.vendor_root, max_errors=args.max_errors)
+    raise SystemExit(validate(args.manifest, sample=args.sample))
 
 if __name__ == "__main__":
     main()

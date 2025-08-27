@@ -117,6 +117,7 @@ def main():
 
     cfg = load_model_config(model=args.config)
     print(cfg)
+    print(cfg)
     df = build_manifest(cfg)
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)

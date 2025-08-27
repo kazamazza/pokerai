@@ -25,6 +25,9 @@ def main():
         raise SystemExit("--batch must be between 1 and 10 (SQS limit)")
 
     df = pd.read_parquet(args.manifest)
+    # Enforce limit early
+    if args.limit is not None:
+        df = df.head(int(args.limit))
 
     # Required manifest columns (some are optional with defaults)
     # Columns always needed at the envelope level:
@@ -102,6 +105,7 @@ def main():
     )
 
     n = len(df)
+
     i = 0
     sent = 0
     retries = 0
