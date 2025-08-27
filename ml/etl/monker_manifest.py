@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 POS_NAMES = {
-    "UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB", "EP", "MP", "BU"  # include common aliases
+    "UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB", "EP", "MP", "BU"
 }
 
 ACTION_NORMALIZE = {
@@ -26,6 +26,7 @@ ACTION_NORMALIZE = {
     "Donk": "DONK",
     "Open": "OPEN",
     "Limp": "LIMP",
+    "Min": "RAISE",    # ← vendor "Min" becomes generic RAISE
     "3Bet": "3BET",
     "4Bet": "4BET",
     "5Bet": "5BET",
@@ -33,7 +34,7 @@ ACTION_NORMALIZE = {
 }
 
 def normalize_action(tok: str) -> str:
-    return ACTION_NORMALIZE.get(tok, tok)  # keep unknowns as-is
+    return ACTION_NORMALIZE.get(tok, tok.upper())
 
 def sha1_file(path: Path) -> str:
     h = hashlib.sha1()
@@ -42,8 +43,10 @@ def sha1_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+def sha1_str(s: str) -> str:
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
+
 def parse_stack_from_parts(parts: List[str]) -> int | None:
-    # find a path part like "12bb" (case-insensitive)
     for p in parts:
         q = p.lower()
         if q.endswith("bb"):
@@ -54,19 +57,12 @@ def parse_stack_from_parts(parts: List[str]) -> int | None:
     return None
 
 def parse_filename_sequence(stem: str) -> List[Dict[str, str]]:
-    """
-    Parse names like: UTG_AI_HJ_Call_CO_Call_BTN_Call_SB_Call_BB_Call
-    into: [{"pos":"UTG","action":"ALL_IN"}, {"pos":"HJ","action":"CALL"}, ...]
-    We assume tokens alternate as POS, ACTION, POS, ACTION, ...
-    If ACTION is missing after a POS, we record action=None.
-    """
     toks = stem.split("_")
     seq: List[Dict[str, str]] = []
     i = 0
     while i < len(toks):
         pos = toks[i]
         if pos not in POS_NAMES:
-            # Not a position? Just skip this token (robustness)
             i += 1
             continue
         action = None
@@ -81,54 +77,62 @@ def parse_filename_sequence(stem: str) -> List[Dict[str, str]]:
         seq.append(entry)
     return seq
 
-
 def scan_monker(root: Path) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for path in root.rglob("*.txt"):
-        # Expect structure like: datasets/vendor/monker/12bb/BB/<filename>.txt
         parts = list(path.parts)
         stack_bb = parse_stack_from_parts(parts)
 
-        # infer hero position from immediate parent folder if it looks like a position
+        # infer hero position from parent folder if it looks like a position
         hero_pos = path.parent.name
         if hero_pos not in POS_NAMES:
             hero_pos = None
 
-        stem = path.stem  # filename without .txt
+        stem = path.stem
         seq = parse_filename_sequence(stem)
 
         opener_pos = seq[0]["pos"] if seq else None
         opener_action = seq[0].get("action") if seq else None
 
+        # stable JSON for signature
+        seq_json = json.dumps(seq, sort_keys=True)
+
+        # keep file content hash for integrity
+        file_sha1 = sha1_file(path)
+
+        # add a manifest signature unique per (stack, hero, sequence)
+        # (you can include opener fields too; they’re implied by seq)
+        sig = sha1_str(f"{stack_bb}|{hero_pos}|{seq_json}")
+
         rows.append({
-            "stack_bb": stack_bb,  # int or None
-            "hero_pos": hero_pos,  # str or None
-            "opener_pos": opener_pos,  # str or None
-            "opener_action": opener_action,  # str or None
-            "sequence": json.dumps(seq),  # JSON string for readability
-            "filename_stem": stem,  # original stem
-            "rel_path": str(path.relative_to(root)),  # relative for portability
-            "abs_path": str(path.resolve()),  # absolute path
-            "sha1": sha1_file(path),  # content hash for dedup/integrity
+            "stack_bb": stack_bb,
+            "hero_pos": hero_pos,
+            "opener_pos": opener_pos,
+            "opener_action": opener_action,
+            "sequence": seq_json,                 # normalized, stable
+            "filename_stem": stem,
+            "rel_path": str(path.relative_to(root)),
+            "abs_path": str(path.resolve()),
+            "file_sha1": file_sha1,               # content hash (may repeat)
+            "sig": sig,                           # unique manifest id
         })
 
     df = pd.DataFrame(rows)
 
-    # --- add aggregation with n_files ---
-    # Keep one representative file for rel/abs path, but count all
+    # Aggregate duplicates of the same (stack, hero, opener, opener_action)
     grouped = (
         df.groupby(["stack_bb", "hero_pos", "opener_pos", "opener_action"], dropna=False)
-        .agg(
-            sequence=("sequence", "first"),
-            filename_stem=("filename_stem", "first"),
-            rel_path=("rel_path", "first"),
-            abs_path=("abs_path", "first"),
-            sha1=("sha1", "first"),
-            n_files=("rel_path", "count")
-        )
-        .reset_index()
+          .agg(
+              sequence=("sequence", "first"),
+              filename_stem=("filename_stem", "first"),
+              rel_path=("rel_path", "first"),
+              abs_path=("abs_path", "first"),
+              file_sha1=("file_sha1", "first"),
+              sig=("sig", "first"),
+              n_files=("rel_path", "count"),
+          )
+          .reset_index()
     )
-
     return grouped
 
 def write_manifest(df: pd.DataFrame, out_parquet: Path, out_jsonl: Path | None = None):
