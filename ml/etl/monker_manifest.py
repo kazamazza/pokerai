@@ -14,6 +14,7 @@ POS_NAMES = {
     "UTG", "LJ", "HJ", "CO", "BTN", "SB", "BB", "EP", "MP", "BU"
 }
 
+
 ACTION_NORMALIZE = {
     "AI": "ALL_IN",
     "Jam": "ALL_IN",
@@ -32,6 +33,22 @@ ACTION_NORMALIZE = {
     "5Bet": "5BET",
     "Fold": "FOLD",
 }
+
+# add near the top
+OPENING_ACTIONS = {"OPEN", "RAISE", "ALL_IN", "LIMP", "CALL"}  # treat any non-fold as opener
+
+def first_non_fold_actor(seq: list[dict]) -> tuple[str|None, str|None]:
+    """
+    Return (pos, action) of the first non-fold actor in the parsed filename sequence.
+    If none found, returns (None, None).
+    """
+    for e in seq:
+        act = e.get("action")
+        if act and act != "FOLD":               # skip pure FOLDs
+            # gate on actions we consider to start a pot
+            if act in OPENING_ACTIONS:
+                return e["pos"], act
+    return None, None
 
 def normalize_action(tok: str) -> str:
     return ACTION_NORMALIZE.get(tok, tok.upper())
@@ -83,7 +100,6 @@ def scan_monker(root: Path) -> pd.DataFrame:
         parts = list(path.parts)
         stack_bb = parse_stack_from_parts(parts)
 
-        # infer hero position from parent folder if it looks like a position
         hero_pos = path.parent.name
         if hero_pos not in POS_NAMES:
             hero_pos = None
@@ -91,17 +107,10 @@ def scan_monker(root: Path) -> pd.DataFrame:
         stem = path.stem
         seq = parse_filename_sequence(stem)
 
-        opener_pos = seq[0]["pos"] if seq else None
-        opener_action = seq[0].get("action") if seq else None
+        opener_pos, opener_action = first_non_fold_actor(seq)  # <-- FIX
 
-        # stable JSON for signature
         seq_json = json.dumps(seq, sort_keys=True)
-
-        # keep file content hash for integrity
         file_sha1 = sha1_file(path)
-
-        # add a manifest signature unique per (stack, hero, sequence)
-        # (you can include opener fields too; they’re implied by seq)
         sig = sha1_str(f"{stack_bb}|{hero_pos}|{seq_json}")
 
         rows.append({
@@ -109,17 +118,16 @@ def scan_monker(root: Path) -> pd.DataFrame:
             "hero_pos": hero_pos,
             "opener_pos": opener_pos,
             "opener_action": opener_action,
-            "sequence": seq_json,                 # normalized, stable
+            "sequence": seq_json,
             "filename_stem": stem,
             "rel_path": str(path.relative_to(root)),
             "abs_path": str(path.resolve()),
-            "file_sha1": file_sha1,               # content hash (may repeat)
-            "sig": sig,                           # unique manifest id
+            "file_sha1": file_sha1,
+            "sig": sig,
         })
 
     df = pd.DataFrame(rows)
 
-    # Aggregate duplicates of the same (stack, hero, opener, opener_action)
     grouped = (
         df.groupby(["stack_bb", "hero_pos", "opener_pos", "opener_action"], dropna=False)
           .agg(

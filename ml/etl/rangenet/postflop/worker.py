@@ -84,8 +84,6 @@ def handle_solve_message(body: str) -> bool:
                 accuracy=float(params["accuracy"]),
                 max_iteration=int(params["max_iter"]),
                 allin_threshold=float(params["allin_threshold"]),
-                positions=str(params["positions"]),
-                street=int(params["street"]),
                 dump_path=str(out_json.resolve()),  # 🔑 force absolute path for dump_result
             )
             in_txt.write_text(cmd_text, encoding="utf-8")
