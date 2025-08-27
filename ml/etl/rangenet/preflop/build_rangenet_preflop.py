@@ -3,23 +3,17 @@ import argparse
 import sys
 from pathlib import Path
 from typing import Dict, Any, List
-
 import numpy as np
 import pandas as pd
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
+ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
 from ml.etl.utils.monker_parser import load_range_file_cached
-# === Reuse your existing helpers / constants ===
-# Adjust imports to your actual module names if different.
 from ml.utils.config import load_model_config
 from ml.config.types_hands import ALL_HANDS, HAND_TO_ID
 
-
-
 SCENARIO_KEYS = ["stack_bb", "hero_pos", "opener_pos", "opener_action"]
-
 
 def _range_map_to_vector(rng_map: Dict[str, float]) -> np.ndarray:
     """Map a dict like {'AA':1.0,'AKs':0.2,...} → dense 169 vector in ALL_HANDS order."""
@@ -101,7 +95,6 @@ def build_rangenet_preflop(manifest_path: Path, out_parquet: Path,
     return out_df
 
 
-# --------- Config-driven entrypoint (mirrors your style) ---------
 def run_from_config(cfg: Dict[str, Any]) -> None:
     """
     Expected YAML keys:
@@ -120,7 +113,7 @@ def run_from_config(cfg: Dict[str, Any]) -> None:
             cur = cur[p]
         return cur
 
-    manifest = Path(get("inputs.monker_manifest"))
+    manifest = Path(get("inputs.manifest"))
     out_path = Path(get("outputs.rangenet_preflop", "data/datasets/rangenet_preflop.parquet"))
     min_files = get("etl.min_files_per_scenario", None)
 
@@ -132,7 +125,7 @@ def run_from_config(cfg: Dict[str, Any]) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="rangenet_preflop",
+    ap.add_argument("--config", type=str, default="rangenet/preflop",
                     help="Model name or YAML path (resolved by load_model_config)")
     # one-off override for output path
     ap.add_argument("--out", type=str, default=None)
