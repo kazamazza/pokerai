@@ -75,14 +75,20 @@ def _load_preflop_range_index(manifest_path: str | Path) -> Dict[Tuple[int, str]
     return index
 
 def get_ranges_for_pair(*, stack_bb: float, ip: str, oop: str, cfg: dict) -> Tuple[str, str]:
-    """
-    Glue function that your code already calls. Reads manifest path from cfg.
-    """
-    # resolve manifest path from config (adjust key to your cfg layout)
     manifest = (
         cfg.get("rangenet_postflop", {})
           .get("inputs", {})
           .get("monker_manifest", "data/artifacts/monker_manifest.parquet")
     )
-    lookup = PreflopRangeLookup(manifest)
-    return lookup.ranges_for_pair(stack_bb=stack_bb, ip=ip, oop=oop)
+    lookup = PreflopRangeLookup(
+        manifest_parquet=manifest,
+        # optionally pass a curated PAIR_TO_SEQ here if you don’t want auto-derived
+        # pair_to_seq=cfg.get("rangenet_postflop", {}).get("pair_to_seq"),
+    )
+    rng_ip, rng_oop = lookup.ranges_for_pair(stack_bb=stack_bb, ip=ip, oop=oop)
+
+    # One last guard – never allow ellipses or empties
+    for who, s in (("IP", rng_ip), ("OOP", rng_oop)):
+        if not s or "..." in s:
+            raise RuntimeError(f"[ranges] {who} range unresolved for {ip}v{oop} @ {stack_bb}bb")
+    return rng_ip, rng_oop

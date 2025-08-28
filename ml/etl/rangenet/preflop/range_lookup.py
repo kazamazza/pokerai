@@ -1,112 +1,170 @@
-import json
+# tools/rangenet/_preflop_range_lookup.py
+from __future__ import annotations
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, List, Optional
 import pandas as pd
+import json
 
-POS_OPEN_TOKENS = {"OPEN", "RAISE"}
-RERAISE_TOKENS  = {"RAISE", "ALL_IN", "3BET", "4BET", "5BET"}
+POS_ALIASES = {
+    "BU": "BTN", "EP": "UTG", "MP": "HJ",
+}
+def norm_pos(p: str) -> str:
+    p = (p or "").upper()
+    return POS_ALIASES.get(p, p)
 
-def _parse_seq(seq_json: str):
-    try:
-        seq = json.loads(seq_json)
-        return seq if isinstance(seq, list) else []
-    except Exception:
-        return []
+def nearest(v: float, options: List[float]) -> float:
+    return min(options, key=lambda x: (abs(x - v), x))
 
-def _is_srp_open_call(seq, ip_pos: str, oop_pos: str) -> bool:
-    if not seq:
-        return False
-    # opener must be ip_pos and first action must be OPEN/RAISE
-    if not (seq[0].get("pos") == ip_pos and seq[0].get("action") in POS_OPEN_TOKENS):
-        return False
-    re_raised = False
-    for step in seq[1:]:
-        pos = step.get("pos")
-        act = step.get("action")
-        if act in RERAISE_TOKENS:
-            re_raised = True
-        if pos == oop_pos:
-            return (act == "CALL") and (not re_raised)
+def _load_vendor_range_compact(path: Path) -> str:
+    s = path.read_text(encoding="utf-8").strip()
+    if not s or "..." in s:
+        raise RuntimeError(f"Empty/placeholder vendor range: {path}")
+    if "," not in s or ":" not in s:
+        raise RuntimeError(f"Unrecognized vendor range format: {path}")
+    return s
+
+def _first_non_fold(seq: list[dict]) -> Optional[Tuple[str, str]]:
+    for e in seq:
+        a = (e.get("action") or "").upper()
+        if a and a != "FOLD":
+            return norm_pos(e.get("pos")), a
+    return None
+
+def _first_action_of(seq: list[dict], pos: str) -> Optional[str]:
+    target = norm_pos(pos)
+    for e in seq:
+        if norm_pos(e.get("pos")) == target:
+            return (e.get("action") or "").upper()
+    return None
+
+def _re_raised_before(seq: list[dict], before_pos: str) -> bool:
+    target = norm_pos(before_pos)
+    for e in seq:
+        if norm_pos(e.get("pos")) == target:
+            return False
+        a = (e.get("action") or "").upper()
+        if a in ("RAISE", "ALL_IN", "3BET", "4BET", "5BET"):
+            return True
     return False
 
-def _nearest_stack(target: float, available: list[float]) -> Optional[float]:
-    if not available:
-        return None
-    return min(available, key=lambda s: abs(float(s) - float(target)))
-
-def _load_range_file_to_compact(path: Path, min_keep: float = 0.0) -> str:
-    """
-    Vendor file format: 'AA:1.0,A2s:0.0,A2o:0.174,...'
-    Convert to compact string 'AA,A2o:0.174,...' (omit entries with weight<=min_keep).
-    """
-    txt = Path(path).read_text().strip()
-    if not txt:
-        return ""
-    pairs = []
-    for tok in txt.split(","):
-        tok = tok.strip()
-        if not tok:
-            continue
-        if ":" in tok:
-            hand, val = tok.split(":", 1)
-            try:
-                p = float(val)
-            except ValueError:
-                continue
-            if p <= min_keep:
-                continue
-            if abs(p - 1.0) < 1e-9:
-                pairs.append(hand)
-            else:
-                pairs.append(f"{hand}:{p:g}")
-        else:
-            # some files may include pure 'TT' without ':1.0'
-            pairs.append(tok)
-    return ",".join(pairs)
-
 class PreflopRangeLookup:
+    """
+    Strict resolver using *actual manifest rows* (no fabricated stems).
+    Index: (stack, hero_pos, ip, oop) -> list of rows with real filename/abs_path.
+    """
     def __init__(self, manifest_parquet: str | Path):
-        self.df = pd.read_parquet(manifest_parquet)
-        # ensure required columns exist
-        need = {"stack_bb","hero_pos","opener_pos","opener_action","sequence","abs_path"}
-        missing = [c for c in need if c not in self.df.columns]
+        df = pd.read_parquet(str(manifest_parquet)).copy()
+        need = {"stack_bb","hero_pos","sequence","filename_stem","abs_path"}
+        missing = [c for c in need if c not in df.columns]
         if missing:
-            raise ValueError(f"monker_manifest missing columns: {missing}")
-        # coerce stack to float for nearest selection
-        self.df["stack_bb"] = self.df["stack_bb"].astype(float)
+            raise RuntimeError(f"monker_manifest missing columns: {missing}")
 
-    def ranges_for_pair(self, *, stack_bb: float, ip: str, oop: str) -> Tuple[str, str]:
-        df = self.df
-        # candidates by opener/hero
-        cand = df[(df["opener_pos"] == ip) & (df["hero_pos"] == oop)]
-        if cand.empty:
-            # fallback: any rows that include both positions; last resort
-            cand = df[(df["opener_pos"] == ip)]
-            if cand.empty:
-                return "", ""
+        # normalize
+        df["hero_pos"] = df["hero_pos"].map(norm_pos)
+        # coerce stack ints
+        df["stack_bb"] = df["stack_bb"].astype("Int64")
 
-        # exact stack first
-        exact = cand[cand["stack_bb"] == float(stack_bb)]
-        if exact.empty:
-            # pick nearest stack available for this pair
-            stacks = sorted(cand["stack_bb"].unique().tolist())
-            ns = _nearest_stack(stack_bb, stacks)
-            exact = cand[cand["stack_bb"] == ns]
+        self.stacks: List[int] = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
+        if not self.stacks:
+            raise RuntimeError("No stacks found in monker_manifest")
 
-        # filter to SRP open->call sequences
-        exact = exact[exact["opener_action"].isin(POS_OPEN_TOKENS)]
-        exact = exact[exact["sequence"].apply(lambda s: _is_srp_open_call(_parse_seq(s), ip, oop))]
-        if exact.empty:
-            return "", ""
+        # Build index
+        idx: Dict[Tuple[int, str, str, str], List[dict]] = {}
 
-        # choose the most common sequence (stability)
-        grp = exact.groupby(["sequence"]).size().sort_values(ascending=False)
-        seq_json = grp.index[0]
-        row = exact[exact["sequence"] == seq_json].iloc[0]
-        path = Path(row["abs_path"])
+        for _, r in df.iterrows():
+            stack = int(r["stack_bb"])
+            hero  = norm_pos(str(r["hero_pos"]))
+            try:
+                seq = json.loads(r["sequence"])
+            except Exception:
+                continue
+            if not isinstance(seq, list) or len(seq) < 2:
+                continue
 
-        # IP is opener; OOP is hero
-        ip_rng  = _load_range_file_to_compact(path, min_keep=0.0)
-        oop_rng = _load_range_file_to_compact(path, min_keep=0.0)  # same file for both sides in vendor packs
+            opener = _first_non_fold(seq)
+            if not opener:
+                continue
+            ip_pos, ip_act = opener
+            if ip_act not in ("OPEN","RAISE","ALL_IN","LIMP","CALL"):
+                continue
 
-        return ip_rng, oop_rng
+            # for every possible OOP seat present in seq, check SRP (first action CALL, no re-raise before)
+            seen_positions = [norm_pos(e.get("pos")) for e in seq if e.get("pos")]
+            for oop_pos in seen_positions:
+                if oop_pos == ip_pos:
+                    continue
+                a_opp = _first_action_of(seq, oop_pos)
+                if a_opp != "CALL":
+                    continue
+                if _re_raised_before(seq, oop_pos):
+                    continue
+
+                key = (stack, hero, ip_pos, oop_pos)
+                idx.setdefault(key, []).append({
+                    "filename_stem": r["filename_stem"],
+                    "abs_path": r["abs_path"],
+                })
+
+        self.idx = idx  # (stack, hero_pos, ip, oop) -> list of candidates
+
+    def _pick_row(self, stack: int, hero: str, ip: str, oop: str) -> Optional[dict]:
+        key = (int(stack), norm_pos(hero), norm_pos(ip), norm_pos(oop))
+        rows = self.idx.get(key)
+        if rows:
+            # simple choice: first; you can add heuristics (prefer all folds except oop, etc.)
+            return rows[0]
+        return None
+
+    def ranges_for_pair(
+            self,
+            *,
+            stack_bb: float,
+            ip: str,
+            oop: str,
+            strict: bool = True,  # NEW: when False, return (None, None) instead of raising
+    ) -> Tuple[Optional[str], Optional[str]]:
+        ip, oop = norm_pos(ip), norm_pos(oop)
+        if not self.stacks:
+            raise RuntimeError("No stacks indexed")
+        nearest_stack = int(nearest(float(stack_bb), [float(s) for s in self.stacks]))
+
+        # IP range from IP folder (hero_pos = IP)
+        row_ip = self._pick_row(nearest_stack, hero=ip, ip=ip, oop=oop)
+        # OOP range from OOP folder (hero_pos = OOP)
+        row_oop = self._pick_row(nearest_stack, hero=oop, ip=ip, oop=oop)
+
+        # Try other stacks by increasing distance if one side is missing
+        if (row_ip is None or row_oop is None) and len(self.stacks) > 1:
+            ordered = sorted(self.stacks, key=lambda s: (abs(s - nearest_stack), s))
+            for s in ordered:
+                if row_ip is None:
+                    row_ip = self._pick_row(s, hero=ip, ip=ip, oop=oop)
+                if row_oop is None:
+                    row_oop = self._pick_row(s, hero=oop, ip=ip, oop=oop)
+                if row_ip and row_oop:
+                    break
+
+        if row_ip is None or row_oop is None:
+            # -------- improved diagnostics --------
+            lines = [
+                f"Missing vendor rows for {ip}v{oop} (requested {stack_bb}bb, nearest {nearest_stack}bb)."
+            ]
+            # Show what *does* exist for this pair across stacks & hero_sides
+            have = [(k[0], k[1]) for k in self.idx.keys() if k[2] == ip and k[3] == oop]
+            if have:
+                lines.append("Available for this pair (stack_bb, hero_side):")
+                # unique + sorted
+                seen = sorted(set(have), key=lambda t: (t[0], t[1]))
+                lines += [f"  - {s}bb, hero={h}" for (s, h) in seen]
+            else:
+                lines.append("No entries for this pair were found in the manifest index.")
+
+            msg = "\n".join(lines)
+            if strict:
+                raise RuntimeError(msg)
+            # allow caller to skip gracefully
+            return None, None
+
+        rng_ip = _load_vendor_range_compact(Path(row_ip["abs_path"]))
+        rng_oop = _load_vendor_range_compact(Path(row_oop["abs_path"]))
+        return rng_ip, rng_oop

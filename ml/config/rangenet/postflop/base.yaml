@@ -1,9 +1,5 @@
 inputs:
   manifest: data/artifacts/rangenet_postflop_manifest.parquet
 
-defaults: # used only if a (stack,pos) entry is missing
-  range_ip: "AA,KK,QQ,JJ,TT,99:0.5,88:0.5,AKs,AQs,..."     # compact
-  range_oop: "QQ:0.5,JJ:0.75,TT,99,88,77,66,..."
-
 outputs:
   parquet: data/datasets/rangenet_postflop.parquet
