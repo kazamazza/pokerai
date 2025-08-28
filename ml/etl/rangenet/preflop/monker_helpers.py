@@ -6,10 +6,33 @@ from typing import Dict, List, Optional, Tuple
 POS_SET = {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
 
 # Raw vendor action tokens (from probe); we keep them raw for matching filenames
-OPEN_ACTIONS = {"Min", "AI"}          # vendor "open/raise" family
+OPEN_ACTIONS = {"Min", "AI"}        # vendor "open/raise" family
 RAISEY_ACTIONS = {"Min", "AI", "3sb"} # anything that re-raises before defender acts
 CALL_ACTION = "Call"
 FOLD_ACTION = "Fold"
+
+ACTION_NORMALIZE = {
+    "Min": "RAISE",
+    "AI": "ALL_IN",
+    "3sb": "3BET",     # keep it if you see it
+    "Call": "CALL",
+    "Fold": "FOLD",
+    "Open": "OPEN",
+    "Limp": "LIMP",
+    "Bet": "BET",
+    "Raise": "RAISE",
+    "Check": "CHECK",
+    "Cbet": "CBET",
+    "Donk": "DONK",
+    "3Bet": "3BET",
+    "4Bet": "4BET",
+    "5Bet": "5BET",
+}
+
+def canon_action(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    return ACTION_NORMALIZE.get(raw, raw.upper())
 
 def canon_pos(p: str) -> Optional[str]:
     """Normalize/validate position token to vendor canon (returns None if unknown)."""
@@ -47,10 +70,10 @@ def parse_seq_from_stem(stem: str) -> List[Dict[str, str]]:
     return seq
 
 def first_non_fold_opener(seq: List[Dict[str, str]]) -> Tuple[Optional[str], Optional[str]]:
-    """Return (pos, raw_action) of the first actor whose action is not pure Fold."""
+    """Return (pos, raw_action) of the first *opener* (Min/AI)."""
     for e in seq:
         act = e.get("action")
-        if act and act != FOLD_ACTION:
+        if act in OPEN_ACTIONS:
             return e["pos"], act
     return None, None
 
