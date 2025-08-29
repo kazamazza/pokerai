@@ -19,7 +19,13 @@ build:
 
 # === Dataset schema for training ===
 dataset:
-  x_cols: ["stack_bb","hero_pos","opener_pos","opener_action"]
+  x_cols: [
+    "stack_bb",
+    "hero_pos",
+    "opener_pos",
+    "opener_action",
+    "ctx"
+  ]
   # predict villain range over 169 preflop classes
   y_cols: [
     "y_0","y_1","y_2","y_3","y_4","y_5","y_6","y_7","y_8","y_9",

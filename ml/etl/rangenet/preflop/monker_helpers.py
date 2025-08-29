@@ -1,20 +1,16 @@
-# ml/etl/rangenet/preflop/monker_helpers.py
 from __future__ import annotations
-from typing import Dict, List, Optional, Tuple
 
-# Canonical positions used by vendor in your packs
+import re
+from typing import Optional, List, Dict, Tuple, Any
+
+PERCENT_RE = re.compile(r"^\d+%$")
+
 POS_SET = {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
-
-# Raw vendor action tokens (from probe); we keep them raw for matching filenames
-OPEN_ACTIONS = {"Min", "AI"}        # vendor "open/raise" family
-RAISEY_ACTIONS = {"Min", "AI", "3sb"} # anything that re-raises before defender acts
-CALL_ACTION = "Call"
-FOLD_ACTION = "Fold"
 
 ACTION_NORMALIZE = {
     "Min": "RAISE",
     "AI": "ALL_IN",
-    "3sb": "3BET",     # keep it if you see it
+    "3sb": "3BET",
     "Call": "CALL",
     "Fold": "FOLD",
     "Open": "OPEN",
@@ -32,22 +28,23 @@ ACTION_NORMALIZE = {
 def canon_action(raw: Optional[str]) -> Optional[str]:
     if not raw:
         return None
+    if PERCENT_RE.match(raw):     # e.g. "60%", "125%"
+        return "RAISE"
     return ACTION_NORMALIZE.get(raw, raw.upper())
 
 def canon_pos(p: str) -> Optional[str]:
-    """Normalize/validate position token to vendor canon (returns None if unknown)."""
     if not isinstance(p, str):
         return None
     p = p.strip().upper()
-    # map aliases here if you ever see them (e.g., BU->BTN, MP->HJ/LJ, etc.)
-    alias = {"BU": "BTN", "MP": "HJ", "EP": "UTG", "LJ": "HJ"}  # adjust if needed
+    alias = {"BU": "BTN", "MP": "HJ", "EP": "UTG", "LJ": "HJ"}
     p = alias.get(p, p)
     return p if p in POS_SET else None
 
 def parse_seq_from_stem(stem: str) -> List[Dict[str, str]]:
     """
-    Parse filename stem into [{"pos": "UTG", "action": "Min"}, ...] using RAW vendor tokens.
-    We do NOT normalize actions; we want to match the vendor taxonomy exactly.
+    Parse vendor stem → list of dicts with RAW vendor tokens:
+      [{"pos":"UTG","action":"60%"}, {"pos":"HJ","action":"Fold"}, ...]
+    Positions are canonicalized; actions are left raw (Min/AI/3sb/60%/Call/Fold...).
     """
     toks = stem.split("_")
     seq: List[Dict[str, str]] = []
@@ -59,7 +56,7 @@ def parse_seq_from_stem(stem: str) -> List[Dict[str, str]]:
             continue
         action = None
         if i + 1 < len(toks) and not canon_pos(toks[i + 1]):
-            action = toks[i + 1]  # keep raw like "Min", "AI", "Call", "Fold", "3sb"
+            action = toks[i + 1]  # raw token (Min/AI/3sb/60%/Call/Fold/...)
             i += 2
         else:
             i += 1
@@ -69,63 +66,109 @@ def parse_seq_from_stem(stem: str) -> List[Dict[str, str]]:
         seq.append(e)
     return seq
 
-def first_non_fold_opener(seq: List[Dict[str, str]]) -> Tuple[Optional[str], Optional[str]]:
-    """Return (pos, raw_action) of the first *opener* (Min/AI)."""
-    for e in seq:
-        act = e.get("action")
-        if act in OPEN_ACTIONS:
-            return e["pos"], act
+# ---- raw token predicates (recognize vendor % as raise) ----
+
+def _is_raise_token_raw(a: Optional[str]) -> bool:
+    if not a:
+        return False
+    return a in {"Min", "AI", "3sb"} or PERCENT_RE.match(a)
+
+def _is_call_token_raw(a: Optional[str]) -> bool:
+    return a in {"Call", "CALL"}
+
+def _is_fold_token_raw(a: Optional[str]) -> bool:
+    return a in {"Fold", "FOLD"}
+
+# ---- simple open/defender helpers on RAW sequence ----
+
+def first_non_fold_opener(seq_raw: List[Dict[str, str]]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    First actor whose action is not a pure Fold AND is raise/open-ish (includes vendor % raise).
+    Returns raw action (e.g., 'Min','AI','60%').
+    """
+    for e in seq_raw:
+        a = e.get("action")
+        if a and not _is_fold_token_raw(a) and _is_raise_token_raw(a):
+            return e["pos"], a
     return None, None
 
-def defender_first_action(seq: List[Dict[str, str]], defender_pos: str) -> Optional[str]:
-    """Return the defender's first raw action token if present."""
-    for e in seq:
+def defender_first_action_raw(seq_raw: List[Dict[str, str]], defender_pos: str) -> Optional[str]:
+    for e in seq_raw:
         if e.get("pos") == defender_pos and "action" in e:
             return e["action"]
     return None
 
-def is_srp_open_call(seq: List[Dict[str, str]], ip_pos: str, oop_pos: str) -> bool:
-    """
-    Detect Single-Raised Pot: opener = ip_pos with Min/AI; defender = oop_pos with first action Call;
-    and no intermediate re-raise before defender acts.
-    """
-    if not seq:
-        return False
-    opener = first_non_fold_opener(seq)
-    if opener == (None, None):
-        return False
+def unique_seen_positions(seq_raw: List[Dict[str, str]]) -> List[str]:
+    seen = []
+    for e in seq_raw:
+        p = e.get("pos")
+        if p and p not in seen:
+            seen.append(p)
+    return seen
 
-    open_pos, open_act = opener
-    if open_pos != ip_pos or open_act not in OPEN_ACTIONS:
-        return False
+# ---- context classifier (coarse but robust & vendor-agnostic) ----
 
-    re_raised = False
-    for e in seq[1:]:
-        pos = e.get("pos")
-        act = e.get("action")
-        if act in RAISEY_ACTIONS:
-            re_raised = True
-        if pos == oop_pos:
-            return (act == CALL_ACTION) and (not re_raised)
-    return False
-
-def vendor_stem_for_pair(seq: List[Dict[str, str]], ip_pos: str, oop_pos: str) -> Optional[str]:
+def classify_context(seq_raw: List[Dict[str, str]]) -> Dict[str, Any]:
     """
-    Build a compact, vendor-raw stem for a pair: e.g. 'BTN_Min_BB_Call' or 'CO_AI_BB_Call'.
-    Returns None if pattern doesn't fit SRP open/call.
+    Compute coarse preflop context:
+      - ctx: one of {'LIMPED_SINGLE','LIMPED_MULTI','VS_OPEN','VS_3BET','VS_4BET'} (None if unknown)
+      - raise_depth: number of raise-ish events in the whole sequence
+      - limp_count: number of 'Limp' before the first raise-ish
+      - multiway: True if >= 2 distinct callers after first raise-ish (before any re-raise)
+      - opener_pos_raw/action_raw (if any)
+    This is enough to drive lookup grouping without filtering anything out.
     """
-    if not is_srp_open_call(seq, ip_pos, oop_pos):
-        return None
-    # opener (first non-fold)
-    open_pos, open_act = first_non_fold_opener(seq)
-    # defender first action
-    oop_act = defender_first_action(seq, oop_pos)
-    if open_pos and open_act and oop_act:
-        return f"{open_pos}_{open_act}_{oop_pos}_{oop_act}"
-    return None
+    # count limps until first raise-ish
+    limp_count = 0
+    opener_pos_raw, opener_action_raw = None, None
+    for e in seq_raw:
+        a = e.get("action")
+        if _is_raise_token_raw(a):
+            opener_pos_raw, opener_action_raw = e.get("pos"), a
+            break
+        if a == "Limp":
+            limp_count += 1
 
-def nearest_stack(target: float, available: List[int]) -> int:
-    """Pick nearest stack (tie -> smaller)."""
-    target = float(target)
-    best = min(available, key=lambda s: (abs(s - target), s))
-    return int(best)
+    # how many raise-ish overall?
+    raise_depth = sum(1 for e in seq_raw if _is_raise_token_raw(e.get("action")))
+
+    # multiway heuristic: how many distinct CALLers after first raise-ish until next raise-ish?
+    call_positions = set()
+    if opener_pos_raw:
+        after_open = False
+        reraised = False
+        for e in seq_raw:
+            if not after_open:
+                if e.get("pos") == opener_pos_raw and _is_raise_token_raw(e.get("action")):
+                    after_open = True
+                continue
+            a = e.get("action")
+            if _is_raise_token_raw(a):
+                reraised = True
+                break
+            if _is_call_token_raw(a):
+                p = e.get("pos")
+                if p:
+                    call_positions.add(p)
+        multiway = len(call_positions) >= 2 and not reraised
+    else:
+        multiway = limp_count >= 2 and raise_depth == 0
+
+    # coarse ctx
+    if raise_depth == 0:
+        ctx = "LIMPED_SINGLE" if limp_count == 1 else ("LIMPED_MULTI" if limp_count >= 2 else None)
+    elif raise_depth == 1:
+        ctx = "VS_OPEN"
+    elif raise_depth == 2:
+        ctx = "VS_3BET"
+    else:
+        ctx = "VS_4BET"
+
+    return {
+        "ctx": ctx,
+        "raise_depth": int(raise_depth),
+        "limp_count": int(limp_count),
+        "multiway": bool(multiway),
+        "opener_pos_raw": opener_pos_raw,
+        "opener_action_raw": opener_action_raw,
+    }

@@ -42,6 +42,7 @@ class S3Client:
             print(f"❌ Failed to download {s3_key}: {e}")
 
     def download_file(self, s3_key: str, local_path: Path) -> None:
+        print(s3_key)
         """
         Download a file from S3 to local path.
         """

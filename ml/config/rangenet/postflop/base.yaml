@@ -1,5 +1,29 @@
 inputs:
   manifest: data/artifacts/rangenet_postflop_manifest.parquet
 
+dataset:
+  x_cols: [
+    "stack_bb",
+    "pot_bb",
+    "ip_pos",
+    "oop_pos",
+    "hero_pos",
+    "street",
+    "ctx",
+    "board_cluster",
+    "bet_sizing_id"
+  ]
+  y_cols: [
+    "fold",
+    "check",
+    "call",
+    "bet_33",
+    "bet_66",
+    "allin",
+    "raise_33",
+    "raise_66",
+    "raise_allin"
+  ]
+
 outputs:
   parquet: data/datasets/rangenet_postflop.parquet

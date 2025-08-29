@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Dict, Any, List
 import pandas as pd
 
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -74,10 +73,11 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     for stack in stacks:
         for pot in pots:
             for (ip_pos, oop_pos) in position_pairs:
+                print(f"{stack} {pot} {ip_pos}:{oop_pos}")
                 rng_ip, rng_oop, meta = lookup.ranges_for_pair(
                     stack_bb=stack, ip=ip_pos, oop=oop_pos, strict=False
                 )
-
+                print(rng_ip, rng_oop, meta)
                 if rng_ip is None or rng_oop is None:
                     key = f"{ip_pos}v{oop_pos}@{int(stack)}"
                     miss_counts[key] = miss_counts.get(key, 0) + 1
