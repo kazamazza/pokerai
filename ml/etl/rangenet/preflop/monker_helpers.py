@@ -110,49 +110,54 @@ def unique_seen_positions(seq_raw: List[Dict[str, str]]) -> List[str]:
 
 def classify_context(seq_raw: List[Dict[str, str]]) -> Dict[str, Any]:
     """
-    Compute coarse preflop context:
-      - ctx: one of {'LIMPED_SINGLE','LIMPED_MULTI','VS_OPEN','VS_3BET','VS_4BET'} (None if unknown)
-      - raise_depth: number of raise-ish events in the whole sequence
-      - limp_count: number of 'Limp' before the first raise-ish
-      - multiway: True if >= 2 distinct callers after first raise-ish (before any re-raise)
-      - opener_pos_raw/action_raw (if any)
-    This is enough to drive lookup grouping without filtering anything out.
+    Compute coarse preflop context from RAW vendor tokens.
+    - Limp detection: treat 'Limp' OR 'Call' *before the first raise-ish* as a limp.
+    - multiway: ≥2 distinct callers after open before any re-raise,
+                or ≥2 distinct callers when no raise at all (pure limp pot).
     """
-    # count limps until first raise-ish
-    limp_count = 0
-    opener_pos_raw, opener_action_raw = None, None
-    for e in seq_raw:
+    # locate first raise-ish
+    first_raise_idx = None
+    opener_pos_raw = None
+    opener_action_raw = None
+    for i, e in enumerate(seq_raw):
         a = e.get("action")
         if _is_raise_token_raw(a):
-            opener_pos_raw, opener_action_raw = e.get("pos"), a
+            first_raise_idx = i
+            opener_pos_raw = e.get("pos")
+            opener_action_raw = a
             break
-        if a == "Limp":
-            limp_count += 1
 
-    # how many raise-ish overall?
+    # count limps = 'Limp' OR 'Call' BEFORE any raise
+    limpers: List[str] = []
+    scan_upto = first_raise_idx if first_raise_idx is not None else len(seq_raw)
+    for e in seq_raw[:scan_upto]:
+        a = e.get("action")
+        p = e.get("pos")
+        if a == "Limp" or _is_call_token_raw(a):
+            if p:
+                limpers.append(p)
+
+    limp_count = len(set(limpers))
+
+    # total raise depth
     raise_depth = sum(1 for e in seq_raw if _is_raise_token_raw(e.get("action")))
 
-    # multiway heuristic: how many distinct CALLers after first raise-ish until next raise-ish?
-    call_positions = set()
-    if opener_pos_raw:
-        after_open = False
-        reraised = False
-        for e in seq_raw:
-            if not after_open:
-                if e.get("pos") == opener_pos_raw and _is_raise_token_raw(e.get("action")):
-                    after_open = True
-                continue
+    # multiway heuristic
+    if first_raise_idx is not None:
+        # callers after open, before any re-raise
+        call_positions = set()
+        for e in seq_raw[first_raise_idx + 1:]:
             a = e.get("action")
             if _is_raise_token_raw(a):
-                reraised = True
                 break
             if _is_call_token_raw(a):
                 p = e.get("pos")
                 if p:
                     call_positions.add(p)
-        multiway = len(call_positions) >= 2 and not reraised
+        multiway = len(call_positions) >= 2
     else:
-        multiway = limp_count >= 2 and raise_depth == 0
+        # pure limp pot: multiway if ≥2 limpers
+        multiway = limp_count >= 2
 
     # coarse ctx
     if raise_depth == 0:
