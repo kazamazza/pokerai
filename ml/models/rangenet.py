@@ -28,47 +28,51 @@ class CatEmbedBlock(nn.Module):
         return torch.cat(outs, dim=-1)
 
 class RangeNet(nn.Module):
-    def __init__(self, cards: Dict[str, int], feature_order: Sequence[str],
-                 hidden_dims: Sequence[int] = (128,128), dropout: float = 0.1):
+    def __init__(self, cards, feature_order, hidden_dims=(128,128), dropout=0.1):
         super().__init__()
         self.embed = CatEmbedBlock(cards, feature_order)
-        layers: List[nn.Module] = []
+        layers = []
         in_dim = self.embed.out_dim
         for h in hidden_dims:
             layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout)]
             in_dim = h
-        layers += [nn.Linear(in_dim, HAND_COUNT)]
+        self.head = nn.Linear(in_dim, HAND_COUNT)
         self.mlp = nn.Sequential(*layers)
 
-    def forward(self, x_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
-        z = self.embed(x_dict)           # [B, E]
-        logits = self.mlp(z)             # [B, 169]
-        probs = F.softmax(logits, dim=-1)
-        return probs
+    def forward(self, x_dict):
+        z = self.embed(x_dict)
+        logits = self.head(self.mlp(z))   # [B,169], raw logits
+        return logits
 
 class RangeNetLit(pl.LightningModule):
-    def __init__(self, cards: Dict[str,int], feature_order: Sequence[str],
-                 hidden_dims: Sequence[int]=(128,128), dropout: float=0.1,
-                 lr: float=1e-3, weight_decay: float=1e-4):
+    def __init__(self, cards, feature_order, hidden_dims=(128,128), dropout=0.1,
+                 lr=1e-3, weight_decay=1e-4, label_smoothing=0.0):
         super().__init__()
         self.save_hyperparameters(ignore=["cards","feature_order"])
         self.model = RangeNet(cards, feature_order, hidden_dims, dropout)
-        self.lr = lr
-        self.wd = weight_decay
+        self.lr = lr; self.wd = weight_decay
+        self.ls = float(label_smoothing)
+
+    def _kl_loss(self, logits, y, w):
+        # optional label smoothing
+        if self.ls > 0:
+            y = (1 - self.ls) * y + self.ls / y.size(-1)
+        log_p = F.log_softmax(logits, dim=-1)
+        # KL(y || p) = sum y * (log y - log p)
+        kl = torch.sum(y * (torch.log(y + 1e-8) - log_p), dim=-1)
+        return torch.sum(w * kl) / (w.sum() + 1e-8)
 
     def training_step(self, batch, _):
         x, y, w = batch
-        p = self.model(x)
-        # KL divergence with soft targets y (sum=1)
-        # Use log on predictions: KL(y || p) = sum y * (log y - log p)
-        loss = torch.sum(w * torch.sum(y * (torch.log(y+1e-8) - torch.log(p+1e-8)), dim=-1)) / (w.sum()+1e-8)
+        logits = self.model(x)
+        loss = self._kl_loss(logits, y, w)
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, _):
         x, y, w = batch
-        p = self.model(x)
-        loss = torch.sum(w * torch.sum(y * (torch.log(y+1e-8) - torch.log(p+1e-8)), dim=-1)) / (w.sum()+1e-8)
+        logits = self.model(x)
+        loss = self._kl_loss(logits, y, w)
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def configure_optimizers(self):

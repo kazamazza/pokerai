@@ -9,25 +9,66 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+# Reuse your existing generic bits
 HAND_COUNT = 169
 
 @dataclass
 class CardsInfo:
-    cards: Dict[str, int]  # cardinalities for each feature (after ID encoding)
+    cards: Dict[str, int]
+
+# --- helpers: canon maps for safety (adjust if your pipeline already guarantees canon) ---
+_POS_CANON = {"UTG","HJ","CO","BTN","SB","BB"}
+_POS_ALIAS = {"BU":"BTN","MP":"HJ","EP":"UTG","LJ":"HJ"}
+
+def canon_pos(p: Any) -> Optional[str]:
+    if not isinstance(p, str): return None
+    p = p.strip().upper()
+    p = _POS_ALIAS.get(p, p)
+    return p if p in _POS_CANON else None
+
+# Preflop action canon (keep small and practical)
+_ACTION_CANON = {
+    "MIN":"RAISE", "RAISE":"RAISE", "OPEN":"RAISE",
+    "AI":"ALL_IN", "ALL_IN":"ALL_IN", "SHOVE":"ALL_IN",
+    "LIMP":"LIMP", "CALL":"CALL", "FOLD":"FOLD",
+    "3BET":"3BET", "4BET":"4BET", "5BET":"5BET"
+}
+
+def canon_action(a: Any) -> Optional[str]:
+    if not isinstance(a, str): return None
+    a = a.strip().upper()
+    # accept percent like "60%" as raise
+    if a.endswith("%") and a[:-1].isdigit():
+        return "RAISE"
+    return _ACTION_CANON.get(a, a)
+
+# Your Ctx enum values – ensure parquet stores ints (recommended) or exact strings you map here
+_CTX_MAP = {
+    "OPEN": 0, "VS_OPEN": 1, "VS_3BET": 2, "VS_4BET": 3,
+    "BLIND_VS_STEAL": 4, "LIMPED_SINGLE": 5, "LIMPED_MULTI": 6,
+    "VS_CBET": 10, "VS_CBET_TURN": 11, "VS_CHECK_RAISE": 13, "VS_DONK": 14,
+}
+
+def canon_ctx(v: Any) -> Optional[int]:
+    if v is None: return None
+    if isinstance(v, (int, np.integer)): return int(v)
+    if isinstance(v, str):
+        s = v.strip().upper()
+        if s in _CTX_MAP: return _CTX_MAP[s]
+        # allow numeric-in-string
+        if s.isdigit(): return int(s)
+    return None
+
 
 class RangeNetDatasetParquet(Dataset):
     """
     Generic RangeNet dataset (works for preflop or postflop) from a Parquet.
 
-    Expect parquet columns like:
-      X: e.g. preflop:  ["stack_bb","hero_pos","opener_pos","opener_action"]
-         postflop:     ["stack_bb","hero_pos","villain_pos","street","board_cluster_id"]
-      Y: y_0 .. y_168   (soft distribution over 169 preflop hand classes)
-      W: weight
+    X: categorical features → ID-encoded
+    Y: y_0..y_168 (soft 169-vector)
+    W: weight column
 
-    You pass:
-      - x_cols: list[str] of feature column names to encode as categorical IDs
-      - weight_col: name of weight column
+    Use this directly, or via PreflopRangeDatasetParquet for locked schema.
     """
     def __init__(
         self,
@@ -45,7 +86,6 @@ class RangeNetDatasetParquet(Dataset):
 
         df = pd.read_parquet(self.parquet_path)
 
-        # sanity: need y_0..y_168
         y_cols = [f"y_{i}" for i in range(HAND_COUNT)]
         missing = [c for c in (self.x_cols + y_cols + [self.weight_col]) if c not in df.columns]
         if missing:
@@ -54,7 +94,7 @@ class RangeNetDatasetParquet(Dataset):
         if min_weight is not None:
             df = df[df[self.weight_col] >= float(min_weight)].reset_index(drop=True)
 
-        # --- build encoders for each X col ---
+        # build per-column encoders
         self._encoders: Dict[str, Dict[Any, int]] = {}
         self._cards: Dict[str, int] = {}
         X_ids = np.zeros((len(df), len(self.x_cols)), dtype=np.int64)
@@ -67,7 +107,6 @@ class RangeNetDatasetParquet(Dataset):
             enc = {v: i for i, v in enumerate(uniques)}
             self._encoders[col] = enc
             self._cards[col] = len(enc)
-            # map (unknowns → extra bucket)
             ids = df[col].map(enc).fillna(-1).astype("int64").to_numpy()
             if (ids == -1).any():
                 miss_mask = (ids == -1)
@@ -76,8 +115,7 @@ class RangeNetDatasetParquet(Dataset):
                 self._cards[col] = new_id + 1
             X_ids[:, j] = ids
 
-        Y = df[y_cols].to_numpy(dtype="float32")  # (N,169)
-        # normalize softly
+        Y = df[y_cols].to_numpy(dtype="float32")
         s = Y.sum(axis=1, keepdims=True)
         s[s <= 1e-12] = 1.0
         Y = Y / s
@@ -89,7 +127,6 @@ class RangeNetDatasetParquet(Dataset):
         self._W = W
         self.feature_order = list(self.x_cols)
         self.cards_info = CardsInfo(cards=dict(self._cards))
-        # keep original df around only if you need stratified splits elsewhere
         self.df = df
 
     def __len__(self) -> int:
@@ -114,6 +151,6 @@ class RangeNetDatasetParquet(Dataset):
 def rangenet_collate_fn(batch):
     keys = batch[0][0].keys()
     x = {k: torch.stack([b[0][k] for b in batch], dim=0) for k in keys}
-    y = torch.stack([b[1] for b in batch], dim=0)  # [B,169]
-    w = torch.stack([b[2] for b in batch], dim=0)  # [B]
+    y = torch.stack([b[1] for b in batch], dim=0)
+    w = torch.stack([b[2] for b in batch], dim=0)
     return x, y, w
