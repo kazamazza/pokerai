@@ -112,7 +112,11 @@ class EquityNetLit(pl.LightningModule):
 
     # ---- Training step (handles scalar or triplet targets; soft/hard) ----
     def _step(self, batch, stage: str):
-        x_cat, x_num, y, w = batch  # collate must provide these shapes
+        if len(batch) == 3:
+            x_cat, y, w = batch
+            x_num = torch.empty((y.shape[0], 0), device=y.device)  # empty numeric
+        else:
+            x_cat, x_num, y, w = batch
         logits = self.forward(x_cat, x_num)
 
         # Build loss depending on mode/labels

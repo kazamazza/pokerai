@@ -1,0 +1,66 @@
+# =========================
+# EquityNet (unified) — base
+# =========================
+
+dataset:
+  seed: 42
+  x_cols: [ "street", "hand_id", "board_cluster_id" ]   # minimal & sufficient
+  y_cols: [ "p_win", "p_tie", "p_lose" ]
+  weight_col: "weight"
+
+build:
+  include:
+    preflop: true
+    postflop: true
+
+  # Streets to include for postflop equity
+  streets: [flop, turn, river]   # 1=flop,2=turn,3=river (street=0 is preflop)
+
+  # Board clustering/sampling plan (postflop)
+  clusters:
+    flop: 256
+    turn: 128
+    river: 128
+
+  samples_per_cluster:
+    flop: 32
+    turn: 64
+    river: 64
+
+  # If you have a precomputed clustering, point to it; otherwise set method: none
+  board_sampling:
+    method: none             # none | kmeans | file
+    clusters_path: ""        # used only if method=file
+    seed: 42
+
+  # Preflop equity doesn’t need boards; keep for schema consistency
+  preflop_samples: 0
+
+compute:
+  engine: eval7              # Monte Carlo exact/MC via eval7
+  # Global compute knobs
+  threads: auto              # auto | int
+  chunk_size: 8192           # rows per work chunk
+  log_every_n: 50000
+  # Monte Carlo sampling (postflop)
+  mc:
+    # If you ever want per-row custom samples, the manifest already carries "samples".
+    # This is a floor/override guard; leave at 0 to trust manifest.
+    min_samples: 0
+    max_samples: 0
+  # Safety & reproducibility
+  seed: 42
+
+paths:
+  manifest_path: data/artifacts/equity_manifest.parquet
+  parquet_path:  data/datasets/equitynet.parquet
+  tmp_dir:       data/tmp/equity
+
+inputs:
+  parquet: data/datasets/equitynet.parquet   # <- alias for the trainer
+  # If you ever want to condition on ranges later, you can wire those here.
+
+# Optional: light validation to skip impossible rows quickly
+validation:
+  # skip rows with unknown street or invalid cluster index
+  strict: true

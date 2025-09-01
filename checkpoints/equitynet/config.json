@@ -1,0 +1,65 @@
+{
+  "dataset": {
+    "seed": 42,
+    "x_cols": [
+      "street",
+      "hand_id",
+      "board_cluster_id"
+    ],
+    "y_cols": [
+      "p_win",
+      "p_tie",
+      "p_lose"
+    ],
+    "weight_col": "weight"
+  },
+  "build": {
+    "include": {
+      "preflop": true,
+      "postflop": true
+    },
+    "streets": [
+      "flop",
+      "turn",
+      "river"
+    ],
+    "clusters": {
+      "flop": 256,
+      "turn": 128,
+      "river": 128
+    },
+    "samples_per_cluster": {
+      "flop": 32,
+      "turn": 64,
+      "river": 64
+    },
+    "board_sampling": {
+      "method": "none",
+      "clusters_path": "",
+      "seed": 42
+    },
+    "preflop_samples": 0
+  },
+  "compute": {
+    "engine": "eval7",
+    "threads": "auto",
+    "chunk_size": 8192,
+    "log_every_n": 50000,
+    "mc": {
+      "min_samples": 0,
+      "max_samples": 0
+    },
+    "seed": 42
+  },
+  "paths": {
+    "manifest_path": "data/artifacts/equity_manifest.parquet",
+    "parquet_path": "data/datasets/equitynet.parquet",
+    "tmp_dir": "data/tmp/equity"
+  },
+  "inputs": {
+    "parquet": "data/datasets/equitynet.parquet"
+  },
+  "validation": {
+    "strict": true
+  }
+}

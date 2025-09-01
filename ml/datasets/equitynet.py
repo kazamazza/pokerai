@@ -147,7 +147,3 @@ def equity_collate_fn(batch):
     y = torch.stack([item[1].float() for item in batch], dim=0)
     w = torch.stack([item[2].float() for item in batch], dim=0)
     return x_dict, y, w
-
-
-
-

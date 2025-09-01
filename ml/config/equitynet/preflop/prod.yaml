@@ -1,9 +1,0 @@
-equity_mc:
-  preflop_samples: 5000   # increase further if budget allows (e.g. 8000–12000)
-  seed: 42
-
-train:
-  batch_size: 4096
-  max_epochs: 20
-  patience: 6
-  checkpoints_dir: checkpoints/equity_pre/prod
