@@ -16,6 +16,29 @@ from ml.datasets.utils_dataset import stratified_indices
 from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
+def _write_equity_sidecar(*, best_ckpt: str, ds, model) -> str | None:
+    """
+    Write feature_order.json, id_maps.json, cards.json next to the best checkpoint.
+    """
+    if not best_ckpt:
+        return None
+    ckpt_path = Path(best_ckpt)
+    out_dir = ckpt_path.parent
+
+    # Pull schema bits from dataset/model
+    feature_order = getattr(ds, "feature_order", None)
+    id_maps = getattr(ds, "id_maps", None)
+    cards_info = getattr(ds, "cards_info", None)
+
+    if feature_order is None or id_maps is None or cards_info is None:
+        return None
+
+    # Materialize
+    (out_dir / "feature_order.json").write_text(json.dumps(list(feature_order), indent=2))
+    (out_dir / "id_maps.json").write_text(json.dumps(id_maps(), indent=2))
+    (out_dir / "cards.json").write_text(json.dumps(getattr(cards_info, "cards", {}), indent=2))
+    return str(out_dir)
+
 
 def _get(cfg: Mapping[str, Any], path: str, default=None):
     cur = cfg
@@ -151,9 +174,24 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from))
     else:
         trainer.fit(model, train_dl, val_dl)
+    best_ckpt = None
+    for cb in trainer.callbacks:
+        if hasattr(cb, "best_model_path") and cb.best_model_path:
+            best_ckpt = cb.best_model_path
+            break
+    if best_ckpt is None and 'ckpt_cb' in locals() and hasattr(ckpt_cb, "last_model_path"):
+        best_ckpt = ckpt_cb.last_model_path
 
-    print(f"✅ training complete. Best checkpoint: {ckpt_cb.best_model_path}")
-    return ckpt_cb.best_model_path or str(ckpt_dir / "last.ckpt")
+    print(f"✅ training complete. Best checkpoint: {best_ckpt}")
+
+    # write sidecar next to best checkpoint (feature_order/id_maps/cards)
+    sidecar_path = _write_equity_sidecar(best_ckpt=best_ckpt, ds=ds, model=model)
+    if sidecar_path:
+        print(f"💾 wrote sidecar → {sidecar_path}")
+    else:
+        print("⚠️ Skipped sidecar (missing feature_order/id_maps/cards)")
+
+    return best_ckpt
 
 
 if __name__ == "__main__":
