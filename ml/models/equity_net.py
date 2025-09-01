@@ -90,21 +90,30 @@ class EquityNetLit(pl.LightningModule):
         self.val_loss_sum = 0.0
 
     # ---- Forward ----
-    def forward(self, x_cat: Dict[str, torch.Tensor], x_num: torch.Tensor) -> torch.Tensor:
+    def forward(
+            self,
+            x_cat: Dict[str, torch.Tensor],
+            x_num: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         x_cat: dict of {feature_name: LongTensor[B]}
-        x_num: FloatTensor[B, D] (D may be 0; then pass an empty tensor)
-        returns:
-          - scalar: logits FloatTensor[B, 1]
-          - triplet: logits FloatTensor[B, 3]
+        x_num: FloatTensor[B, D] or None (if no numeric features)
+        returns logits:
+          - scalar: FloatTensor[B,1]
+          - triplet: FloatTensor[B,3]
         """
-        embs = [self.emb_layers[name](x_cat[name].long()) for name in self.cat_order]  # [B, e_i]
+        embs = [self.emb_layers[name](x_cat[name].long()) for name in self.cat_order]
         h_cat = torch.cat(embs, dim=-1) if len(embs) > 0 else None
 
         if self.num_in_dim > 0:
+            # ensure x_num exists with correct shape
+            if x_num is None:
+                B = next(iter(x_cat.values())).shape[0] if x_cat else 0
+                x_num = torch.empty(B, self.num_in_dim, device=next(iter(x_cat.values())).device)
             h_num = self.num_proj(x_num.float())
             h = torch.cat([h_cat, h_num], dim=-1) if h_cat is not None else h_num
         else:
+            # no numeric inputs expected; ignore x_num
             h = h_cat
 
         logits = self.mlp(h)

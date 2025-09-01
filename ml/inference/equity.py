@@ -59,21 +59,37 @@ class EquityNetInfer:
             device=dev,
         )
 
-    # ---------- encoding helpers ----------
-
     def _encode_column(self, feat: str, values: List[Any]) -> torch.Tensor:
-        enc = self.id_maps[feat]
-        card = int(self.cards[feat])  # embedding size
-        unk_idx = card - 1 if card > len(enc) else max(len(enc) - 1, 0)
+        enc = self.id_maps[feat]  # e.g. {"BTN":0,"SB":1,...}
+        card = int(self.cards[feat])  # total categorical size
+        unk_idx = max(card - 1, 0)  # always reserve last as UNK
 
-        ids: List[int] = []
+        ids = []
         for v in values:
-            key = str(v)
+            key = str(v) if v is not None else "__NONE__"
             idx = enc.get(key, unk_idx)
-            if idx >= card:
-                idx = card - 1
+            if idx >= card:  # clamp to valid range
+                idx = unk_idx
             ids.append(int(idx))
         return torch.tensor(ids, dtype=torch.long, device=self.device)
+
+    def _x_num_placeholder(self, batch_size: int) -> torch.Tensor:
+        """
+        Build the numeric feature tensor to pass to the model.
+        If the model was configured with num_in_dim == 0, pass an empty tensor [B,0].
+        Otherwise pass zeros [B, num_in_dim].
+        """
+        # Try to read num_in_dim from the LightningModule hparams
+        num_in_dim = 0
+        try:
+            num_in_dim = int(getattr(self.model.hparams, "num_in_dim", 0))
+        except Exception:
+            pass
+
+        if num_in_dim and num_in_dim > 0:
+            return torch.zeros((batch_size, num_in_dim), dtype=torch.float32, device=self.device)
+        else:
+            return torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
 
     def _encode_batch(self, rows: Sequence[Mapping[str, Any]]) -> Dict[str, torch.Tensor]:
         cols: Dict[str, List[Any]] = {k: [] for k in self.feature_order}
@@ -81,8 +97,6 @@ class EquityNetInfer:
             for k in self.feature_order:
                 cols[k].append(r[k])
         return {k: self._encode_column(k, v) for k, v in cols.items()}
-
-    # ---------- public inference API ----------
 
     @torch.no_grad()
     def predict_proba(self, rows: Sequence[Mapping[str, Any]]) -> torch.Tensor:
@@ -92,11 +106,13 @@ class EquityNetInfer:
         """
         if not rows:
             return torch.empty(0, 3, device=self.device)
-        x_dict = self._encode_batch(rows)
-        logits = self.model(x_dict)        # [B,3]
+
+        x_cat = self._encode_batch(rows)
+        x_num = self._x_num_placeholder(batch_size=len(rows))
+
+        logits = self.model(x_cat, x_num)   # <-- pass BOTH inputs
         return F.softmax(logits, dim=-1)
 
     @torch.no_grad()
     def predict(self, rows: Sequence[Mapping[str, Any]]) -> List[List[float]]:
-        """Convenience wrapper → Python lists of probs."""
         return self.predict_proba(rows).tolist()

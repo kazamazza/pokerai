@@ -3,41 +3,21 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, Dict, Optional
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Subset
 
+
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from ml.utils.sidecar import save_sidecar_json
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
-
-def _write_equity_sidecar(*, best_ckpt: str, ds, model) -> str | None:
-    """
-    Write feature_order.json, id_maps.json, cards.json next to the best checkpoint.
-    """
-    if not best_ckpt:
-        return None
-    ckpt_path = Path(best_ckpt)
-    out_dir = ckpt_path.parent
-
-    # Pull schema bits from dataset/model
-    feature_order = getattr(ds, "feature_order", None)
-    id_maps = getattr(ds, "id_maps", None)
-    cards_info = getattr(ds, "cards_info", None)
-
-    if feature_order is None or id_maps is None or cards_info is None:
-        return None
-
-    # Materialize
-    (out_dir / "feature_order.json").write_text(json.dumps(list(feature_order), indent=2))
-    (out_dir / "id_maps.json").write_text(json.dumps(id_maps(), indent=2))
-    (out_dir / "cards.json").write_text(json.dumps(getattr(cards_info, "cards", {}), indent=2))
-    return str(out_dir)
 
 
 def _get(cfg: Mapping[str, Any], path: str, default=None):
@@ -49,13 +29,56 @@ def _get(cfg: Mapping[str, Any], path: str, default=None):
     return cur
 
 
-def _save_sidecar(ckpt_dir: Path, *, feature_order: Sequence[str],
-                  id_maps: dict, cards: dict) -> None:
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    (ckpt_dir / "feature_order.json").write_text(json.dumps(list(feature_order), indent=2))
-    (ckpt_dir / "id_maps.json").write_text(json.dumps(id_maps, indent=2))
-    (ckpt_dir / "cards.json").write_text(json.dumps(cards, indent=2))
+def _write_equity_sidecar(
+    *,
+    best_ckpt: str | Path,
+    ds,                   # EquityDatasetParquet instance
+    model,                # EquityNetLit instance
+    model_name: str = "EquityNet",
+) -> Optional[Path]:
+    """
+    Write a single sidecar JSON next to the checkpoint using save_sidecar_json.
+    Produces: <checkpoint>.sidecar.json
+    """
+    # feature_order: prefer dataset; else model.hparams
+    feature_order = list(getattr(ds, "feature_order", getattr(ds, "x_cols", []))) or \
+                    list(getattr(getattr(model, "hparams", object()), "feature_order", []))
 
+    # cards: prefer dataset.cards() if callable; else dataset.cards; else model.cards
+    cards: Dict[str, int] = {}
+    if hasattr(ds, "cards") and callable(getattr(ds, "cards", None)):
+        cards = dict(ds.cards() or {})
+    elif hasattr(ds, "cards"):
+        cards = dict(getattr(ds, "cards", {}) or {})
+    elif hasattr(model, "cards"):
+        cards = dict(getattr(model, "cards", {}) or {})
+
+    if not feature_order or not cards:
+        # Don’t write a misleading sidecar if we can’t describe inputs properly
+        return None
+
+    # id_maps optional (dataset may expose for categorical encodings)
+    id_maps = None
+    if hasattr(ds, "id_maps") and callable(getattr(ds, "id_maps", None)):
+        try:
+            id_maps = ds.id_maps()
+        except Exception:
+            id_maps = None
+
+    # Optional extra metadata
+    extra = {
+        "targets": ["p_win", "p_tie", "p_lose"],
+        "notes": "EquityNet trained on soft labels (win/tie/lose).",
+    }
+
+    return save_sidecar_json(
+        ckpt_path=best_ckpt,
+        model_name=model_name,
+        feature_order=list(feature_order),
+        cards=cards,
+        id_maps=id_maps,
+        extra=extra,
+    )
 
 def run_train(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
@@ -71,7 +94,6 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     y_cols = _get(cfg, "dataset.y_cols", ["p_win", "p_tie", "p_lose"])
     weight_col = _get(cfg, "dataset.weight_col", "weight")
     min_weight = _get(cfg, "dataset.min_weight", None)
-    print(x_cols, y_cols, weight_col)
 
     ds = EquityDatasetParquet(
         parquet_path=parquet_path,
@@ -159,39 +181,29 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         logger=logger,
     )
 
-    # Save config snapshot & sidecar pre-training
-    try:
-        from omegaconf import OmegaConf
-        cfg_ser = OmegaConf.to_container(cfg, resolve=True)
-    except Exception:
-        cfg_ser = dict(cfg)
-    (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
-    _save_sidecar(ckpt_dir, feature_order=feature_order, id_maps=ds.id_maps(), cards=cards)
-
     # Train
     resume_from = _get(cfg, "train.resume_from", None)
     if resume_from:
         trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from))
     else:
         trainer.fit(model, train_dl, val_dl)
+    # ----- after training -----
     best_ckpt = None
     for cb in trainer.callbacks:
         if hasattr(cb, "best_model_path") and cb.best_model_path:
             best_ckpt = cb.best_model_path
             break
-    if best_ckpt is None and 'ckpt_cb' in locals() and hasattr(ckpt_cb, "last_model_path"):
+    if best_ckpt is None and 'ckpt_cb' in locals() and getattr(ckpt_cb, "last_model_path", None):
         best_ckpt = ckpt_cb.last_model_path
 
     print(f"✅ training complete. Best checkpoint: {best_ckpt}")
 
-    # write sidecar next to best checkpoint (feature_order/id_maps/cards)
-    sidecar_path = _write_equity_sidecar(best_ckpt=best_ckpt, ds=ds, model=model)
+    # Write sidecar next to the *checkpoint file* (NOT the directory)
+    sidecar_path = _write_equity_sidecar(best_ckpt=best_ckpt, ds=ds, model=model, model_name="EquityNet")
     if sidecar_path:
         print(f"💾 wrote sidecar → {sidecar_path}")
     else:
         print("⚠️ Skipped sidecar (missing feature_order/id_maps/cards)")
-
-    return best_ckpt
 
 
 if __name__ == "__main__":
