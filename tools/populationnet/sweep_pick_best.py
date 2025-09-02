@@ -7,9 +7,11 @@ from typing import Any, Dict, List, Tuple
 import torch
 from torch.utils.data import DataLoader, Subset
 
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from ml.utils.popnet_sidecar import write_popnet_sidecar
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.population_net import PopulationNetLit
@@ -106,29 +108,6 @@ def evaluate_populationnet(
 
     return report
 
-def write_popnet_sidecar_for_ckpt(best_ckpt: Path, parquet_path: Path) -> Path:
-    """
-    Build a single sidecar next to best_ckpt using dataset-derived schema.
-    """
-    ds = PopulationDatasetParquet(str(parquet_path), use_soft_labels=True, device=None)
-    # Prefer dataset for schema:
-    feature_order = list(getattr(ds, "x_cols", getattr(ds, "feature_order", [])))
-    cards = ds.cards() if hasattr(ds, "cards") and callable(getattr(ds, "cards")) else dict(getattr(ds, "cards", {}))
-    id_maps = ds.id_maps() if hasattr(ds, "id_maps") and callable(getattr(ds, "id_maps")) else None
-
-    extra = {
-        "actions": ["FOLD", "CALL", "RAISE"],
-        "soft_labels": True,
-        "notes": "PopulationNet trained on soft labels (p_fold,p_call,p_raise).",
-    }
-    return save_sidecar_json(
-        best_ckpt,
-        model_name="PopulationNet",
-        feature_order=feature_order,
-        cards=cards,
-        id_maps=id_maps,
-        extra=extra,
-    )
 
 def list_candidate_ckpts(ckpts_dir: Path) -> List[Path]:
     cks = sorted(ckpts_dir.glob("*.ckpt"))
@@ -174,7 +153,11 @@ def main():
     best_src = ckpts[idx]
     best_dst = args.ckpts_dir / "best.ckpt"
     shutil.copy2(best_src, best_dst)
-    sidecar = write_popnet_sidecar_for_ckpt(best_dst, args.parquet)
+    sidecar = write_popnet_sidecar(
+        best_ckpt=best_dst,
+        ds=PopulationDatasetParquet(str(args.parquet), use_soft_labels=True, device=None),
+        model=PopulationNetLit.load_from_checkpoint(str(best_dst), map_location=torch.device("cpu")).eval(),
+    )
 
     # Small meta for traceability
     meta = {

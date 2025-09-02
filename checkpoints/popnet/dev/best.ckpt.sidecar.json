@@ -1,6 +1,6 @@
 {
   "model_name": "PopulationNet",
-  "created_utc": "2025-09-01T20:23:31Z",
+  "created_utc": "2025-09-02T15:39:44Z",
   "feature_order": [
     "stakes_id",
     "street_id",
