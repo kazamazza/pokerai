@@ -13,12 +13,17 @@ sys.path.append(str(ROOT_DIR))
 from ml.datasets.population import PopulationDatasetParquet, population_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.population_net import PopulationNetLit
-from ml.utils.sidecar import save_sidecar_json
+from ml.utils.sidecar import save_sidecar_json, load_sidecar
 
 
 @torch.no_grad()
-def evaluate_populationnet(ckpt_path: str, parquet_path: str,
-                           batch_size: int = 1024, seed: int = 42) -> Dict[str, Any]:
+def evaluate_populationnet(
+    ckpt_path: str,
+    parquet_path: str,
+    batch_size: int = 1024,
+    seed: int = 42,
+) -> Dict[str, Any]:
+    # ---- dataset ----
     ds = PopulationDatasetParquet(parquet_path, use_soft_labels=True, device=None)
     train_idx, val_idx = stratified_indices(ds.df, train_frac=0.8, seed=seed)
     val_dl = DataLoader(
@@ -29,9 +34,18 @@ def evaluate_populationnet(ckpt_path: str, parquet_path: str,
         pin_memory=True,
         num_workers=0,
     )
+
+    # ---- model & sidecar ----
     device = torch.device("cpu")
     model = PopulationNetLit.load_from_checkpoint(ckpt_path, map_location=device)
     model.to(device).eval()
+
+    sidecar_path = Path(ckpt_path).with_suffix(Path(ckpt_path).suffix + ".sidecar.json")
+    sidecar = None
+    feature_order = None
+    if sidecar_path.exists():
+        sidecar = load_sidecar(sidecar_path)
+        feature_order = list(sidecar.get("feature_order", []) or None)
 
     total_w = 0.0
     sum_kl = 0.0
@@ -40,6 +54,10 @@ def evaluate_populationnet(ckpt_path: str, parquet_path: str,
     grp = defaultdict(lambda: {"w": 0.0, "kl": 0.0, "acc": 0.0})
 
     for x_dict, y_soft, w in val_dl:
+        # If sidecar declares a feature order, align inputs accordingly
+        if feature_order:
+            x_dict = {k: x_dict[k] for k in feature_order if k in x_dict}
+
         logits = model(x_dict)
         p = torch.softmax(logits, dim=-1)
 
@@ -57,14 +75,16 @@ def evaluate_populationnet(ckpt_path: str, parquet_path: str,
         sum_acc += (acc * w).sum().item()
         total_w += w.sum().item()
 
-        ctx = x_dict["ctx_id"].cpu().numpy()
-        street = x_dict["street_id"].cpu().numpy()
-        for i in range(len(ctx)):
-            key = (int(ctx[i]), int(street[i]))
-            wi = float(w[i])
-            grp[key]["w"]   += wi
-            grp[key]["kl"]  += float(kl[i]) * wi
-            grp[key]["acc"] += float(acc[i]) * wi
+        # optional by-group metrics (if these keys exist)
+        if "ctx_id" in x_dict and "street_id" in x_dict:
+            ctx = x_dict["ctx_id"].cpu().numpy()
+            street = x_dict["street_id"].cpu().numpy()
+            for i in range(len(ctx)):
+                key = (int(ctx[i]), int(street[i]))
+                wi = float(w[i])
+                grp[key]["w"]   += wi
+                grp[key]["kl"]  += float(kl[i]) * wi
+                grp[key]["acc"] += float(acc[i]) * wi
 
     report = {
         "checkpoint": str(ckpt_path),
@@ -72,15 +92,18 @@ def evaluate_populationnet(ckpt_path: str, parquet_path: str,
         "val_weight_sum": total_w,
         "val_kl": sum_kl / max(total_w, 1e-8),
         "val_soft_acc": sum_acc / max(total_w, 1e-8),
-        "by_group": {
+    }
+
+    if grp:
+        report["by_group"] = {
             f"ctx{c}_street{s}": {
                 "kl": g["kl"] / max(g["w"], 1e-8),
                 "soft_acc": g["acc"] / max(g["w"], 1e-8),
                 "w": g["w"],
             }
             for (c, s), g in sorted(grp.items(), key=lambda kv: -kv[1]["w"])
-        },
-    }
+        }
+
     return report
 
 def write_popnet_sidecar_for_ckpt(best_ckpt: Path, parquet_path: Path) -> Path:
