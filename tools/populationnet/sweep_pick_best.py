@@ -1,4 +1,4 @@
-# tools/populationnet/sweep_and_pick_best.py
+# tools/populationnet/sweep_pick_best.py
 import argparse, json, shutil
 import sys
 from pathlib import Path
