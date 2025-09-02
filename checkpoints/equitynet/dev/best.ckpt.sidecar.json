@@ -1,6 +1,6 @@
 {
   "model_name": "EquityNet",
-  "created_utc": "2025-09-01T18:06:19Z",
+  "created_utc": "2025-09-02T17:59:12Z",
   "feature_order": [
     "street",
     "hand_id",
@@ -449,11 +449,12 @@
       "255": 256
     }
   },
-  "labels": [
+  "targets": [
     "p_win",
     "p_tie",
     "p_lose"
   ],
   "soft_labels": true,
-  "notes": "EquityNet trained on soft triplet labels (p_win,p_tie,p_lose)."
+  "weight_col": "weight",
+  "notes": "EquityNet trained on soft labels (win/tie/lose)."
 }

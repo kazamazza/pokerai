@@ -1,6 +1,3 @@
-# train_equitynet.py
-import json
-import math
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Dict, Optional
@@ -8,12 +5,10 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Subset
 
-
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.utils.sidecar import save_sidecar_json
+from ml.utils.equity_sidecar import write_equity_sidecar
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.equity_net import EquityNetLit
@@ -28,57 +23,6 @@ def _get(cfg: Mapping[str, Any], path: str, default=None):
         cur = cur[p]
     return cur
 
-
-def _write_equity_sidecar(
-    *,
-    best_ckpt: str | Path,
-    ds,                   # EquityDatasetParquet instance
-    model,                # EquityNetLit instance
-    model_name: str = "EquityNet",
-) -> Optional[Path]:
-    """
-    Write a single sidecar JSON next to the checkpoint using save_sidecar_json.
-    Produces: <checkpoint>.sidecar.json
-    """
-    # feature_order: prefer dataset; else model.hparams
-    feature_order = list(getattr(ds, "feature_order", getattr(ds, "x_cols", []))) or \
-                    list(getattr(getattr(model, "hparams", object()), "feature_order", []))
-
-    # cards: prefer dataset.cards() if callable; else dataset.cards; else model.cards
-    cards: Dict[str, int] = {}
-    if hasattr(ds, "cards") and callable(getattr(ds, "cards", None)):
-        cards = dict(ds.cards() or {})
-    elif hasattr(ds, "cards"):
-        cards = dict(getattr(ds, "cards", {}) or {})
-    elif hasattr(model, "cards"):
-        cards = dict(getattr(model, "cards", {}) or {})
-
-    if not feature_order or not cards:
-        # Don’t write a misleading sidecar if we can’t describe inputs properly
-        return None
-
-    # id_maps optional (dataset may expose for categorical encodings)
-    id_maps = None
-    if hasattr(ds, "id_maps") and callable(getattr(ds, "id_maps", None)):
-        try:
-            id_maps = ds.id_maps()
-        except Exception:
-            id_maps = None
-
-    # Optional extra metadata
-    extra = {
-        "targets": ["p_win", "p_tie", "p_lose"],
-        "notes": "EquityNet trained on soft labels (win/tie/lose).",
-    }
-
-    return save_sidecar_json(
-        ckpt_path=best_ckpt,
-        model_name=model_name,
-        feature_order=list(feature_order),
-        cards=cards,
-        id_maps=id_maps,
-        extra=extra,
-    )
 
 def run_train(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
@@ -199,7 +143,7 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     print(f"✅ training complete. Best checkpoint: {best_ckpt}")
 
     # Write sidecar next to the *checkpoint file* (NOT the directory)
-    sidecar_path = _write_equity_sidecar(best_ckpt=best_ckpt, ds=ds, model=model, model_name="EquityNet")
+    sidecar_path = write_equity_sidecar(best_ckpt=best_ckpt, ds=ds, model=model, model_name="EquityNet")
     if sidecar_path:
         print(f"💾 wrote sidecar → {sidecar_path}")
     else:

@@ -11,11 +11,11 @@ from torch.utils.data import DataLoader, Subset
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from ml.utils.equity_sidecar import write_equity_sidecar
 from ml.datasets.utils_dataset import stratified_indices
 from ml.models.equity_net import EquityNetLit
-from ml.utils.sidecar import save_sidecar_json, load_sidecar
+from ml.utils.sidecar import  load_sidecar
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
-
 
 
 def list_candidate_ckpts(ckpts_dir: Path) -> List[Path]:
@@ -148,59 +148,6 @@ def pick_best(reports: List[Dict[str, Any]]) -> Tuple[int, Dict[str, Any]]:
     return best_i, reports[best_i]
 
 
-def write_equity_sidecar_for_ckpt(best_ckpt: Path, parquet_path: Path) -> Path:
-    """
-    Ensure a sidecar next to best_ckpt. If one already exists, reuse it.
-    Otherwise derive schema from the parquet and write a fresh sidecar.
-    """
-    # If a sidecar already exists, reuse it
-    existing = best_ckpt.with_suffix(best_ckpt.suffix + ".sidecar.json")
-    if existing.exists():
-        return existing
-
-    import pandas as pd
-    # Infer x_cols from parquet (must match what you trained with)
-    cols = pd.read_parquet(str(parquet_path)).columns.tolist()
-    candidate_x = ["street", "hand_id", "board_cluster_id"]
-    x_cols = [c for c in candidate_x if c in cols]
-    if not x_cols:
-        raise RuntimeError(
-            f"Cannot infer x_cols from equity parquet {parquet_path}; "
-            f"available columns: {cols}"
-        )
-
-    y_cols = ["p_win", "p_tie", "p_lose"]
-    ds = EquityDatasetParquet(
-        parquet_path=str(parquet_path),
-        x_cols=x_cols,
-        y_cols=y_cols,
-        weight_col="weight",
-        device=None,
-    )
-
-    feature_order = list(getattr(ds, "feature_order", []))
-    if not feature_order:
-        raise RuntimeError("EquityDatasetParquet did not expose feature_order; cannot write sidecar.")
-
-    # Pull cards & id_maps from dataset
-    cards = ds.cards() if hasattr(ds, "cards") and callable(getattr(ds, "cards", None)) else dict(getattr(ds, "cards", {}))
-    id_maps = ds.id_maps() if hasattr(ds, "id_maps") and callable(getattr(ds, "id_maps", None)) else None
-
-    extra = {
-        "labels": ["p_win", "p_tie", "p_lose"],
-        "soft_labels": True,
-        "notes": "EquityNet trained on soft triplet labels (p_win,p_tie,p_lose).",
-    }
-    return save_sidecar_json(
-        best_ckpt,
-        model_name="EquityNet",
-        feature_order=feature_order,
-        cards=cards,
-        id_maps=id_maps,  # key name is "id_maps" in our sidecar schema
-        extra=extra,
-    )
-
-
 def main():
     ap = argparse.ArgumentParser(description="Evaluate all EquityNet ckpts in a folder and write best.ckpt (+ sidecar)")
     ap.add_argument("--ckpts-dir", type=Path, required=True, help="e.g. checkpoints/equitynet/dev")
@@ -227,7 +174,27 @@ def main():
     best_src = ckpts[idx]
     best_dst = args.ckpts_dir / "best.ckpt"
     shutil.copy2(best_src, best_dst)
-    sidecar = write_equity_sidecar_for_ckpt(best_dst, args.parquet)
+
+    y_cols = ["p_win", "p_tie", "p_lose"]
+    x_cols = ["street", "hand_id", "board_cluster_id"]  # matches your equity parquet
+    ds = EquityDatasetParquet(
+        parquet_path=str(args.parquet),
+        x_cols=x_cols,
+        y_cols=y_cols,
+        weight_col="weight",
+        device=None,
+    )
+
+    # Load model (used as fallback by the sidecar writer)
+    device = torch.device("cpu")
+    model = EquityNetLit.load_from_checkpoint(str(best_dst), map_location=device)
+    model.eval().to(device)
+
+    sidecar = write_equity_sidecar(
+        best_ckpt=best_dst,
+        ds=ds,
+        model=model,
+    )
 
     meta = {
         "chosen": best_src.name,

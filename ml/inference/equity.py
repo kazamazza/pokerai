@@ -12,13 +12,10 @@ class EquityNetInfer:
     """
     Inference wrapper for EquityNet (preflop OR postflop).
 
-    Sidecar JSON schema:
-      {
-        "feature_order": ["stack_bb","hero_pos","opener_action", ...],
-        "cards": {"stack_bb":X,...},
-        "encoders": {"stack_bb":{"12":0,"15":1,...}, "hero_pos":{"BB":0,...}, ...}
-      }
-
+    Sidecar JSON schema must include:
+      - feature_order: list[str]
+      - cards: dict[str,int]
+      - id_maps (preferred) or encoders: dict[str, dict[str,int]]
     Model output: [p_win, p_tie, p_lose]
     """
 
@@ -33,9 +30,16 @@ class EquityNetInfer:
     ):
         self.model = model.eval()
         self.feature_order = list(feature_order)
-        self.id_maps = id_maps
-        self.cards = cards
-        self.device = device or torch.device("cpu")
+
+        # Normalize id_maps to {col: {str(raw): int(id)}}
+        self.id_maps = {
+            col: {str(k): int(v) for k, v in (mapping or {}).items()}
+            for col, mapping in (id_maps or {}).items()
+        }
+        self.cards = {k: int(v) for k, v in (cards or {}).items()}
+
+        # device
+        self.device = device or to_device("auto")
         self.model.to(self.device)
 
     @classmethod
@@ -46,40 +50,34 @@ class EquityNetInfer:
         device: DeviceLike = "auto",
     ) -> "EquityNetInfer":
         dev = to_device(device)
-        sc = load_sidecar(sidecar_path)
+        sc = load_sidecar(sidecar_path)  # expects feature_order, cards, (id_maps|encoders)
 
-        model = EquityNetLit.load_from_checkpoint(checkpoint_path, map_location=dev)
+        model = EquityNetLit.load_from_checkpoint(str(checkpoint_path), map_location=dev)
         model.eval().to(dev)
+
+        # Accept both keys; prefer id_maps
+        id_maps = sc.get("id_maps") or sc.get("encoders") or {}
 
         return cls(
             model=model,
             feature_order=sc["feature_order"],
-            id_maps=sc["encoders"],  # 👈 sidecar uses "encoders"
+            id_maps=id_maps,
             cards=sc["cards"],
             device=dev,
         )
 
-    def _encode_column(self, feat: str, values: List[Any]) -> torch.Tensor:
-        enc = self.id_maps[feat]  # e.g. {"BTN":0,"SB":1,...}
-        card = int(self.cards[feat])  # total categorical size
-        unk_idx = max(card - 1, 0)  # always reserve last as UNK
+    # ---------- helpers ----------
 
-        ids = []
-        for v in values:
-            key = str(v) if v is not None else "__NONE__"
-            idx = enc.get(key, unk_idx)
-            if idx >= card:  # clamp to valid range
-                idx = unk_idx
-            ids.append(int(idx))
-        return torch.tensor(ids, dtype=torch.long, device=self.device)
+    def _unknown_idx(self, col: str) -> int:
+        """Return a safe 'unknown' index for a column (last bucket)."""
+        C = int(self.cards.get(col, 0))
+        return max(C - 1, 0)
 
     def _x_num_placeholder(self, batch_size: int) -> torch.Tensor:
         """
         Build the numeric feature tensor to pass to the model.
-        If the model was configured with num_in_dim == 0, pass an empty tensor [B,0].
-        Otherwise pass zeros [B, num_in_dim].
+        If the model has num_in_dim==0, pass [B,0]; else zeros [B,num_in_dim].
         """
-        # Try to read num_in_dim from the LightningModule hparams
         num_in_dim = 0
         try:
             num_in_dim = int(getattr(self.model.hparams, "num_in_dim", 0))
@@ -91,26 +89,55 @@ class EquityNetInfer:
         else:
             return torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
 
+    def _maybe_fill_defaults(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fill unified-but-optional features if missing.
+        - board_cluster_id: map to UNK so preflop requests (street=0) work out-of-the-box.
+        """
+        out = dict(row)
+        if "board_cluster_id" not in out:
+            out["board_cluster_id"] = self._unknown_idx("board_cluster_id")
+        return out
+
+    def _encode_column(self, feat: str, values: List[Any]) -> torch.Tensor:
+        enc = self.id_maps.get(feat, {})
+        card = int(self.cards.get(feat, max(len(enc), 1)))
+        unk_idx = min(max(len(enc), 1) - 1, card - 1) if enc else self._unknown_idx(feat)
+
+        ids: List[int] = []
+        for v in values:
+            key = str(v) if v is not None else "__NONE__"
+            idx = enc.get(key, unk_idx)
+            if idx >= card:
+                idx = card - 1
+            ids.append(int(idx))
+        return torch.tensor(ids, dtype=torch.long, device=self.device)
+
     def _encode_batch(self, rows: Sequence[Mapping[str, Any]]) -> Dict[str, torch.Tensor]:
+        prepared: List[Dict[str, Any]] = [self._maybe_fill_defaults(dict(r)) for r in rows]
+
         cols: Dict[str, List[Any]] = {k: [] for k in self.feature_order}
-        for r in rows:
+        for r in prepared:
             for k in self.feature_order:
+                if k not in r:
+                    raise KeyError(f"Missing feature '{k}' in inference row: {r.keys()}")
                 cols[k].append(r[k])
         return {k: self._encode_column(k, v) for k, v in cols.items()}
+
+    # ---------- public API ----------
 
     @torch.no_grad()
     def predict_proba(self, rows: Sequence[Mapping[str, Any]]) -> torch.Tensor:
         """
-        rows: list of dicts with keys matching feature_order.
-        returns: [B,3] = [p_win, p_tie, p_lose]
+        rows: list of dicts with keys matching feature_order (board_cluster_id may be omitted for preflop).
+        returns: [B,3] probabilities (p_win, p_tie, p_lose)
         """
         if not rows:
             return torch.empty(0, 3, device=self.device)
 
         x_cat = self._encode_batch(rows)
         x_num = self._x_num_placeholder(batch_size=len(rows))
-
-        logits = self.model(x_cat, x_num)   # <-- pass BOTH inputs
+        logits = self.model(x_cat, x_num)
         return F.softmax(logits, dim=-1)
 
     @torch.no_grad()
