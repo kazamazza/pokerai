@@ -14,7 +14,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="rangenet/postflop")
     ap.add_argument("--stacks", type=int, nargs="*", default=[12,15,18])
-    ap.add_argument("--pairs", nargs="*", default=["BTNvBB","COvBB","SBvBB","BTNvSB"])
+    ap.add_argument("--pairs", nargs="*", default=["BTN_BB","COvBB","SBvBB","BTN_BB"])
     args = ap.parse_args()
 
     cfg = load_model_config(args.config)

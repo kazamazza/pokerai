@@ -47,7 +47,7 @@ def is_flop_board_str(b: str) -> bool:
         return False
 
 def split_positions(s: str) -> Tuple[str, str] | None:
-    """Expect 'IPposvOOPpos' concrete pair like 'BTNvBB' or 'SBvBB'."""
+    """Expect 'IPposvOOPpos' concrete pair like 'BTN_BB' or 'SBvBB'."""
     if not isinstance(s, str) or "v" not in s:
         return None
     a, b = s.split("v", 1)

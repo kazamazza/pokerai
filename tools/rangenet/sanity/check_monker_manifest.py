@@ -8,7 +8,7 @@ print("hero_pos:", sorted(df["hero_pos"].dropna().unique().tolist()))
 # opener raw tokens – should include things like '60%', 'Min', 'AI'
 print("top opener_action_raw:", df["opener_action_raw"].value_counts().head(10).to_string())
 
-# sanity: try to find at least one BTNvSB SRP open/call at any stack:
+# sanity: try to find at least one BTN_BB SRP open/call at any stack:
 def raw(seq_json):
     try:
         return json.loads(seq_json)
@@ -44,4 +44,4 @@ for _, r in df.iterrows():
             hits += 1
             break
 
-print("quick BTNvSB SRP open/call hits:", hits)
+print("quick BTN_BB SRP open/call hits:", hits)

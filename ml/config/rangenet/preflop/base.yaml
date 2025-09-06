@@ -11,7 +11,8 @@ outputs:
   parquet: data/datasets/rangenet_preflop.parquet
 
 # === Build-time knobs (aggregation) ===
-build:
+manifest_build:
+  stacks_bb: [ 25, 60, 100, 150 ]
   # minimum files contributing to a cell before we keep it
   min_files_per_cell: 1
   # optional Laplace smoothing on soft labels (applied after averaging)
@@ -81,3 +82,6 @@ logging:
   logger: tensorboard
   tb_log_dir: logs/tb/range_pre
   csv_log_dir: logs/csv/range_pre
+
+sph:
+  manifest: data/vendor_cache/sph_manifest.parquet

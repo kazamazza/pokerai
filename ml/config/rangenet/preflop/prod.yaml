@@ -2,9 +2,6 @@
 outputs:
   parquet: data/datasets/rangenet_preflop_prod.parquet
 
-build:
-  min_files_per_cell: 3
-  alpha: 0.2
 
 train:
   batch_size: 4096

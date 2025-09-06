@@ -28,7 +28,7 @@ def has_btn_open_sb_call(seq_json):
 # How many rows at all?
 print("rows:", len(df))
 
-# Count any BTNvSB SRP open/call rows by stack and hero folder present
+# Count any BTN_BB SRP open/call rows by stack and hero folder present
 sub = df[df["sequence"].apply(has_btn_open_sb_call)]
 print("BTN open / SB call rows:", len(sub))
 print(sub[["stack_bb","hero_pos","rel_path"]].head(20).to_string(index=False))

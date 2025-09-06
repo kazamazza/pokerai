@@ -8,12 +8,6 @@ from ml.etl.rangenet.preflop.monker_helpers import canon_pos, first_non_fold_ope
 from ml.etl.utils.range_lookup import is_srp_open_call, _load_vendor_range_compact, _candidate_pairs, nearest_stack
 
 
-# ---- import your existing helpers ----
-# canon_pos, nearest_stack, _candidate_pairs, is_srp_open_call,
-# sha1 helpers, _load_vendor_range_compact (Monker)
-# If names differ in your repo, adjust the imports.
-
-# ---------- SPH minimal index (placeholder) ----------
 class SphIndex:
     """
     Minimal index over your Simple Preflop Hold'em exports.

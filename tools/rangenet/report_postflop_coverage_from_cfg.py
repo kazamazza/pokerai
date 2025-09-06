@@ -1,5 +1,3 @@
-# tools/rangenet/report_postflop_coverage_from_cfg.py
-import argparse, json, pandas as pd
 import sys
 from pathlib import Path
 
@@ -30,7 +28,7 @@ def main():
     mb = cfg["manifest_build"]; inputs = cfg["inputs"]; sv = cfg.get("solver", {})
 
     lookup = PreflopRangeLookup(
-        manifest_parquet="data/artifacts/monker_manifest.parquet",
+        monker_manifest_parquet="data/artifacts/monker_manifest.parquet",
         s3_client=S3Client(),                                # no lazy fetch in this report
         s3_prefix="data/vendor",
         cache_dir="data/vendor_cache"

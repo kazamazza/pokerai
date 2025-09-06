@@ -181,7 +181,7 @@ def main():
     ap = argparse.ArgumentParser(description="Preflop coverage report from monker_manifest.parquet")
     ap.add_argument("--manifest", type=str, default="data/artifacts/monker_manifest.parquet")
     ap.add_argument("--stacks", type=int, nargs="*", default=[12,15,18])
-    ap.add_argument("--pairs", type=str, nargs="*", default=["BTNvBB","COvBB","SBvBB","BTNvSB"])
+    ap.add_argument("--pairs", type=str, nargs="*", default=["BTN_BB","COvBB","SBvBB","BTN_BB"])
     ap.add_argument("--show-conflicts", action="store_true")
     args = ap.parse_args()
 

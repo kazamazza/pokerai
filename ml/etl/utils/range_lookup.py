@@ -84,11 +84,6 @@ def _is_raise_token(act: str | None) -> bool:
     return act.upper() in {"RAISE","ALL_IN","OPEN","LIMP","3BET","4BET","5BET"}
 
 def first_non_fold_opener(seq_raw: list[dict]) -> tuple[str|None, str|None]:
-    """
-    From a parsed filename token list like:
-      [{"pos":"UTG","action":"Min"},{"pos":"HJ","action":"Fold"}, ...]
-    return the first (pos, action) that is NOT Fold and is raise/open-ish.
-    """
     for e in seq_raw:
         pos = canon_pos(e.get("pos"))
         act = e.get("action")
@@ -107,12 +102,6 @@ def defender_first_action(seq_raw: list[dict], defender_pos: str) -> str | None:
     return None
 
 def is_srp_open_call(seq_raw: list[dict], ip_pos: str, oop_pos: str) -> bool:
-    """
-    Single-raised pot pattern:
-      - opener = ip_pos with a raise-like token (OPEN_ACTIONS or %)
-      - before defender acts, no re-raise occurs
-      - defender's first action is Call
-    """
     opener_pos, opener_act = first_non_fold_opener(seq_raw)
     if opener_pos != ip_pos:
         return False
@@ -134,50 +123,94 @@ def is_srp_open_call(seq_raw: list[dict], ip_pos: str, oop_pos: str) -> bool:
 from pathlib import Path
 import json
 
+import json
+import re
+from pathlib import Path
+from typing import List
+
+def _canonical_169_keys() -> List[str]:
+    """Return standard 169-grid keys in A..2 × A..2 order:
+       rows = first rank A..2, cols = second rank A..2
+       upper-triangle (i<j) suited 'AKs', diagonal pairs 'AA', lower (i>j) offsuit 'AKo'."""
+    ranks = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"]
+    keys: List[str] = []
+    for i, r1 in enumerate(ranks):
+        for j, r2 in enumerate(ranks):
+            if i == j:
+                keys.append(f"{r1}{r2}")        # pair
+            elif i < j:
+                keys.append(f"{r1}{r2}s")       # suited (upper triangle)
+            else:
+                keys.append(f"{r1}{r2}o")       # offsuit (lower triangle)
+    return keys
+
 def _load_vendor_range_compact(path: Path) -> str:
     """
-    Load a Monker vendor range into your compact internal representation.
-
-    Contract:
-      - Return a *string payload* (or bytes) your downstream expects
-        (e.g., JSON text of a 169-length vector or compact encoding you already use).
-
-    This generic loader tries:
-      1) JSON file: either {"range":[...169 floats...]} or a raw list [...169...]
-      2) Plain text/CSV: comma/whitespace separated 169 numbers
-    Raise if shape is wrong so fallbacks can trigger.
+    Load a vendor range file and return a JSON string with 169 floats in canonical order.
+    Supported formats:
+      - JSON list of 169 floats
+      - JSON dict with key 'range' → 169 floats
+      - CSV/whitespace list of 169 bare numbers
+      - CSV of label:value pairs (e.g. 'AA:1.0,A2s:0.024,...') — labels must be 169 hand keys.
+      - Same as above but percentages like 'AKs:12.5%' (converted to 0.125)
     """
     p = Path(path)
     txt = p.read_text(encoding="utf-8").strip()
 
-    # Try JSON
+    # 1) Try JSON
     try:
         obj = json.loads(txt)
-        if isinstance(obj, dict) and "range" in obj and len(obj["range"]) == 169:
-            return json.dumps(obj["range"])  # unify to raw list payload
+        if isinstance(obj, dict) and "range" in obj and isinstance(obj["range"], list) and len(obj["range"]) == 169:
+            return json.dumps([float(x) for x in obj["range"]])
         if isinstance(obj, list) and len(obj) == 169:
-            return json.dumps(obj)
+            return json.dumps([float(x) for x in obj])
     except Exception:
         pass
 
-    # Try CSV / whitespace
-    # Grab all tokens that look like numbers; allow percents to be converted
-    import re
-    toks = re.split(r"[,\s]+", txt)
+    # 2) Try labeled CSV/dict: "AA:1.0,A2s:0.024,..." (possibly with whitespace/newlines)
+    #    We accept lines/tokens separated by commas or whitespace.
+    #    Each token can be "KEY:VALUE" or just "VALUE".
+    tokens = re.split(r"[,\s]+", txt)
+    if any(":" in t for t in tokens if t):
+        kv = {}
+        for t in tokens:
+            if not t or ":" not in t:
+                continue
+            k, v = t.split(":", 1)
+            k = k.strip()
+            v = v.strip()
+            if not k:
+                continue
+            try:
+                if v.endswith("%"):
+                    val = float(v[:-1]) / 100.0
+                else:
+                    val = float(v)
+                kv[k] = val
+            except Exception:
+                # ignore malformed entries
+                continue
+        # If we collected labeled values, map them into canonical order
+        if kv:
+            keys = _canonical_169_keys()
+            arr = [float(kv.get(k, 0.0)) for k in keys]
+            # If we want to be strict, ensure coverage:
+            # if len([k for k in keys if k in kv]) != 169: raise ValueError(...)
+            return json.dumps(arr)
+
+    # 3) Try plain numeric CSV/whitespace (169 numbers)
     nums = []
-    for t in toks:
+    for t in tokens:
         if not t:
             continue
-        if t.endswith("%"):
-            try:
+        try:
+            if t.endswith("%"):
                 nums.append(float(t[:-1]) / 100.0)
-            except Exception:
-                continue
-        else:
-            try:
+            else:
                 nums.append(float(t))
-            except Exception:
-                continue
+        except Exception:
+            # skip non-numeric tokens (e.g., keys from an unexpected format)
+            continue
     if len(nums) == 169:
         return json.dumps(nums)
 
