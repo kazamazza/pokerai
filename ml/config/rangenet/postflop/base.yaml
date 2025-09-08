@@ -1,7 +1,7 @@
 inputs:
   monker_manifest: data/artifacts/monker_manifest.parquet
   sph_manifest: data/artifacts/sph_manifest.parquet
-  vendor_s3_prefix: s3://pokeraistore/data/vendor/monker   # if you use S3 for monker
+  vendor_s3_prefix: data/vendor
 
 dataset:
   x_cols: [

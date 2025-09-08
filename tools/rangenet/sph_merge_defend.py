@@ -4,6 +4,11 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 import numpy as np
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
+from ml.range.solvers.utils.range_utils import parse_range_text_to_grid
+
 RANKS = ["A","K","Q","J","T","9","8","7","6","5","4","3","2"]
 R2I = {r:i for i,r in enumerate(RANKS)}
 
@@ -279,37 +284,174 @@ def merge_defend(call_path: Path, raise_paths: List[Path], weights: Optional[Lis
     out = np.clip(out, 0.0, 1.0)
     return out
 
+CTX_DIRS = ("SRP", "LIMP_SINGLE", "LIMP_MULTI")
+
+def _looks_ok_grid(arr) -> bool:
+    try:
+        import numpy as np
+        a = np.asarray(arr)
+        return a.size == 169 and np.isfinite(a).all()
+    except Exception:
+        return False
+
+def _require_exists(p: Path, what: str):
+    if not p.exists():
+        raise FileNotFoundError(f"Missing {what}: {p}")
+
+def _pair_has_required_files(pair_dir: Path, ctx: str, strict_multi: bool) -> tuple[Path, list[Path]]:
+    """
+    Return (call_path, [raise_paths]) if files exist. Raises if missing.
+    """
+    call = pair_dir / "oop_call.txt"
+    r1   = pair_dir / "oop_raise_s1.txt"
+    r2   = pair_dir / "oop_raise_s2.txt"
+    _require_exists(call, "OOP call")
+    _require_exists(r1, "OOP raise s1")
+    _require_exists(r2, "OOP raise s2")
+
+    # Optional sanity for LIMP_MULTI: ensure we actually captured from the caller branch
+    if ctx == "LIMP_MULTI" and strict_multi:
+        ic = pair_dir / "ip_call.txt"
+        _require_exists(ic, "IP overlimp (ip_call.txt) for LIMP_MULTI")
+
+    return call, [r1, r2]
+
+def _merge_one_pair_dir(pair_dir: Path, ctx: str, *, overwrite: bool, strict_multi: bool, weights: list[float] | None):
+    out = pair_dir / "oop_defend.csv"
+    if out.exists() and not overwrite:
+        return False, f"skip (exists) {out}"
+
+    # discover/check required
+    call, raises = _pair_has_required_files(pair_dir, ctx, strict_multi)
+
+    # parse and check each file early to fail fast / better messages
+    call_arr = parse_range_text_to_grid(call)
+    raise_arrs = [parse_range_text_to_grid(p) for p in raises]
+    if not _looks_ok_grid(call_arr):
+        raise ValueError(f"Bad grid in {call}")
+    for pth, arr in zip(raises, raise_arrs):
+        if not _looks_ok_grid(arr):
+            raise ValueError(f"Bad grid in {pth}")
+
+    defend = merge_defend(call, raises, weights=weights)  # your existing function reads files itself
+    if not _looks_ok_grid(defend):
+        raise ValueError(f"Merged grid invalid for {pair_dir}")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    write_csv_grid(out, defend)
+    return True, f"merged → {out}"
+
+def _iter_pair_dirs(root: Path):
+    """
+    Yield (ctx, stack, pair_dir) under <root>/sph/<CTX>/<STACK>/<IP_OOP>/
+    """
+    sph_root = root / "sph"
+    if not sph_root.exists():
+        return
+    for ctx in CTX_DIRS:
+        ctx_dir = sph_root / ctx
+        if not ctx_dir.exists():
+            continue
+        for stack_dir in sorted(ctx_dir.iterdir()):
+            if not stack_dir.is_dir():
+                continue
+            for pair_dir in sorted(stack_dir.iterdir()):
+                if pair_dir.is_dir():
+                    yield ctx, stack_dir.name, pair_dir
+
 def main():
     ap = argparse.ArgumentParser(description="Merge OOP defend (call + raises) into a single 13x13 CSV (0..1).")
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--pair-dir", type=Path, help="Directory containing oop_call.txt and oop_raise_s{1,2}.txt")
-    g.add_argument("--call", type=Path, help="Explicit call file (.txt/.csv)")
-    ap.add_argument("--raises", type=Path, nargs="+", help="One or two raise files (.txt/.csv) if using --call")
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--pair-dir", type=Path,
+                      help="A single pair directory containing oop_call.txt and oop_raise_s{1,2}.txt")
+    mode.add_argument("--call", type=Path, help="Explicit call file (.txt/.csv)")
+    mode.add_argument("--root", type=Path,
+                      help="Root data/vendor directory to batch all pairs: <root>/sph/<CTX>/<STACK>/<IP_OOP>/")
+
+    ap.add_argument("--raises", type=Path, nargs="+",
+                    help="One or two raise files when using --call mode")
+    ap.add_argument("--out", type=Path,
+                    help="Output CSV when using --pair-dir/--call (single-target mode)")
     ap.add_argument("--weights", type=float, nargs="+", default=None,
                     help="Optional weights: first for call, then each raise (defaults all 1.0)")
-    ap.add_argument("--out", type=Path, required=True, help="Output CSV path (13x13, values 0..1)")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="Overwrite existing oop_defend.csv")
+    ap.add_argument("--strict-multi", action="store_true",
+                    help="In LIMP_MULTI, require ip_call.txt to exist (ensures you pulled from the caller branch)")
+    ap.add_argument("--dry-run", action="store_true", help="Scan and report, but do not write files")
+
     args = ap.parse_args()
 
-    if args.pair_dir:
-        call_path, raise_paths = auto_discover_pair_dir(args.pair_dir)
-    else:
+    # ---- single pair: --pair-dir OR --call+--raises ----
+    if args.pair_dir or args.call:
+        if args.pair_dir:
+            if not args.out:
+                ap.error("--out is required in --pair-dir mode")
+            # Guess ctx from path parts if present (best-effort; only used for strict-multi)
+            parts = [p.name for p in args.pair_dir.resolve().parents]
+            ctx = "LIMP_MULTI" if "LIMP_MULTI" in parts else ("LIMP_SINGLE" if "LIMP_SINGLE" in parts else "SRP")
+            if args.dry_run:
+                print(f"[dry] would merge pair {args.pair_dir} (ctx={ctx}) → {args.out}")
+                return
+            # Use auto-discovery inside the dir
+            created, msg = _merge_one_pair_dir(args.pair_dir, ctx,
+                                               overwrite=args.overwrite,
+                                               strict_multi=args.strict_multi,
+                                               weights=args.weights)
+            print(("✅ " if created else "⏭️  ") + msg)
+            return
+
+        # explicit files
         if not args.raises:
             ap.error("--raises is required when using --call")
+        if not args.out:
+            ap.error("--out is required when using --call")
+        if args.dry_run:
+            print(f"[dry] would merge (call={args.call}, raises={args.raises[:2]}) → {args.out}")
             return
-        call_path = args.call
-        raise_paths = args.raises[:2]  # keep first two
+        defend = merge_defend(args.call, args.raises[:2], weights=args.weights)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        write_csv_grid(args.out, defend)
+        print(f"✅ merged defend → {args.out}")
+        return
 
-    defend = merge_defend(call_path, raise_paths, weights=args.weights)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    write_csv_grid(args.out, defend)
+    # ---- batch mode: --root ----
+    root = args.root
+    if not root:
+        ap.error("missing --root")
+    if not root.exists():
+        raise FileNotFoundError(f"Root not found: {root}")
 
-    # tiny summary
-    print(f"✅ merged defend → {args.out}")
-    print(f"   call:   {call_path}")
-    for i, rp in enumerate(raise_paths, 1):
-        print(f"   raise{i}: {rp}")
-    print(f"   weights: {args.weights or [1.0]*(1+len(raise_paths))}")
-    print(f"   avg defend: {defend.mean():.4f}  max: {defend.max():.4f}  min: {defend.min():.4f}")
+    total = 0
+    merged = 0
+    skipped = 0
+    errors = 0
+
+    for ctx, stack, pair_dir in _iter_pair_dirs(root):
+        total += 1
+        try:
+            out = pair_dir / "oop_defend.csv"
+            if out.exists() and not args.overwrite:
+                skipped += 1
+                print(f"⏭️  {ctx}/{stack}/{pair_dir.name}: exists → {out}")
+                continue
+            if args.dry_run:
+                print(f"[dry] would merge {ctx}/{stack}/{pair_dir.name}")
+                continue
+            created, msg = _merge_one_pair_dir(pair_dir, ctx,
+                                               overwrite=args.overwrite,
+                                               strict_multi=args.strict_multi,
+                                               weights=args.weights)
+            if created:
+                merged += 1
+            else:
+                skipped += 1
+            print(("✅ " if created else "⏭️  ") + f"{ctx}/{stack}/{pair_dir.name}: {msg}")
+        except Exception as e:
+            errors += 1
+            print(f"❌ {ctx}/{stack}/{pair_dir.name}: {e}", file=sys.stderr)
+
+    print(f"\nDone. scanned={total} merged={merged} skipped={skipped} errors={errors}")
 
 if __name__ == "__main__":
     main()

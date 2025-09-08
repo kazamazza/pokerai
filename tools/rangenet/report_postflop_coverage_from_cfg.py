@@ -30,7 +30,7 @@ def main():
     lookup = PreflopRangeLookup(
         monker_manifest_parquet="data/artifacts/monker_manifest.parquet",
         s3_client=S3Client(),                                # no lazy fetch in this report
-        s3_prefix="data/vendor",
+        s3_vendor="data/vendor",
         cache_dir="data/vendor_cache"
     )
 

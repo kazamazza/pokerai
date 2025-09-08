@@ -37,23 +37,18 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     sample_pool        = int(mb.get("sample_pool", 20000))
     seed               = int(cfg.get("seed", 42))
 
-    # where vendor files live in S3 and where to cache locally
-    monker_manifest_path = inputs.get("monker_manifest", "data/artifacts/monker_manifest.parquet")
-    vendor_s3_prefix     = inputs.get("vendor_s3_prefix", "data/vendor/monker")  # e.g. s3://bucket/<this>/*
-    cache_dir            = sv.get("local_cache_dir", "data/vendor_cache")
-
     # Toggle whether to include rows with missing ranges as placeholders (False = skip)
     include_missing = bool(mb.get("include_missing", False))
     allow_pair_subs = bool(mb.get("allow_pair_subs", False))  # conservative default False
 
     # ----- ranges lookup (once) -----
-    s3c = S3Client()  # reads creds/env automatically
     lookup = PreflopRangeLookup(
-        monker_manifest_path,
-        s3_client=s3c,
-        s3_prefix=vendor_s3_prefix,
-        cache_dir=cache_dir,
-        allow_pair_subs=allow_pair_subs,
+        monker_manifest_parquet=inputs.get("monker_manifest", "data/artifacts/monker_manifest.parquet"),
+        sph_manifest_parquet=inputs.get("sph_manifest", "data/artifacts/sph_manifest.parquet"),
+        s3_client=S3Client(),
+        s3_vendor=inputs.get("vendor_s3_prefix", "data/vendor"),
+        cache_dir=sv.get("local_cache_dir", "data/vendor_cache"),
+        allow_pair_subs=True,
     )
 
     # ----- clusterer + representative flops -----
@@ -159,6 +154,7 @@ def main():
     args = ap.parse_args()
 
     cfg = load_model_config(model=args.config)
+    print("config:", cfg)
     df = build_manifest(cfg)
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)

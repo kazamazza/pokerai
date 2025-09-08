@@ -36,7 +36,7 @@ def pairs_limp_single(monker_strict: bool) -> List[Tuple[str, str]]:
     return pairs
 
 def pairs_limp_multi() -> List[Tuple[str, str]]:
-    # LIMP_MULTI requires at least one seat in between ⇒ dist>=1
+    # LIMP_SINGLE requires at least one seat in between ⇒ dist>=1
     # Valid defenders are SB or BB; exclude BTN→SB and SB→BB (dist=0).
     opens = ["UTG","HJ","CO","BTN"]  # SB opener to BB has dist=0, exclude
     pairs = []
@@ -50,7 +50,7 @@ def pairs_limp_multi() -> List[Tuple[str, str]]:
 def expected_files(ctx: str, stack: int, ip: str, oop: str) -> List[str]:
     """
     Suggest exact raw files to paste (we still merge defender later).
-    Context directories are SRP, LIMP_SINGLE, LIMP_MULTI.
+    Context directories are SRP, LIMP_SINGLE, LIMP_SINGLE.
     """
     base = Path(f"data/vendor/sph/{ctx}/{stack}/{ip}_{oop}")
     files = []
@@ -73,7 +73,7 @@ def expected_files(ctx: str, stack: int, ip: str, oop: str) -> List[str]:
             str(base / "oop_raise_s2.txt"),
             str(base / "oop_defend.csv"),
         ]
-    elif ctx == "LIMP_MULTI":
+    elif ctx == "LIMP_SINGLE":
         # Opener limps; someone in the middle overlimps (we store as ip_call.txt);
         # defender (SB/BB) acts.
         files = [
@@ -108,7 +108,7 @@ def main():
         for (ctx, pairs_fn) in [
             ("SRP", lambda: pairs_srp(args.monker_strict)),
             ("LIMP_SINGLE", lambda: pairs_limp_single(args.monker_strict)),
-            ("LIMP_MULTI", pairs_limp_multi),
+            ("LIMP_SINGLE", pairs_limp_multi),
         ]:
             for (ip, oop) in pairs_fn():
                 grid.append((ctx, s, ip, oop))
@@ -117,7 +117,7 @@ def main():
     lookup = PreflopRangeLookup(
         monker_manifest_parquet="data/artifacts/monker_manifest.parquet",
         s3_client=S3Client(),
-        s3_prefix="data/vendor",
+        s3_vendor="data/vendor",
         cache_dir="data/vendor_cache",
         allow_pair_subs=False,   # set True if you want auto-substitution
     )
@@ -146,7 +146,7 @@ def main():
     have = df[df["status"] == "HAVE"].copy()
 
     if todo.empty:
-        print("✅ All required charts present (SRP, LIMP_SINGLE, LIMP_MULTI) for the configured stacks.")
+        print("✅ All required charts present (SRP, LIMP_SINGLE, LIMP_SINGLE) for the configured stacks.")
     else:
         print("\n🚧 TODO — Solve & Export these charts:")
         print("(ctx, stack, pair) and the raw files you should paste")
