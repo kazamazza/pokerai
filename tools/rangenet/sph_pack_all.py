@@ -7,138 +7,18 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.etl.utils.range_format import vec169_to_monker_string
+from ml.range.solvers.utils.range_utils import parse_range_text_to_grid, parse_abs_text_to_vec169, \
+    abs_text_to_vec169, vec169_to_monker_string
 from infra.storage.s3_client import S3Client
-from ml.config.types_hands import RANKS
 
-
-
-# --------- utils you already have / or drop-in ---------
-
-def zeros_169():
-    return np.zeros(169, dtype=np.float32)
-
-def _hand_to_index(code: str) -> int:
-    code = code.strip()
-    if len(code) == 2:  # pair e.g., "AA"
-        r = RANKS.index(code[0])
-        return r * 13 + r
-    if len(code) == 3:  # e.g., "AKs"/"AKo"
-        r1, r2, s = code[0], code[1], code[2]
-        i = RANKS.index(r1)
-        j = RANKS.index(r2)
-        if s == "s":  # suited row-major upper triangle
-            return i * 13 + j
-        elif s == "o":  # offsuit lower triangle
-            return j * 13 + i
-    raise ValueError(f"Bad hand code: {code}")
-
-def _to_compact_index(cards: str) -> int:
-    # AhKh -> AKs, AdKc -> AKo, etc.
-    if len(cards) != 4:
-        raise ValueError(f"Bad card spec: {cards}")
-    r1, s1, r2, s2 = cards[0], cards[1], cards[2], cards[3]
-    if r1 == r2:
-        return _hand_to_index(r1 + r2)
-    suited = (s1 == s2)
-    hi, lo = (r1, r2) if RANKS.index(r1) < RANKS.index(r2) else (r2, r1)
-    return _hand_to_index(hi + lo + ("s" if suited else "o"))
-
-def parse_range_text_to_grid(path: Path) -> np.ndarray:
-    """
-    Parse SPH/Monker-like text into flat 169 array (values 0..1).
-    Supports:
-      - 13x13 CSV/whitespace (169 numbers)
-      - Flat 169 list
-      - CARD:VALUE (AA:1.0,A2s:0.024,...)
-      - [xx.xx]AhKh,...[/xx.xx] (groups; xx.xx can be % or 0..1)
-      - JSON list of 169 or {"range":[...]}
-    """
-    txt = path.read_text(encoding="utf-8").strip()
-
-    # JSON
-    try:
-        obj = json.loads(txt)
-        if isinstance(obj, list) and len(obj) == 169:
-            return np.array(obj, dtype=np.float32)
-        if isinstance(obj, dict):
-            if "range" in obj and len(obj["range"]) == 169:
-                return np.array(obj["range"], dtype=np.float32)
-            # dict CARD:VALUE
-            vals = [0.0] * 169
-            ok = False
-            for k, v in obj.items():
-                try:
-                    idx = _hand_to_index(k)
-                    vals[idx] = float(v)
-                    ok = True
-                except Exception:
-                    pass
-            if ok:
-                return np.array(vals, dtype=np.float32)
-    except Exception:
-        pass
-
-    # CARD:VALUE plain text
-    if ":" in txt and any(h in txt for h in ["AA", "AKs", "72o"]):
-        vals = [0.0] * 169
-        for tok in re.split(r"[,\s]+", txt):
-            if not tok or ":" not in tok:
-                continue
-            hand, val = tok.split(":")
-            vals[_hand_to_index(hand)] = float(val)
-        return np.array(vals, dtype=np.float32)
-
-    # [xx.xx] ... [/xx.xx] grouped ABS style
-    if "[" in txt and "]" in txt and "/" in txt:
-        vals = [0.0] * 169
-        for m in re.finditer(r"\[(.*?)\](.*?)\[/\1\]", txt, flags=re.S):
-            raw = m.group(1).strip()
-            try:
-                v = float(raw)
-                if v > 1.0:  # treat as percent
-                    v = v / 100.0
-            except Exception:
-                continue
-            hands_blob = m.group(2)
-            hands = [h for h in re.split(r"[,\s]+", hands_blob) if h]
-            for h in hands:
-                vals[_to_compact_index(h)] = v
-        return np.array(vals, dtype=np.float32)
-
-    # grids / flat numbers
-    toks = re.split(r"[,\s]+", txt)
-    nums = []
-    for t in toks:
-        if not t:
-            continue
-        if t.endswith("%"):
-            nums.append(float(t[:-1]) / 100.0)
-        else:
-            try:
-                nums.append(float(t))
-            except Exception:
-                pass
-    if len(nums) == 169:
-        return np.array(nums, dtype=np.float32)
-
-    # 13x13 CSV with headers? try pandas quickly
-    try:
-        df = pd.read_csv(path, header=None)
-        arr = df.to_numpy(dtype=float)
-        if arr.size == 169:
-            return arr.reshape(169).astype(np.float32)
-    except Exception:
-        pass
-
-    raise ValueError(f"Unrecognized range format: {path}")
 
 def _read_grid_any(path: Path) -> np.ndarray:
-    arr = parse_range_text_to_grid(path)
-    if arr.shape != (169,):
-        arr = arr.reshape(169)
-    arr = np.clip(arr.astype(np.float32), 0.0, 1.0)
-    return arr
+    p = Path(path)
+    # if this is one of your ABS .txt exports, use the ABS parser
+    if p.suffix.lower() == ".txt":
+        return parse_abs_text_to_vec169(p)
+    # else keep existing behavior (CSV 13×13, JSON, etc.)
+    return parse_range_text_to_grid(p)
 
 def write_canonical_json(out_path: Path, stack_bb: int, ip_pos: str, oop_pos: str, ctx: str,
                          ip_169: np.ndarray, oop_169: np.ndarray):
@@ -187,26 +67,33 @@ def pack_one(ctx: str, stack: int, pair: str,
     if not ip_open_path.exists():
         return False, f"missing ip_open.txt in {in_dir}", out_dir / "ip.csv"
 
-    ip_open_169 = _read_grid_any(ip_open_path)
+    # ✅ ABS .txt → 169 via the canonical helper
+    ip_open_169 = parse_abs_text_to_vec169(ip_open_path)
 
-    # merged defend first if present, else sum call+raises
+    # OOP: prefer merged numeric defend; else sum ABS call/raises
     oop_def_path = in_dir / "oop_defend.csv"
     if oop_def_path.exists():
-        oop_def_169 = _read_grid_any(oop_def_path)
+        # this is a numeric CSV grid (13x13) we produced earlier
+        arr = np.loadtxt(oop_def_path, delimiter=",", dtype=np.float32)
+        if arr.size != 169:
+            return False, f"bad shape in {oop_def_path} (size={arr.size})", out_dir / "oop.csv"
+        oop_def_169 = arr.reshape(169)
     else:
         call_path = in_dir / "oop_call.txt"
         r1_path   = in_dir / "oop_raise_s1.txt"
         r2_path   = in_dir / "oop_raise_s2.txt"
-        missing = [p.name for p in [call_path, r1_path, r2_path] if not p.exists()]
+        missing = [p.name for p in (call_path, r1_path, r2_path) if not p.exists()]
         if missing:
             return False, f"missing {missing} in {in_dir} (and no oop_defend.csv)", out_dir / "oop.csv"
-        parts = [_read_grid_any(call_path), _read_grid_any(r1_path), _read_grid_any(r2_path)]
-        oop_def_169 = np.clip(np.sum(parts, axis=0), 0.0, 1.0)
 
-    # write Monker CSV strings
-    (out_dir / "ip.csv").write_text(vec169_to_monker_string(ip_open_169.tolist()), encoding="utf-8")
-    (out_dir / "oop.csv").write_text(vec169_to_monker_string(oop_def_169.tolist()), encoding="utf-8")
+        v_call = parse_abs_text_to_vec169(call_path)
+        v_r1   = parse_abs_text_to_vec169(r1_path)
+        v_r2   = parse_abs_text_to_vec169(r2_path)
+        oop_def_169 = np.clip(v_call + v_r1 + v_r2, 0.0, 1.0)
 
+    # Write Monker-style strings (compact) for both sides
+    (out_dir / "ip.csv").write_text(vec169_to_monker_string(ip_open_169), encoding="utf-8")
+    (out_dir / "oop.csv").write_text(vec169_to_monker_string(oop_def_169), encoding="utf-8")
     return True, None, out_dir
 
 def run_pack_all(

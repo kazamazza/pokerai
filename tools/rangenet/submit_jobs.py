@@ -65,29 +65,29 @@ def main():
         df = df.assign(solver_version="v1")
 
     def to_msg(row):
-        # Build params by picking whatever keys exist in this manifest
         params = {}
         for k in PARAM_WHITELIST:
             if k in row and pd.notna(row[k]):
                 v = row[k]
-                # light, conservative casting for common numerics
                 if k in ("street", "max_iter", "board_cluster_id"):
                     try:
                         v = int(v)
                     except:
-                        pass
+                        continue
                 elif k in ("pot_bb", "effective_stack_bb", "accuracy", "allin_threshold"):
                     try:
                         v = float(v)
                     except:
-                        pass
+                        continue
+                elif isinstance(v, (int, float, str)):
+                    pass
                 else:
-                    v = str(v) if isinstance(v, (int, float)) else v
+                    v = str(v)
                 params[k] = v
 
         msg = {
-            "sha1": row["sha1"],
-            "s3_key": row["s3_key"],
+            "sha1": str(row["sha1"]),
+            "s3_key": str(row["s3_key"]),
             "params": params,
         }
         return {"Id": str(row["sha1"])[:80], "MessageBody": json.dumps(msg)}
@@ -111,26 +111,33 @@ def main():
     retries = 0
 
     while i < n:
-        chunk = df.iloc[i:i+args.batch]
+        chunk = df.iloc[i:i + args.batch]
         entries = [to_msg(r) for _, r in chunk.iterrows()]
+
+        # always define resp2 so we can sum safely
+        resp2 = {"Successful": []}
 
         try:
             resp = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=entries)
             failed = resp.get("Failed", []) or []
+
             if failed:
-                # Basic retry-once for failed entries
+                # retry once only failed entries
                 fail_ids = {f["Id"] for f in failed}
                 retry_entries = [e for e in entries if e["Id"] in fail_ids]
-                time.sleep(0.5)
-                retries += 1
-                resp2 = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=retry_entries)
-                failed2 = resp2.get("Failed", []) or []
-                if failed2:
-                    # If still failed, report and continue
-                    print(f"⚠️  batch @ {i}: {len(failed2)} entries failed after retry: {failed2[:2]}...")
-            # Count successes
-            ok_count = len(resp.get("Successful", [])) + len(resp2.get("Successful", [])) if 'resp2' in locals() else len(resp.get("Successful", []))
+                if retry_entries:
+                    time.sleep(0.5)
+                    retries += 1
+                    resp2 = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=retry_entries)
+                    failed2 = resp2.get("Failed", []) or []
+                    if failed2:
+                        # still failed after retry — log a short preview and continue
+                        print(f"⚠️  batch @ {i}: {len(failed2)} entries failed after retry "
+                              f"(e.g. {failed2[0] if failed2 else ''})")
+
+            ok_count = len(resp.get("Successful", [])) + len(resp2.get("Successful", []))
             sent += ok_count
+
         except botocore.exceptions.BotoCoreError as e:
             print(f"⚠️  SQS error at batch starting {i}: {e}")
         except Exception as e:

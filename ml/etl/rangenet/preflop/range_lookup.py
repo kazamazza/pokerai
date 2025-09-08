@@ -9,13 +9,10 @@ import numpy as np
 import pandas as pd
 
 from infra.storage.s3_client import S3Client
-from ml.config.types_hands import RANKS
 from ml.etl.rangenet.candidate_pairs import candidate_pairs
 from ml.etl.rangenet.preflop.monker_helpers import canon_pos, first_non_fold_opener
-from ml.etl.utils.range_lookup import is_srp_open_call, _load_vendor_range_compact, _candidate_pairs, nearest_stack
-
-
-# in ml/etl/rangenet/preflop/range_lookup.py (or wherever SphIndex lives)
+from ml.etl.utils.range_lookup import is_srp_open_call, _load_vendor_range_compact, nearest_stack
+from ml.range.solvers.utils.range_utils import hand_to_index
 
 def _join_s3(*parts: str) -> str:
     return "/".join(str(p).strip("/").replace("\\", "/") for p in parts if p is not None and str(p) != "")
@@ -27,13 +24,6 @@ def _ensure_subdir(rel_path: str, subdir: str) -> str:
     return rel if rel.startswith(sub + "/") else f"{sub}/{rel}"
 
 class SphIndex:
-    """
-    Minimal index over your Simple Preflop Hold'em exports.
-    Expects sph_manifest.parquet with:
-      stack_bb, ip_pos, oop_pos, ctx, hero_pos, rel_path, abs_path
-    """
-
-
     def __init__(
         self,
         manifest_parquet: str | Path,
@@ -100,144 +90,52 @@ class SphIndex:
 
         raise RuntimeError(f"SPH file not found locally or on S3: {row}")
 
-def _hand_to_index(code: str) -> int:
-    code = code.strip()
-    if len(code) == 2:  # pair: "AA"
-        r = RANKS.index(code[0])
-        return r * 13 + r
-    if len(code) == 3:  # "AKs" / "AKo"
-        i = RANKS.index(code[0]); j = RANKS.index(code[1])
-        if code[2] == "s":   # suited = upper triangle (row-major)
-            return i * 13 + j
-        elif code[2] == "o": # offsuit = lower triangle
-            return j * 13 + i
-    raise ValueError(f"Bad hand code: {code}")
-
-def _vec_from_monker_string(txt: str) -> np.ndarray:
-    vals = np.zeros(169, dtype=np.float32)
-    for tok in re.split(r"[,\s]+", txt.strip()):
-        if not tok or ":" not in tok:
-            continue
+def _monker_to_vec169(monker_str: str) -> list[float]:
+    vals = [0.0]*169
+    for tok in re.split(r"[,\s]+", monker_str.strip()):
+        if not tok or ":" not in tok: continue
         hand, v = tok.split(":", 1)
-        vals[_hand_to_index(hand)] = float(v)
-    return np.clip(vals, 0.0, 1.0)
+        vals[hand_to_index(hand.strip())] = float(v)
+    return vals
 
-def _vec_from_csv(path: Path) -> np.ndarray:
-    """
-    Read either:
-      - numeric CSV (13x13 or 169 numbers), or
-      - Monker 'CARD:VALUE' string accidentally saved with .csv extension.
-    """
-    txt = path.read_text(encoding="utf-8").strip()
-    # If it looks like Monker string, parse that directly
-    if ":" in txt and any(h in txt for h in ("AA", "AKs", "72o")):
-        return _vec_from_monker_string(txt)
-
-    # Otherwise treat as numeric CSV (allow commas/whitespace/%; 13x13 or 169)
-    rows = []
-    for line in txt.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = [p for p in re.split(r"[,;\s]+", line) if p != ""]
-        rows.extend(parts)
-
-    nums = []
-    for x in rows:
-        if x.endswith("%"):
-            nums.append(float(x[:-1]) / 100.0)
-        else:
-            nums.append(float(x))
-    arr = np.array(nums, dtype=np.float32)
-
-    if arr.size == 169:
-        return np.clip(arr.reshape(169), 0.0, 1.0)
-    if arr.size == 13 * 13:
-        return np.clip(arr.reshape(13, 13).reshape(169), 0.0, 1.0)
-
-    raise ValueError(f"CSV at {path} is not 169/13x13 (got {arr.size})")
-
-def _to_169_list(arr: np.ndarray) -> str:
-    arr = np.clip(arr.astype(np.float32).reshape(169), 0.0, 1.0)
-    return json.dumps([float(v) for v in arr.tolist()])
-
-def load_sph_range_compact(path: Path, *, pick: str | None = None) -> str:
-    """
-    Returns JSON string of 169 floats in [0,1].
-    Supports:
-      - Monker CSV (13x13 or 169 values): ip.csv / oop.csv
-      - Monker string: "AA:1.0,AKs:0.5,..."
-      - JSON list (169 or 13x13)
-      - JSON dict with keys: ip/oop/range/matrix/grid/weights/data
-    If JSON has both 'ip' and 'oop', pass pick='ip' or pick='oop'.
-    """
-    p = Path(path)
-
-    # 1) CSV path (our packed SPH files)
-    if p.suffix.lower() == ".csv":
-        return _to_169_list(_vec_from_csv(p))
-
-    # 2) Try JSON payloads
-    txt = p.read_text(encoding="utf-8").strip()
+def load_sph_range_compact(path: Path, *, pick: str|None=None) -> str:
+    text = Path(path).read_text(encoding="utf-8").strip()
+    # 1) JSON list/dict?
     try:
-        obj = json.loads(txt)
-        # bare list
+        obj = json.loads(text)
         if isinstance(obj, list):
-            arr = np.array(obj, dtype=np.float32)
+            arr = np.array(obj, dtype=float)
             if arr.size == 169:
-                return _to_169_list(arr)
-            if arr.size == 13*13:
-                return _to_169_list(arr.reshape(13,13))
-            raise ValueError(f"SPH JSON list wrong length at {path}: {arr.size}")
-        # dict
+                return json.dumps(arr.reshape(169).tolist())
+            if arr.shape == (13,13):
+                return json.dumps(arr.reshape(169).tolist())
         if isinstance(obj, dict):
-            if pick in {"ip","oop"} and pick in obj:
-                return _to_169_list(np.array(obj[pick], dtype=np.float32))
-            for k in ("range","grid","matrix","weights","data"):
+            for k in ("ip","oop","range","grid","matrix","weights","data"):
                 if k in obj:
-                    return _to_169_list(np.array(obj[k], dtype=np.float32))
-            if "ip" in obj and "oop" in obj:
-                raise ValueError(f"SPH file has both 'ip' and 'oop' at {path}; pass pick='ip' or 'oop'.")
-    except Exception:
-        pass  # not JSON
-
-    # 3) Monker string (CARD:VALUE,...)
-    if ":" in txt and any(h in txt for h in ("AA","AKs","72o")):
-        return _to_169_list(_vec_from_monker_string(txt))
-
-    # 4) Raw numbers 169 fallback
-    nums = [w for w in re.split(r"[,\s]+", txt) if w]
-    try:
-        arr = np.array([float(x[:-1])/100.0 if x.endswith("%") else float(x) for x in nums], dtype=np.float32)
-        if arr.size == 169:
-            return _to_169_list(arr)
-        if arr.size == 13*13:
-            return _to_169_list(arr.reshape(13,13))
+                    arr = np.array(obj[k], dtype=float)
+                    if arr.size == 169:
+                        return json.dumps(arr.reshape(169).tolist())
+                    if arr.shape == (13,13):
+                        return json.dumps(arr.reshape(169).tolist())
+            raise ValueError(f"SPH JSON needs one of the known keys at {path}")
     except Exception:
         pass
-
+    # 2) Monker string (your ip.csv/oop.csv)
+    if ":" in text and any(tag in text for tag in ("AA","AKs","KQo","22","72o")):
+        vec = _monker_to_vec169(text)
+        return json.dumps(vec)
+    # 3) 13x13 CSV of numbers
+    try:
+        df = pd.read_csv(path, header=None)
+        arr = df.to_numpy(dtype=float)
+        if arr.size == 169:
+            return json.dumps(arr.reshape(169).tolist())
+    except Exception:
+        pass
     raise ValueError(f"Unrecognized SPH format at {path}")
 
 
-# ---------- Monker + SPH unified lookup ----------
 class PreflopRangeLookup:
-    """
-    Resolve preflop ranges with dual-source fallback.
-
-    Sources:
-      - Monker manifest (rich vendor pack; currently SRP-only in index)
-      - SPH manifest (your 72 solves; allows ctx filter)
-
-    Fallback order:
-      1) Monker exact      (stack, ip, oop; ctx ignored for now)
-      2) Monker nearest    (nearest stack)
-      3) SPH exact         (stack, ctx, ip, oop)
-      4) SPH nearest       (nearest stack within ctx)
-      5) (optional) opener substitution within same OOP
-
-    Returns (rng_ip, rng_oop, meta) or raises if strict.
-    """
-
     def __init__(
         self,
         monker_manifest_parquet: str | Path,
@@ -353,21 +251,11 @@ class PreflopRangeLookup:
             ctx: str = "SRP",
             strict: bool = True,
     ) -> Tuple[Optional[str], Optional[str], Dict[str, object]]:
-        """
-        Unified vendor lookup with smart fallbacks:
-          - SRP: try Monker first (exact/nearest), then SPH (exact/nearest).
-          - LIMP_SINGLE/LIMP_MULTI: try SPH first (exact/nearest); Monker as a last resort.
-        Pair substitution: controlled by self.allow_pair_subs via candidate_pairs(...).
-        Returns (rng_ip_json, rng_oop_json, meta).
-        """
         ip = canon_pos(ip)
         oop = canon_pos(oop)
         ctx = str(ctx).upper()
         near_stack = nearest_stack(stack_bb, self.stacks)
 
-        # Source priority by context
-        # - SRP: Monker first
-        # - Limped: SPH first (Monker typically has no limped coverage)
         if ctx == "SRP":
             source_order = ("monker", "sph")
         else:

@@ -1,4 +1,8 @@
 # ---- canonical positions (6-max) ----
+import numpy as np
+
+from ml.range.solvers.utils.range_utils import hand_to_index
+
 POS_ORDER = ["UTG","HJ","CO","BTN","SB","BB"]
 POS_SET   = set(POS_ORDER)
 POS_IDX   = {p:i for i,p in enumerate(POS_ORDER)}
@@ -215,3 +219,32 @@ def _load_vendor_range_compact(path: Path) -> str:
         return json.dumps(nums)
 
     raise ValueError(f"Unrecognized vendor range format or wrong length at {path}")
+
+def monker_string_to_vec169(s: str) -> np.ndarray:
+    """
+    Parse Monker string like:
+      'AA:1.0,AKs:0.75,AKo:0.2,...'
+    Returns float32 vector of shape (169,) clamped to [0,1].
+    Ignores tokens without ':' and silently skips malformed hands.
+    """
+    vals = np.zeros(169, dtype=np.float32)
+    if not s:
+        return vals
+    # split on commas and whitespace
+    tokens = re.split(r"[,\s]+", s.strip())
+    for tok in tokens:
+        if not tok or ":" not in tok:
+            continue
+        hand, v = tok.split(":", 1)
+        hand = hand.strip()
+        v = v.strip().rstrip("%")
+        try:
+            idx = hand_to_index(hand)
+            val = float(v)
+            if val > 1.0:  # allow percents given as 0..100
+                val = val / 100.0
+            vals[idx] = np.clip(val, 0.0, 1.0)
+        except Exception:
+            # skip unrecognized tokens silently
+            continue
+    return vals
