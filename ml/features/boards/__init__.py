@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Dict, Any
 
 from ml.features.boards.board_clusterers.kmeans import KMeansBoardClusterer

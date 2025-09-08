@@ -1,7 +1,7 @@
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_246.json   # your KMeans JSON artifact
-  n_clusters: 246
+  artifact: data/artifacts/board_clusters_kmeans_128.json   # your KMeans JSON artifact
+  n_clusters: 128
 
 manifest_build:
   stacks_bb: [ 25, 60, 100, 150 ]      # 4 solid anchors

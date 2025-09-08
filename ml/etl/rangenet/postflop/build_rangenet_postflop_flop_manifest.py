@@ -34,7 +34,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
     n_clusters_limit   = int(mb.get("board_clusters_limit", 24))
     boards_per_cluster = int(mb.get("boards_per_cluster", 2))
-    sample_pool        = int(mb.get("sample_pool", 20000))
+    sample_pool        = int(mb.get("sample_pool", 50000))
     seed               = int(cfg.get("seed", 42))
 
     # Toggle whether to include rows with missing ranges as placeholders (False = skip)
