@@ -29,7 +29,7 @@ class SphIndex:
         manifest_parquet: str | Path,
         cache_dir: str = "data/vendor_cache",
         *,
-        s3_vendor: str | None = None,         # e.g. "s3://bucket/data/vendor_cache"
+        s3_vendor: str | None = None,
         s3_client: "S3Client | None" = None,
     ):
         df = pd.read_parquet(str(manifest_parquet)).copy()
@@ -67,25 +67,26 @@ class SphIndex:
         return rows[0] if rows else None
 
     def _resolve_path(self, row: dict) -> Path:
-        # 1) Absolute
-        p_abs = Path(row.get("abs_path") or "")
-        if p_abs and p_abs.exists():
-            return p_abs
+        # 1) Absolute: only if non-empty and is a file
+        abs_str = (row.get("abs_path") or "").strip()
+        if abs_str:
+            p_abs = Path(abs_str)
+            if p_abs.exists() and p_abs.is_file():
+                return p_abs
 
-        # 2) Cache dir
+        # 2) Cache dir + rel_path: only if is a file
         rel = str(row["rel_path"]).lstrip("/").replace("\\", "/")
         p_local = self.cache_dir / rel
-        if p_local.exists():
+        if p_local.exists() and p_local.is_file():
             return p_local
-
+        print("vendor folder is", self.s3_vendor)
         # 3) S3 → cache
         if self.s3_vendor and self.s3:
-            # Ensure rel_path under 'sph/...'
-            rel_sph = _ensure_subdir(rel, "sph")
+            rel_sph = _ensure_subdir(rel, "sph")  # keep your helper
             s3_key = _join_s3(self.s3_vendor, rel_sph)
             p_local.parent.mkdir(parents=True, exist_ok=True)
             self.s3.download_file_if_missing(s3_key, p_local)
-            if p_local.exists():
+            if p_local.exists() and p_local.is_file():
                 return p_local
 
         raise RuntimeError(f"SPH file not found locally or on S3: {row}")
@@ -167,7 +168,7 @@ class PreflopRangeLookup:
 
         # Build monker SRP-only index (as before)
         self._monker_idx: Dict[Tuple[int, str, str, str], List[dict]] = {}
-        print("vendor key is", self.s3_vendor)
+
         for _, r in df.iterrows():
             try:
                 seq_raw = json.loads(r["sequence_raw"])
@@ -201,9 +202,13 @@ class PreflopRangeLookup:
 
         # -------- SPH (optional) --------
         self.sph: Optional[SphIndex] = None
-        if sph_manifest_parquet:
-            self.sph = SphIndex(sph_manifest_parquet, cache_dir=cache_dir) if sph_manifest_parquet and Path(sph_manifest_parquet).exists() else None
-
+        if sph_manifest_parquet and Path(sph_manifest_parquet).exists():
+            self.sph = SphIndex(
+                manifest_parquet=sph_manifest_parquet,
+                cache_dir=cache_dir,
+                s3_vendor="data/vendor",  # e.g. "s3://mybucket/data/vendor_cache"
+                s3_client=S3Client(),  # your existing S3 client class
+            )
         # Union of available stacks for nearest-fallback ordering
         self.stacks: list[int] = sorted({
             *self.monker_stacks,
@@ -256,17 +261,16 @@ class PreflopRangeLookup:
         ctx = str(ctx).upper()
         near_stack = nearest_stack(stack_bb, self.stacks)
 
-        if ctx == "SRP":
-            source_order = ("monker", "sph")
-        else:
-            source_order = ("sph", "monker")
+        # SRP: prefer Monker, others: prefer SPH
+        source_order = ("monker", "sph") if ctx == "SRP" else ("sph", "monker")
 
         last_meta: Dict[str, Any] = {}
-        for cand_ip, cand_oop, level, substituted in candidate_pairs(ip, oop, ctx=ctx,
-                                                                     allow_pair_subs=self.allow_pair_subs):
-            # Prepare base meta for this candidate
+
+        for cand_ip, cand_oop, level, substituted in candidate_pairs(
+                ip, oop, ctx=ctx, allow_pair_subs=self.allow_pair_subs
+        ):
             base_meta = {
-                "source": None,  # "monker" or "sph"
+                "source": None,
                 "ctx": ctx,
                 "range_pair_substituted": bool(substituted),
                 "range_ip_source_pair": f"{cand_ip}v{cand_oop}",
@@ -279,51 +283,58 @@ class PreflopRangeLookup:
                 "range_oop_fallback_level": level,
             }
 
-            # Within a candidate pair, scan exact→nearest stacks
             for s in self._ordered_stacks(int(near_stack)):
                 delta = abs(s - int(near_stack))
                 if self.max_stack_delta is not None and delta > self.max_stack_delta:
                     continue
 
-                # Try sources in chosen priority order
                 for source in source_order:
                     meta = dict(base_meta)
+
+                    # ---------- SPH ----------
                     if source == "sph" and self.sph is not None:
-                        row_ip = self.sph._pick(s, ctx, hero=cand_ip, ip=cand_ip, oop=cand_oop)
-                        row_oop = self.sph._pick(s, ctx, hero=cand_oop, ip=cand_ip, oop=cand_oop)
+                        # IMPORTANT: SPH manifest uses hero="IP"/"OOP" (not seat names)
+                        row_ip = self.sph._pick(s, ctx, hero="IP", ip=cand_ip, oop=cand_oop)
+                        row_oop = self.sph._pick(s, ctx, hero="OOP", ip=cand_ip, oop=cand_oop)
                         if row_ip and row_oop:
                             p_ip = self.sph._resolve_path(row_ip)
                             p_oop = self.sph._resolve_path(row_oop)
-                            # SPH canonical compact: explicitly select side
                             rng_ip = load_sph_range_compact(p_ip, pick="ip")
                             rng_oop = load_sph_range_compact(p_oop, pick="oop")
                             meta.update({
                                 "source": "sph",
                                 "range_ip_source_stack": s, "range_oop_source_stack": s,
                                 "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                                "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop),
                             })
                             return rng_ip, rng_oop, meta
 
+                    # ---------- Monker ----------
                     if source == "monker":
                         row_ip = self._monker_pick(s, hero=cand_ip, ip=cand_ip, oop=cand_oop)
                         row_oop = self._monker_pick(s, hero=cand_oop, ip=cand_ip, oop=cand_oop)
                         if row_ip and row_oop:
                             p_ip = self._resolve_monker_path(row_ip)
                             p_oop = self._resolve_monker_path(row_oop)
-                            rng_ip = _load_vendor_range_compact(p_ip)  # already canonical 169-float JSON
+                            rng_ip = _load_vendor_range_compact(p_ip)
                             rng_oop = _load_vendor_range_compact(p_oop)
                             meta.update({
                                 "source": "monker",
                                 "range_ip_source_stack": s, "range_oop_source_stack": s,
                                 "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                                "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop),
                             })
                             return rng_ip, rng_oop, meta
 
-                # keep best-so-far diagnostics (nearest attempt) if we fail
-                last_meta = {**base_meta, "range_ip_source_stack": s, "range_oop_source_stack": s,
-                             "range_ip_stack_delta": delta, "range_oop_stack_delta": delta}
+                # keep diagnostics if this stack attempt failed
+                last_meta = {
+                    **base_meta,
+                    "range_ip_source_stack": s,
+                    "range_oop_source_stack": s,
+                    "range_ip_stack_delta": delta,
+                    "range_oop_stack_delta": delta,
+                }
 
-        # Nothing found
         if strict:
             raise RuntimeError(f"No ranges found for {ip}v{oop}@{stack_bb} ctx={ctx}")
         return None, None, last_meta

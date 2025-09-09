@@ -2,7 +2,8 @@ import json
 import re
 import numpy as np
 
-from ml.etl.utils.range_format import vec169_to_monker_string
+from ml.range.solvers.utils.range_utils import vec169_to_monker_string, hand_to_index
+
 
 def _looks_like_monker_string(s: str) -> bool:
     # Heuristic: has hand tags and colons (e.g., "AA:0.5,AKs:0.25,...")
@@ -51,7 +52,7 @@ def _arr_to_monker(arr_like) -> str:
 
 # --- main normalizer ---
 
-def _to_monker(range_payload) -> str:
+def to_monker(range_payload) -> str:
     """
     Normalize a range payload to Monker string:
       - Monker-like string → return as-is
@@ -82,7 +83,7 @@ def _to_monker(range_payload) -> str:
         if s.startswith("{") or s.startswith("["):
             try:
                 obj = json.loads(s)
-                return _to_monker(obj)  # recurse
+                return to_monker(obj)  # recurse
             except Exception:
                 # fall through
                 pass
@@ -97,3 +98,14 @@ def _to_monker(range_payload) -> str:
 
     # Anything else → stringify
     return str(range_payload)
+
+def monker_to_vec169(monker_str: str) -> np.ndarray:
+    """Convert Monker AA:0.5,AKs:0.25,... string to a 169 vector."""
+
+    vals = np.zeros(169, dtype=np.float32)
+    for tok in re.split(r"[,\s]+", monker_str.strip()):
+        if not tok or ":" not in tok:
+            continue
+        hand, v = tok.split(":", 1)
+        vals[hand_to_index(hand.strip())] = float(v)
+    return vals

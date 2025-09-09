@@ -36,7 +36,7 @@ def _rows_from_ctx_dir(ctx_dir: Path, ctx: str) -> list[dict]:
                     "oop_pos": oop.upper(),
                     "hero_pos": "IP",
                     "rel_path": f"sph/{ctx}/{stack}/{ip.upper()}_{oop.upper()}/ip.csv",
-                    "abs_path": "",  # force S3 fetch (or local vendor_cache fallback)
+                    "abs_path": None,  # force S3 fetch (or local vendor_cache fallback)
                 })
             if oop_csv.exists():
                 rows.append({
@@ -46,7 +46,7 @@ def _rows_from_ctx_dir(ctx_dir: Path, ctx: str) -> list[dict]:
                     "oop_pos": oop.upper(),
                     "hero_pos": "OOP",
                     "rel_path": f"sph/{ctx}/{stack}/{ip.upper()}_{oop.upper()}/oop.csv",
-                    "abs_path": "",
+                    "abs_path": None,
                 })
     return rows
 

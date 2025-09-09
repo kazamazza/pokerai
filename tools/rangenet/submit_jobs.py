@@ -1,8 +1,10 @@
 import sys
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parents[4]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
+
+from ml.utils.config import load_model_config
 
 def main():
     import argparse
@@ -19,71 +21,73 @@ def main():
     ap.add_argument("--batch", type=int, default=10, help="SQS batch size (≤10)")
     ap.add_argument("--limit", type=int, default=None, help="Only send first N jobs")
     ap.add_argument("--dry-run", action="store_true", help="Don’t send, just show counts")
+    ap.add_argument("--config", default="rangenet/postflop",
+                    help="Path to model config (YAML) with solver settings")
     args = ap.parse_args()
+
+    # --- load solver config ---
+    cfg = load_model_config(args.config)
+    solver_cfg = cfg.get("solver", {}) or {}
 
     if args.batch < 1 or args.batch > 10:
         raise SystemExit("--batch must be between 1 and 10 (SQS limit)")
 
     df = pd.read_parquet(args.manifest)
-    # Enforce limit early
     if args.limit is not None:
         df = df.head(int(args.limit))
 
-    # Required manifest columns (some are optional with defaults)
-    # Columns always needed at the envelope level:
     ENVELOPE_KEYS = ["sha1", "s3_key"]
 
-    # Parameters we *may* include if present in the manifest.
-    # FLOP-only fields (e.g., board_cluster_id) are optional.
     PARAM_WHITELIST = [
-        # common
         "street", "pot_bb", "effective_stack_bb", "positions", "bet_sizing_id",
         "range_ip", "range_oop",
         "accuracy", "max_iter", "allin_threshold",
         "node_key", "solver_version",
-
-        # board state
-        "board",  # "QsJh2h" (flop) or "QsJh2h7d" (turn) or "QsJh2h7d2s" (river)
-        "board_cluster_id",  # frequently flop-only (OK if missing)
-
-        # turn/river / tree linkage (optional; include if your manifests add them)
+        "board", "board_cluster_id",
         "parent_sha1", "parent_node_key", "line_key",
-        "street_root_state",  # e.g. compressed state id if you use one
-        "turn_card", "river_card",  # if you choose to split cards instead of whole board
+        "street_root_state", "turn_card", "river_card",
     ]
 
     missing_env = [k for k in ENVELOPE_KEYS if k not in df.columns]
     if missing_env:
         raise SystemExit(f"Manifest missing required columns: {missing_env}")
 
-    # Sensible defaults to keep flop manifests happy
     if "street" not in df.columns:
         df = df.assign(street=1)
     if "node_key" not in df.columns:
         df = df.assign(node_key="root")
     if "solver_version" not in df.columns:
-        df = df.assign(solver_version="v1")
+        df = df.assign(solver_version=solver_cfg.get("version", "v1"))
 
     def to_msg(row):
         params = {}
+        # copy whitelisted columns from the manifest
         for k in PARAM_WHITELIST:
             if k in row and pd.notna(row[k]):
                 v = row[k]
                 if k in ("street", "max_iter", "board_cluster_id"):
-                    try:
-                        v = int(v)
-                    except:
-                        continue
+                    try: v = int(v)
+                    except: continue
                 elif k in ("pot_bb", "effective_stack_bb", "accuracy", "allin_threshold"):
-                    try:
-                        v = float(v)
-                    except:
-                        continue
-                elif isinstance(v, (int, float, str)):
-                    pass
-                else:
+                    try: v = float(v)
+                    except: continue
+                elif not isinstance(v, (int, float, str)):
                     v = str(v)
                 params[k] = v
+
+        # ---- FORCE override from config for solver knobs ----
+        # normalize keys from YAML: accept either max_iter or max_iterations
+        acc = solver_cfg.get("accuracy", params.get("accuracy"))
+        mi  = solver_cfg.get("max_iter", solver_cfg.get("max_iterations", params.get("max_iter")))
+        ath = solver_cfg.get("allin_threshold", params.get("allin_threshold"))
+
+        if acc is not None: params["accuracy"] = float(acc)
+        if mi  is not None: params["max_iter"] = int(mi)
+        if ath is not None: params["allin_threshold"] = float(ath)
+
+        # optional: also pin solver version here
+        if "version" in solver_cfg:
+            params["solver_version"] = solver_cfg["version"]
 
         msg = {
             "sha1": str(row["sha1"]),
@@ -105,7 +109,6 @@ def main():
     )
 
     n = len(df)
-
     i = 0
     sent = 0
     retries = 0

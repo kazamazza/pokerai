@@ -2,7 +2,7 @@ from __future__ import annotations
 import os, json, tempfile, shutil, subprocess, uuid
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 import boto3
 import numpy as np
 from botocore.exceptions import ClientError
@@ -10,8 +10,9 @@ from botocore.exceptions import ClientError
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from tools.rangenet.sanity.check_sph_ranges import monker_string_to_vec169
-from ml.etl.utils.monker_range_converter import _to_monker
+from ml.etl.utils.monker_range_converter import to_monker
+from ml.etl.utils.range_lookup import monker_string_to_vec169
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,25 +26,29 @@ LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).res
 S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
 REGION = os.getenv("AWS_REGION", "eu-central-1")
 
-# Optional: small bet menu map; extend as needed
-BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, list[int]]]]] = {
+BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]] = {
     "std": {
         "flop": {
-            "oop": {
-                "bet":   [50],   # one standard c-bet size (50% pot)
-                "raise": [66],   # one standard raise size (~2/3 pot)
-                "donk":  [],     # OOP donk disabled for now
-                "allin": True    # always allow all-in
-            },
-            "ip": {
-                "bet":   [50],   # one standard bet size in position
-                "raise": [66],   # one standard raise size (~2/3 pot)
-                "donk":  [],     # IP donk is nonsensical
-                "allin": True
-            },
+            "oop": {"donk": [25], "bet": [33, 50, 75], "raise": [66, 100, 150], "allin": True},
+            "ip":  {"bet": [25, 33, 50, 75], "raise": [66, 100, 150], "allin": True},
         },
-    },
+        "turn": {
+            "oop": {"bet": [50, 66, 100], "raise": [100, 150], "allin": True},
+            "ip":  {"bet": [50, 66, 100], "raise": [100, 150], "allin": True},
+        },
+        "river": {
+            "oop": {"bet": [50, 66, 100], "raise": [100, 150], "allin": True},
+            "ip":  {"bet": [50, 66, 100], "raise": [100, 150], "allin": True},
+        },
+    }
 }
+
+def _format_bet_sizes(
+    menu_id: Optional[str]
+) -> Optional[Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]]:
+    # Default to "std", and if an unknown id is passed, fall back to "std"
+    key = (menu_id or "std")
+    return BET_MENUS.get(key, BET_MENUS.get("std"))
 
 
 def _exists_in_s3(s3, bucket: str, key: str) -> bool:
@@ -62,10 +67,7 @@ def _upload_file(s3, local_path: Path, bucket: str, key: str) -> None:
     s3.upload_file(str(local_path), bucket, key)
 
 
-def _format_bet_sizes(menu_id: Optional[str]) -> Optional[Dict[str, Dict[str, Dict[str, list[int]]]]]:
-    if not menu_id:
-        return BET_MENUS.get("std")
-    return BET_MENUS.get(menu_id, BET_MENUS.get("std"))
+
 
 
 def _nnz_stats_from_payload(payload) -> tuple[int, float]:
@@ -106,8 +108,8 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     print(f"[range-stats:pre] IP nnz={pre_ip_nnz} sum={pre_ip_sum:.2f} | OOP nnz={pre_oop_nnz} sum={pre_oop_sum:.2f}")
 
     # Convert to Monker string
-    range_ip  = _to_monker(params["range_ip"])
-    range_oop = _to_monker(params["range_oop"])
+    range_ip  = to_monker(params["range_ip"])
+    range_oop = to_monker(params["range_oop"])
 
     # --- post-conversion stats (monker string -> vec169) ---
     post_ip_nnz, post_ip_sum = _nnz_and_sum_from_monker(range_ip)
@@ -124,8 +126,8 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     bet_sizes = _format_bet_sizes(bet_menu_id)
 
     accuracy = float(params.get("accuracy", 0.5))
-    max_iter = int(params.get("max_iter", 200))
-    a_th     = float(params.get("allin_threshold", 0.67))
+    max_iter = int(params.get("max_iter", params.get("max_iterations", 200)))
+    a_th = float(params.get("allin_threshold", 0.67))
 
     txt = build_command_text(
         pot_bb=pot_bb,
@@ -139,7 +141,7 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
         accuracy=accuracy,
         max_iteration=max_iter,
         print_interval=10,
-        use_isomorphism=1,
+        use_isomorphism=0,
         dump_path=str(dump_path),
     )
 
@@ -237,10 +239,9 @@ def handle_message(body: str) -> bool:
     work_dir = Path(tempfile.mkdtemp(prefix=f"solve_{sha1[:8]}_"))
     try:
         out_json = work_dir / "result.json"
-        cmd_txt  = work_dir / "commands.txt"
 
         # Build command text
-        cmd_text = _build_solver_cmd_text(params, out_json)
+        cmd_text, cmd_txt = _build_solver_cmd_text(params, out_json, job_id=sha1)
         cmd_txt.write_text(cmd_text)
 
         # Run solver
