@@ -136,16 +136,42 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 usermod -aG docker ubuntu || true
 systemctl enable --now docker
 
-# ECR login + pull with debug and retries
-ecr_image="214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker"
+# ECR login + pull with debug and retries (tag-aware)
+ecr_repo="214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker"
+
+# Determine tag (default to amd64 if IMAGE_TAG not provided)
+if [ -z "$(printenv IMAGE_TAG 2>/dev/null)" ]; then
+  IMAGE_TAG="amd64"
+else
+  IMAGE_TAG="$(printenv IMAGE_TAG)"
+fi
+ecr_image="$ecr_repo:$IMAGE_TAG"
+
 debug_ecr(){
-  local reg; reg="$(echo "$ecr_image" | cut -d/ -f1)"
+  local reg
+  reg="$(echo "$ecr_repo" | cut -d/ -f1)"
   echo "[debug] identity:"; aws sts get-caller-identity || true
   echo "[debug] docker:"; systemctl is-active docker || true; docker info || sudo journalctl -u docker -n 120 --no-pager || true
   echo "[debug] ecr login -> $reg"
   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$reg"
 }
-pull_with_retry(){ local img=$1; retry "docker pull $img" 5; }
+
+pull_with_retry(){
+  local img="$1"
+  retry "docker pull $img" 5
+}
+
+log "Logging into ECR..."
+if ! debug_ecr; then
+  echo "[cloud-init] [fatal] ECR login failed"
+  exit 1
+fi
+
+log "Pulling image: $ecr_image"
+if ! pull_with_retry "$ecr_image"; then
+  echo "[cloud-init] [fatal] docker pull failed for $ecr_image"
+  exit 1
+fi
 
 log "Logging into ECR..."
 if ! debug_ecr; then log "[fatal] ECR login failed"; push_cw_init_log; exit 1; fi
