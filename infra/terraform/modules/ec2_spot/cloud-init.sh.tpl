@@ -140,24 +140,29 @@ for i in $(seq 1 "$N"); do
     CMD+=(--dlq-url "$sqs_dlq_url")
   fi
 
-  # Env passed into container (prefer instance role; only pass keys if set)
-  DOCKER_ENV=(
-    -e AWS_REGION="$AWS_REGION"
-    -e WORKER_TAG="$worker_name"
-    -e OMP_NUM_THREADS=1
-    -e OPENBLAS_NUM_THREADS=1
-    -e MKL_NUM_THREADS=1
-    -e NUMEXPR_NUM_THREADS=1
-  )
+  NAME="worker_$i"
+LOG="/var/log/$${NAME}.log"   # escape for Terraform; expand in Bash
 
-  if [ -n "$access_key_id" ] && [ -n "$secret_access_key" ]; then
-    DOCKER_ENV+=(
-      -e AWS_ACCESS_KEY_ID="$access_key_id"
-      -e AWS_SECRET_ACCESS_KEY="$secret_access_key"
-    )
-  fi
+DOCKER_ENV_ARGS=()
+if [ -n "$access_key_id" ]; then
+  DOCKER_ENV_ARGS+=(-e "AWS_ACCESS_KEY_ID=$access_key_id")
+fi
+if [ -n "$secret_access_key" ]; then
+  DOCKER_ENV_ARGS+=(-e "AWS_SECRET_ACCESS_KEY=$secret_access_key")
+fi
 
-  docker run -d --rm \
+if [ -n "$CPU_LIMIT" ]; then
+  CPU_LIMIT="$CPU_LIMIT"
+else
+  CPU_LIMIT="2"
+fi
+if [ -n "$MEM_LIMIT" ]; then
+  MEM_LIMIT="$MEM_LIMIT"
+else
+  MEM_LIMIT="3g"
+fi
+
+docker run -d --rm \
   --name "$NAME" \
   -e AWS_REGION="$AWS_REGION" \
   -e WORKER_TAG="$worker_name" \
@@ -165,14 +170,15 @@ for i in $(seq 1 "$N"); do
   -e OPENBLAS_NUM_THREADS=1 \
   -e MKL_NUM_THREADS=1 \
   -e NUMEXPR_NUM_THREADS=1 \
-  $${access_key_id:+-e AWS_ACCESS_KEY_ID=$access_key_id} \
-  $${secret_access_key:+-e AWS_SECRET_ACCESS_KEY=$secret_access_key} \
+  --cpus="$CPU_LIMIT" \
+  -m "$MEM_LIMIT" \
+  "${DOCKER_ENV_ARGS[@]}" \
   "$ecr_image" \
   "$${CMD[@]}"
 
-  echo "[init] started $NAME -> $LOG"
-  ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
-  sleep 0.2
+echo "[init] started $NAME -> $LOG"
+( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
+sleep 0.2
 done
 
 log "All workers launched."
