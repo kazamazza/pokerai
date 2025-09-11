@@ -36,6 +36,10 @@ variable "aws_sqs_queue_url" {
   type = string
 }
 
+variable "aws_sqs_dlq_url" {
+  type = string
+}
+
 variable "instance_profile_name" {
   description = "IAM instance profile to attach to EC2 instances"
   type        = string

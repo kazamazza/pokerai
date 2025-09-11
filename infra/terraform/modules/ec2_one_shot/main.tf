@@ -11,6 +11,7 @@ resource "aws_instance" "one_shot" {
       github_token        = var.github_token,
       script_to_run       = var.script_to_run,
       aws_sqs_queue_url   = var.aws_sqs_queue_url,
+      aws_sqs_dlq_url     = var.aws_sqs_dlq_url,
       worker_name         = var.worker_name
     })
   )

@@ -62,6 +62,7 @@ module "ephemeral_jobs" {
   aws_sqs_queue_url     = each.value.aws_sqs_queue_url
   instance_type         = each.value.instance_type
   subnet_id             = var.subnet_ids[0] # pick one subnet
+  aws_sqs_dlq_url       = each.value.aws_sqs_queue_url
 }
 
 output "ephemeral_job_names" {

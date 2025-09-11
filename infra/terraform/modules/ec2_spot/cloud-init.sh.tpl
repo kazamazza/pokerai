@@ -110,15 +110,17 @@ systemctl enable --now docker
 # ECR login
 ecr_image="214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker"
 log "Logging into ECR..."
-aws ecr get-login-password --region "${AWS_REGION:-eu-central-1}" \
+aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$(echo "$ecr_image" | cut -d/ -f1)"
 
 log "Pulling image: $ecr_image"
 docker pull "$ecr_image"
 
 # Process count (MAX_PROCS overrides nproc)
-N="${MAX_PROCS:-}"
-if [ -z "$N" ]; then
+# Determine process count without bash parameter expansion to keep Terraform happy
+if env | grep -q '^MAX_PROCS='; then
+  N="$(printenv MAX_PROCS)"
+else
   N="$(nproc || echo 1)"
 fi
 log "Launching $N worker containers..."
@@ -126,12 +128,12 @@ log "Launching $N worker containers..."
 # Start N containers
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
-  LOG="/var/log/${NAME}.log"
+  LOG="/var/log/$$${NAME}.log"
 
   # Build the command
   CMD=(python tools/rangenet/worker_flop.py
        --queue-url "$sqs_queue_url"
-       --region "${AWS_REGION:-eu-central-1}")
+       --region "$AWS_REGION")
 
   # Add DLQ only if provided
   if [ -n "$sqs_dlq_url" ]; then
@@ -140,7 +142,7 @@ for i in $(seq 1 "$N"); do
 
   # Env passed into container (prefer instance role; only pass keys if set)
   DOCKER_ENV=(
-    -e AWS_REGION="${AWS_REGION:-eu-central-1}"
+    -e AWS_REGION="$AWS_REGION"
     -e WORKER_TAG="$worker_name"
     -e OMP_NUM_THREADS=1
     -e OPENBLAS_NUM_THREADS=1
@@ -156,10 +158,17 @@ for i in $(seq 1 "$N"); do
   fi
 
   docker run -d --rm \
-    --name "$NAME" \
-    "${DOCKER_ENV[@]}" \
-    "$ecr_image" \
-    "${CMD[@]}"
+  --name "$NAME" \
+  -e AWS_REGION="$AWS_REGION" \
+  -e WORKER_TAG="$worker_name" \
+  -e OMP_NUM_THREADS=1 \
+  -e OPENBLAS_NUM_THREADS=1 \
+  -e MKL_NUM_THREADS=1 \
+  -e NUMEXPR_NUM_THREADS=1 \
+  $${access_key_id:+-e AWS_ACCESS_KEY_ID=$access_key_id} \
+  $${secret_access_key:+-e AWS_SECRET_ACCESS_KEY=$secret_access_key} \
+  "$ecr_image" \
+  "$${CMD[@]}"
 
   echo "[init] started $NAME -> $LOG"
   ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
