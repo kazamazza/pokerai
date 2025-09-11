@@ -22,13 +22,19 @@ RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/local/bin/pi
 # Install prebuilt TexasSolver
 WORKDIR /opt/texas-solver
 ARG TEXASSOLVER_VERSION=v0.2.0
+
 RUN wget -q https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip -O /tmp/solver.zip \
  && unzip -q /tmp/solver.zip \
  && mv TexasSolver-*-Linux/* . \
- && rm -rf /tmp/solver.zip __MACOSX
+ && rm -rf /tmp/solver.zip __MACOSX \
+ && chmod -R 755 /opt/texas-solver
+    # 755 = owner rwx, group r-x, others r-x
 
 ENV PATH="/opt/texas-solver:${PATH}" \
-    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 ############################
 # worker image
