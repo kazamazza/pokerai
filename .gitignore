@@ -8,6 +8,7 @@ __pycache__/
 /tmp/
 .cache/
 
+
 # Jupyter
 .ipynb_checkpoints/
 
@@ -30,3 +31,4 @@ data/preflop/
 data/rangenet/
 data/ranges/
 postflop/strategy_templates/
+infra
