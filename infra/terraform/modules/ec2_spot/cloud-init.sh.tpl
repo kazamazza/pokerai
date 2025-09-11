@@ -15,7 +15,6 @@ script_to_run="${script_to_run}"
 worker_name="${worker_name}"
 
 # unified logging
-# unified logging
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
 log(){ echo "[cloud-init] $*"; }
@@ -38,7 +37,6 @@ retry(){
     sleep $((2**a))
   done
 }
-
 
 # push cloud-init logs to CloudWatch (called on success and in trap)
 push_cw_init_log(){
