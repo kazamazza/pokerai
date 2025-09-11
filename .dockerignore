@@ -15,6 +15,7 @@ build/
 .eggs/
 *.egg-info/
 node_modules/
+external/
 debug_cmds/
 tmp/
 tmp_*/
@@ -32,8 +33,5 @@ __MACOSX/
 
 # Big artifacts/data – exclude unless you truly need them in the image
 checkpoints/
-data/
-datasets/
 outputs/
-external/
 resources/raw/
