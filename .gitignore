@@ -31,4 +31,4 @@ data/preflop/
 data/rangenet/
 data/ranges/
 postflop/strategy_templates/
-infra
+infra/terraform/terraform.tfvars

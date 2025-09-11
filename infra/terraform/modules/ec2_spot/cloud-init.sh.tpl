@@ -120,6 +120,7 @@ AWS_DEFAULT_REGION=eu-central-1
 AWS_BUCKET_NAME=pokeraistore
 AWS_SQS_QUEUE_URL=$sqs_queue_url
 AWS_SQS_DLQ_URL=$sqs_dlq_url
+SOLVER_BIN=/opt/texas-solver
 WORKER_TAG=${worker_name}
 EOF
 sudo chmod 0644 "$CONTAINER_ENV"
