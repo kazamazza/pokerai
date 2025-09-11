@@ -63,7 +63,7 @@ worker_configs = {
     ]
     min_size          = 0
     max_size          = 15
-    desired_capacity  = 1
+    desired_capacity  = 0
     worker_name       = "preflop_worker"
   }
 
