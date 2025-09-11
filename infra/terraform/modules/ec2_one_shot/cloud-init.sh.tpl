@@ -52,29 +52,49 @@ fi
 log "Disk usage after resize:"
 df -h /
 
-REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
-log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
+# --- earlier in cloud-init: install docker + awscli (you already do AWS CLI) ---
+apt-get update -y
+apt-get install -y docker.io
+systemctl enable --now docker
 
-cd /home/ubuntu || exit 1
-if ! git clone "$REPO_URL"; then
-  log "[ERROR] Git clone failed."
-  exit 1
+AWS_REGION="eu-central-1"
+AWS_ACCOUNT_ID="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .accountId)"
+REPO="pokerai"
+IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO"
+TAG="worker-v1"   # set via Terraform var if you want
+QUEUE_URL="${aws_sqs_queue_url}"
+DLQ_URL="${aws_sqs_dlq_url}"    # if you have one
+WORKER_TAG="${worker_name}"
+
+# ECR login (instance role recommended)
+aws ecr get-login-password --region "$AWS_REGION" \
+| docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+# Pull the exact image/tag
+docker pull "$IMAGE:$TAG"
+
+# Decide process count
+N="$${MAX_PROCS:-}"
+if [ -z "$N" ]; then
+  N="$(nproc || echo 1)"
 fi
-cd pokerai
 
-python3.11 -m venv env || { log "venv failed"; exit 1; }
-source env/bin/activate
-pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
-pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
+echo "[init] Launching $N docker workers from $IMAGE:$TAG ..."
 
-# Export config for this shell
-export AWS_REGION=eu-central-1
-export AWS_SQS_QUEUE_URL="$sqs_queue_url"
-export WORKER_TAG="$worker_name"
-
-# Run script and wait
-log "Running script: $script_to_run"
-python3.11 "$script_to_run"
+for i in $(seq 1 "$N"); do
+  LOG="/var/log/worker_$i.log"
+  docker run -d --rm \
+    --name "worker_$i" \
+    -e AWS_REGION="$AWS_REGION" \
+    -e AWS_SQS_QUEUE_URL="$QUEUE_URL" \
+    -e AWS_SQS_DLQ_URL="$DLQ_URL" \
+    -e WORKER_TAG="$WORKER_TAG-$i" \
+    "$IMAGE:$TAG" \
+    python tools/rangenet/worker_flop.py --queue-url "$QUEUE_URL" --region "$AWS_REGION" --threads 1 \
+    > "$LOG" 2>&1 || true
+  echo "[init] started worker_$i -> $LOG"
+  sleep 0.2
+done
 
 # CloudWatch log push
 REGION="eu-central-1"
