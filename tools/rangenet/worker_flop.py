@@ -23,7 +23,7 @@ from ml.range.solvers.command_text import build_command_text
 # --------- Config knobs (env or fallback) ----------
 SOLVER_BIN = os.getenv("SOLVER_BIN", "external/worker/console_solver")
 LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).resolve()
-S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
+S3_BUCKET = os.getenv("AWS_BUCKET")  # required at runtime
 REGION = os.getenv("AWS_REGION", "eu-central-1")
 
 BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]] = {
