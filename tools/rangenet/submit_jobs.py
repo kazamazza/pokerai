@@ -22,12 +22,12 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="Only send first N jobs")
     ap.add_argument("--dry-run", action="store_true", help="Don’t send, just show counts")
     ap.add_argument("--config", default="rangenet/postflop",
-                    help="Path to model config (YAML) with solver settings")
+                    help="Path to model config (YAML) with worker settings")
     args = ap.parse_args()
 
-    # --- load solver config ---
+    # --- load worker config ---
     cfg = load_model_config(args.config)
-    solver_cfg = cfg.get("solver", {}) or {}
+    solver_cfg = cfg.get("worker", {}) or {}
 
     if args.batch < 1 or args.batch > 10:
         raise SystemExit("--batch must be between 1 and 10 (SQS limit)")
@@ -75,7 +75,7 @@ def main():
                     v = str(v)
                 params[k] = v
 
-        # ---- FORCE override from config for solver knobs ----
+        # ---- FORCE override from config for worker knobs ----
         # normalize keys from YAML: accept either max_iter or max_iterations
         acc = solver_cfg.get("accuracy", params.get("accuracy"))
         mi  = solver_cfg.get("max_iter", solver_cfg.get("max_iterations", params.get("max_iter")))
@@ -85,7 +85,7 @@ def main():
         if mi  is not None: params["max_iter"] = int(mi)
         if ath is not None: params["allin_threshold"] = float(ath)
 
-        # optional: also pin solver version here
+        # optional: also pin worker version here
         if "version" in solver_cfg:
             params["solver_version"] = solver_cfg["version"]
 

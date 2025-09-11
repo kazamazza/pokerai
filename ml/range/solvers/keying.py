@@ -20,7 +20,7 @@ def solve_sha1(params: Dict[str, Any]) -> str:
     txt = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(txt.encode("utf-8")).hexdigest()
 
-def s3_key_for_solve(params: Dict[str, Any], sha1: str, prefix: str = "solver/outputs/v1") -> str:
+def s3_key_for_solve(params: Dict[str, Any], sha1: str, prefix: str = "worker/outputs/v1") -> str:
     street = params.get("street", 1)
     pos    = params.get("positions", "OOPvIP")
     stack  = int(round(float(params.get("effective_stack_bb", 100))))

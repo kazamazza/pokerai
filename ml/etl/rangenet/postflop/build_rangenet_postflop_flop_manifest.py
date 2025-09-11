@@ -18,7 +18,7 @@ from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
 
 def build_manifest(cfg: dict) -> pd.DataFrame:
     mb  = cfg.get("manifest_build", {}) or {}
-    sv  = cfg.get("solver", {}) or {}
+    sv  = cfg.get("worker", {}) or {}
     inputs = cfg.get("inputs", {}) or {}
 
     # Solver knobs
@@ -26,7 +26,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     iters = int(sv.get("max_iterations", 100))
     a_th  = float(sv.get("allin_threshold", 0.67))
     ver   = str(sv.get("version", "v1"))
-    s3_prefix_outputs = str(sv.get("s3_prefix", f"solver/outputs/{ver}"))
+    s3_prefix_outputs = str(sv.get("s3_prefix", f"worker/outputs/{ver}"))
 
     # Build scope
     ctx    = str(mb.get("ctx", "SRP")).upper()  # <--- make context explicit

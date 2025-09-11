@@ -17,11 +17,11 @@ from ml.utils.config import load_model_config
 
 def _row_to_solver_params(r: pd.Series, cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
     """
-    Build the canonical param dict used by the solver workers for this row.
+    Build the canonical param dict used by the worker workers for this row.
     Returns (params, err) where err is non-empty if we cannot build params.
     """
-    # Pull solver defaults
-    solv = cfg.get("solver", {})
+    # Pull worker defaults
+    solv = cfg.get("worker", {})
     accuracy         = float(solv.get("accuracy", 0.5))
     max_iter         = int(solv.get("max_iter", 200))
     allin_threshold  = float(solv.get("allin_threshold", 0.67))
@@ -96,7 +96,7 @@ def build_rangenet_postflop(
     Cache-only builder:
       - Reads your postflop manifest
       - Computes (board_cluster_id) if needed
-      - For each row, constructs canonical solver params
+      - For each row, constructs canonical worker params
       - Loads pre-solved JSON from cache/S3
       - Aggregates to scenario rows with y_0..y_168 and weight
     """
@@ -108,7 +108,7 @@ def build_rangenet_postflop(
 
     # Ensure board strings & clusters exist (only if using clusters)
     bc_cfg = cfg.get("board_clustering", {})
-    use_clusters = bool(cfg.get("solver", {}).get("use_board_clusters", True))
+    use_clusters = bool(cfg.get("worker", {}).get("use_board_clusters", True))
     if use_clusters:
         if "board_cluster_id" not in df.columns:
             # Compute clusters here (expects compact like "AhKd7c")
@@ -173,7 +173,7 @@ def build_rangenet_postflop(
                 allin_threshold=params["allin_threshold"],
                 actor=actor,
                 node_key=str(r["node_key"]),
-                local_cache_dir=cfg.get("solver", {}).get("local_cache_dir", "data/solver_cache"),
+                local_cache_dir=cfg.get("worker", {}).get("local_cache_dir", "data/solver_cache"),
             )
         except FileNotFoundError:
             skipped["cache_miss"] = skipped.get("cache_miss", 0) + 1

@@ -21,7 +21,7 @@ from workers.base import SQSWorker
 from ml.range.solvers.command_text import build_command_text
 
 # --------- Config knobs (env or fallback) ----------
-SOLVER_BIN = os.getenv("SOLVER_BIN", "external/solver/console_solver")
+SOLVER_BIN = os.getenv("SOLVER_BIN", "external/worker/console_solver")
 LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).resolve()
 S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
 REGION = os.getenv("AWS_REGION", "eu-central-1")
@@ -65,9 +65,6 @@ def _exists_in_s3(s3, bucket: str, key: str) -> bool:
 def _upload_file(s3, local_path: Path, bucket: str, key: str) -> None:
     local_path = Path(local_path)
     s3.upload_file(str(local_path), bucket, key)
-
-
-
 
 
 def _nnz_stats_from_payload(payload) -> tuple[int, float]:
@@ -167,7 +164,7 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
         encoding="utf-8"
     )
 
-    print(f"📝 dumped solver command → {cmd_path}")
+    print(f"📝 dumped worker command → {cmd_path}")
     return txt, cmd_path
 
 
@@ -181,7 +178,7 @@ def _run_solver(cmd_file: Path) -> None:
     cmd_file = Path(cmd_file)
 
     cmd = [str(solver_bin), "-i", str(cmd_file)]
-    print(f"▶️ solver cmd: {' '.join(cmd)}")
+    print(f"▶️ worker cmd: {' '.join(cmd)}")
     print(f"    cwd: {os.getcwd()}")
     try:
         size = cmd_file.stat().st_size
@@ -203,15 +200,15 @@ def _run_solver(cmd_file: Path) -> None:
         shown = content if len(content) <= MAX_SHOW else (content[:MAX_SHOW] + "\n…<truncated>…\n")
 
         raise RuntimeError(
-            "solver failed\n"
+            "worker failed\n"
             f"  code: {result.returncode}\n"
             f"  cmd : {' '.join(cmd)}\n"
             f"  file: {cmd_file.resolve()} ({size} bytes)\n"
             "\n--- command file contents ---\n"
             f"{shown}"
-            "\n--- solver stdout ---\n"
+            "\n--- worker stdout ---\n"
             f"{result.stdout}"
-            "\n--- solver stderr ---\n"
+            "\n--- worker stderr ---\n"
             f"{result.stderr}"
         )
 
@@ -244,12 +241,12 @@ def handle_message(body: str) -> bool:
         cmd_text, cmd_txt = _build_solver_cmd_text(params, out_json, job_id=sha1)
         cmd_txt.write_text(cmd_text)
 
-        # Run solver
+        # Run worker
         _run_solver(cmd_txt)
 
         # Sanity: result file present & nonempty
         if not out_json.exists() or out_json.stat().st_size == 0:
-            raise RuntimeError("solver produced no result.json or file empty")
+            raise RuntimeError("worker produced no result.json or file empty")
 
         # Upload
         _upload_file(s3, out_json, S3_BUCKET, s3_key)

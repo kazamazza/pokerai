@@ -13,7 +13,7 @@ def load_villain_range_cached_only(
     range_ip: str,
     range_oop: str,
     positions: str,         # "OOPvIP" or "IPvOOP"
-    street: int,            # 1/2/3 flop/turn/river (if your solver supports)
+    street: int,            # 1/2/3 flop/turn/river (if your worker supports)
     bet_sizing_id: str,     # "std" etc.
     accuracy: float,
     max_iter: int,

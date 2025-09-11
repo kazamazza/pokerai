@@ -50,7 +50,7 @@ def build_policy_infer() -> PolicyInfer:
         pop_infer=pop_infer,
         exploit_infer=expl_infer,
         range_infer=rng_infer,
-        equity_infer_pre=eq_pre,
+        equity_infer=eq_pre,
         board_clusterer=clusterer,
         params=params,
     )

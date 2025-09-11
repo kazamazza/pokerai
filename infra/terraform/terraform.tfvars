@@ -45,9 +45,9 @@ job_configs = {
 
 worker_configs = {
   preflop = {
-    script_to_run     = "workers/postflop/preflop_to_cluster_worker.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-queue"
-    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-dlq"
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/postflop-chart-dlq"
     instance_types    = [
       # Primary compute families
       "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",

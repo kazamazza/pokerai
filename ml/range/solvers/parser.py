@@ -143,9 +143,9 @@ def try_load_solved_from_cache(
         return local_gz
 
     # S3 lookup & download
-    if cfg.get("solver", {}).get("upload_s3", False):
-        s3 = S3Client(bucket_name=cfg["solver"].get("s3_bucket"))
-        prefix = cfg["solver"].get("s3_prefix", "solver/outputs/v1")
+    if cfg.get("worker", {}).get("upload_s3", False):
+        s3 = S3Client(bucket_name=cfg["worker"].get("s3_bucket"))
+        prefix = cfg["worker"].get("s3_prefix", "worker/outputs/v1")
         s3_key = s3_key_for_solve(params, h, prefix=prefix)
         try:
             local_gz.parent.mkdir(parents=True, exist_ok=True)
@@ -177,7 +177,7 @@ def load_villain_range_cached_only(
     local_cache_dir: str | Path = "data/solver_cache",
 ) -> Dict[str, float]:
     """
-    Strict cache/read: never runs the solver.
+    Strict cache/read: never runs the worker.
     Expects the solve to be precomputed and present locally or in S3.
     """
     params = {
@@ -193,8 +193,8 @@ def load_villain_range_cached_only(
         "accuracy": float(accuracy),
         "max_iter": int(max_iter),
         "allin_threshold": float(allin_threshold),
-        # include anything else that changes the tree (solver version, menus hash, etc.)
-        "solver_version": cfg.get("solver", {}).get("version", "v1"),
+        # include anything else that changes the tree (worker version, menus hash, etc.)
+        "solver_version": cfg.get("worker", {}).get("version", "v1"),
     }
 
     local_cache_dir = Path(local_cache_dir)

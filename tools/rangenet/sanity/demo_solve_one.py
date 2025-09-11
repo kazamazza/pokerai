@@ -69,7 +69,7 @@ def main():
                     help='JSON dict for sizes: {"flop":{"ip":{"bet":[33]},"oop":{"bet":[50]}}}')
     ap.add_argument("--accuracy", type=float, default=0.25)
     ap.add_argument("--max-iter", type=int, default=200)
-    ap.add_argument("--solver-bin", default="external/solver/console_solver")
+    ap.add_argument("--worker-bin", default="external/worker/console_solver")
     ap.add_argument("--out", default="demo_result.json")
     ap.add_argument("--dump-cmd", default="demo_commands.txt")
     args = ap.parse_args()
@@ -114,7 +114,7 @@ def main():
     Path(args.dump_cmd).write_text(cmd, encoding="utf-8")
     print(f"📝 wrote command file → {args.dump_cmd}")
 
-    # Run solver
+    # Run worker
     import subprocess, shlex
     run_cmd = f"{args.solver_bin} -i {shlex.quote(args.dump_cmd)}"
     print(f"▶️  {run_cmd}")
@@ -122,8 +122,8 @@ def main():
     if proc.returncode != 0:
         print(proc.stdout)
         print(proc.stderr)
-        raise SystemExit(f"solver exit {proc.returncode}")
-    print("✅ solver finished")
+        raise SystemExit(f"worker exit {proc.returncode}")
+    print("✅ worker finished")
     # optionally print small tail of output
     print(proc.stdout.splitlines()[-5:])
 

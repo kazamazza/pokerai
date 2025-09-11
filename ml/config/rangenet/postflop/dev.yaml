@@ -20,7 +20,7 @@ solver:
   max_iterations: 100
   threads: 1
   allin_threshold: 0.67
-  s3_prefix: solver/outputs/dev
+  s3_prefix: worker/outputs/dev
   local_cache_dir: data/solver_cache
 
 train:

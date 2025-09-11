@@ -133,7 +133,7 @@ RANKS = "23456789TJQKA"
 def _combos_to_shorthand(combos: list[str]) -> str:
     """
     Compress concrete combos (e.g., 'Ac Ad', 'As Ah', 'Kd Qd', 'Kh Qh', 'Kd Qh'...)
-    into solver shorthand tokens like 'AA', 'AKs', 'AKo', possibly mixed.
+    into worker shorthand tokens like 'AA', 'AKs', 'AKo', possibly mixed.
     Strategy:
       - Pairs: if all 6 combos present -> 'RR'
       - Suited XY: if all 4 combos present -> 'XYs'
@@ -190,7 +190,7 @@ def _combos_to_shorthand(combos: list[str]) -> str:
 
 def _sanitize_shorthand_only(range_str: str) -> str:
     """
-    Accepts ONLY solver shorthand (pairs, pairs+, XYs, XYs+, XYo, XYo+).
+    Accepts ONLY worker shorthand (pairs, pairs+, XYs, XYs+, XYo, XYo+).
     Normalizes to upper-case ranks with LOWER-case suitedness and optional '+'.
     Drops spaces, rejects malformed tokens, orders ranks hi>lo.
     """
