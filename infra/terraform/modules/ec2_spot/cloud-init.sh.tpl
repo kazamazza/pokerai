@@ -107,21 +107,30 @@ if ! git clone "$REPO_URL"; then log "[ERROR] Git clone failed."; exit 1; fi
 cd pokerai
 python3.11 -m venv env || { log "venv failed"; exit 1; }
 source env/bin/activate
-python -m pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
+
+
+pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-# Set global environment vars
-echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
-echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
-echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
+# Build env file for containers (instead of /etc/environment)
+CONTAINER_ENV="/etc/pokerai.env"
+sudo bash -c "cat > $CONTAINER_ENV" <<EOF
+AWS_REGION=eu-central-1
+AWS_DEFAULT_REGION=eu-central-1
+AWS_BUCKET_NAME=pokeraistore
+AWS_SQS_QUEUE_URL=$sqs_queue_url
+AWS_SQS_DLQ_URL=$sqs_dlq_url
+WORKER_TAG=${worker_name}
+EOF
+sudo chmod 0644 "$CONTAINER_ENV"
+
+# Tag shell sessions with worker name
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
 # Docker
 set +u
 set -o allexport
-source /etc/environment || true
+source "$CONTAINER_ENV" || true
 set +o allexport
 
 log "Installing Docker..."
@@ -227,6 +236,7 @@ docker run -d --rm \
     --name "$NAME" \
     --cpus="$CPU_LIMIT" \
     -m "$MEM_LIMIT" \
+    --env-file /etc/pokerai.env \
     $DOCKER_ENV_ARGS \
     "$ecr_image" \
     $CMD_STR
