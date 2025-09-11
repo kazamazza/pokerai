@@ -11,6 +11,7 @@ access_key_id="${aws_access_key_id}"
 secret_access_key="${aws_secret_access_key}"
 script_to_run="${script_to_run}"
 worker_name="${worker_name}"
+ecr_image=214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
@@ -85,18 +86,41 @@ echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 # Optional: tag shell sessions
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# ===== Runtime setup & launch =====
+# ===== Runtime setup & launch (Docker) =====
 set +u
 set -o allexport
 source /etc/environment || true
 set +o allexport
 
-# Decide process count: operator can export MAX_PROCS in /etc/environment.
-# Escape ONLY this default expansion so Terraform doesn't interpolate it.
+log "Installing Docker..."
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc >/dev/null
+chmod a+r /etc/apt/keyrings/docker.asc
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | tee /etc/apt/sources.list.d/docker.list >/dev/null
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+usermod -aG docker ubuntu || true
+systemctl enable --now docker
+
+# ECR login
+log "Logging into ECR..."
+aws ecr get-login-password --region "$AWS_REGION" \
+  | docker login --username AWS --password-stdin "$(echo "$ecr_image" | cut -d/ -f1)"
+
+log "Pulling image: $ecr_image"
+docker pull "$ecr_image"
+
+# Process count (MAX_PROCS overrides nproc)
 N="$${MAX_PROCS:-}"
 if [ -z "$N" ]; then
   N="$(nproc || echo 1)"
 fi
+log "Launching $N worker containers..."
 
 # Don’t let native libs oversubscribe threads
 export OMP_NUM_THREADS=1
@@ -104,23 +128,39 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-echo "[init] Launching $N worker processes..."
-
-PIDS_FILE=/var/run/worker_pids.txt
-mkdir -p /var/run
-: > "$PIDS_FILE"
-
+# Start N containers
+# Start N containers
 for i in $(seq 1 "$N"); do
-  LOG="/var/log/worker_$i.log"
-  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "$LOG" 2>&1 &
-  PID=$!
-  echo "$PID" >> "$PIDS_FILE"
-  echo "[init] started worker_$i pid $PID -> $LOG"
+  NAME="worker_$i"
+  LOG="/var/log/${NAME}.log"
+
+  # Build the command
+  CMD=(python tools/rangenet/worker_flop.py
+       --queue-url "$sqs_queue_url"
+       --dlq-url "$sqs_dlq_ur"
+       --region "${AWS_REGION:-eu-central-1}")
+
+  # Build docker env flags (only include creds if provided; prefer instance role)
+  DOCKER_ENV=( -e AWS_REGION="${AWS_REGION:-eu-central-1}"
+               -e WORKER_TAG="$worker_name" )
+
+  if [ -n "$access_key_id" ] && [ -n "$secret_access_key" ]; then
+    DOCKER_ENV+=( -e AWS_ACCESS_KEY_ID="$access_key_id"
+                  -e AWS_SECRET_ACCESS_KEY="$secret_access_key" )
+  fi
+
+  docker run -d --rm \
+    --name "$NAME" \
+    "${DOCKER_ENV[@]}" \
+    "$ecr_image" \
+    "${CMD[@]}"
+
+  echo "[init] started $NAME -> $LOG"
+  ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
   sleep 0.2
 done
 
-STARTED="$(wc -l < "$PIDS_FILE" | tr -d ' ')"
-echo "[init] Launched $STARTED workers."
+log "All workers launched."
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
