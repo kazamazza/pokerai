@@ -185,12 +185,6 @@ if ! pull_with_retry "$ecr_image"; then
   exit 1
 fi
 
-log "Logging into ECR..."
-if ! debug_ecr; then log "[fatal] ECR login failed"; push_cw_init_log; exit 1; fi
-
-log "Pulling image: $ecr_image"
-if ! pull_with_retry "$ecr_image"; then log "[fatal] docker pull failed"; push_cw_init_log; exit 1; fi
-
 # ---- capacity planning (max out vCPU, cap by RAM) ----
 # knobs (can be set in /etc/pokerai.env): TARGET_MEM_PER_WORKER (e.g. 3g), RESERVE_MEM_GB (e.g. 2), MAX_PROCS
 
@@ -198,6 +192,17 @@ TARGET_MEM_PER_WORKER="$(printenv TARGET_MEM_PER_WORKER 2>/dev/null)"
 [ -z "$TARGET_MEM_PER_WORKER" ] && TARGET_MEM_PER_WORKER="3g"
 RESERVE_MEM_GB="$(printenv RESERVE_MEM_GB 2>/dev/null)"
 [ -z "$RESERVE_MEM_GB" ] && RESERVE_MEM_GB="2"
+
+to_kb() {
+  val="$1"
+  lc="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
+  case "$lc" in
+    *g) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*g$//')"; echo $(( num * 1024 * 1024 ));;
+    *m) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*m$//')"; echo $(( num * 1024 ));;
+    *k) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*k$//')"; echo "$num";;
+    *)   echo "$lc";;
+  esac
+}
 
 CORES="$(nproc || echo 1)"
 TOTAL_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)"
@@ -224,48 +229,36 @@ log "Capacity: CORES=$CORES TOTAL_RAM_KB=$TOTAL_KB RES_KB=$RES_KB PER_WORKER_KB=
 log "Computed: MAX_BY_RAM=$MAX_BY_RAM  N=$N  MEM_LIMIT=$MEM_LIMIT"
 
 # ---- launch workers (no CPU cap, unbuffered Python, visible logs) ----
-# ensure python logs are unbuffered
-PYTHONUNBUFFERED="$(printenv PYTHONUNBUFFERED 2>/dev/null)"
-[ -z "$PYTHONUNBUFFERED" ] && PYTHONUNBUFFERED="1"
+# ensure unbuffered python logs
+PYTHONUNBUFFERED="$(printenv PYTHONUNBUFFERED 2>/dev/null)"; [ -z "$PYTHONUNBUFFERED" ] && PYTHONUNBUFFERED="1"
 
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
-  LOG="/var/log/$${NAME}.log"
+  LOG="/var/log/$${NAME}.log"   # terraform-safe: $$ expands at runtime in bash
 
-  CMD_STR="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
+  # build command (plain string; terraform-safe)
+  cmd="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
   if [ -n "$sqs_dlq_url" ]; then
-    CMD_STR="$CMD_STR --dlq-url $sqs_dlq_url"
+    cmd="$cmd --dlq-url $sqs_dlq_url"
   fi
 
-  DOCKER_ENV_ARGS="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
-                   -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 \
-                   -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
-                   -e PYTHONUNBUFFERED=1"
-  if [ -n "$access_key_id" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_ACCESS_KEY_ID=$access_key_id"; fi
-  if [ -n "$secret_access_key" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_SECRET_ACCESS_KEY=$secret_access_key"; fi
+  # build env args (plain string; add AWS keys only if present)
+  docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
+  if [ -n "$access_key_id" ]; then
+    docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"
+  fi
+  if [ -n "$secret_access_key" ]; then
+    docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"
+  fi
 
   docker run -d --rm \
     --name "$NAME" \
     -m "$MEM_LIMIT" \
     --memory-swap -1 \
     --env-file /etc/pokerai.env \
-    $DOCKER_ENV_ARGS \
+    $docker_args \
     "$ecr_image" \
-    $CMD_STR
-
-  echo "[init] started $NAME -> $LOG"
-  ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
-  sleep 0.2
-done
-
-docker run -d --rm \
-  --name "$NAME" \
-  -m "$MEM_LIMIT" \
-  --memory-swap -1 \
-  --env-file /etc/pokerai.env \
-  $DOCKER_ENV_ARGS \
-  "$ecr_image" \
-  $CMD_STR
+    $cmd
 
   echo "[init] started $NAME -> $LOG"
   ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
@@ -273,8 +266,6 @@ docker run -d --rm \
 done
 
 log "All workers launched."
-
-# Push cloud-init logs at the end too
 push_cw_init_log || true
 log "Initialization complete."
 exit 0
