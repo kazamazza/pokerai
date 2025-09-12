@@ -191,52 +191,45 @@ to_kb() {
   esac
 }
 
+# === SIMPLE CAPACITY: one worker per vCPU (MAX_PROCS can override) ===
 CORES="$(nproc || echo 1)"
-TOTAL_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)"
-RES_KB=$(( RESERVE_MEM_GB * 1024 * 1024 ))
-PER_KB="$(to_kb "$TARGET_MEM_PER_WORKER")"
-
-if [ "$TOTAL_KB" -gt "$RES_KB" ] && [ "$PER_KB" -gt 0 ]; then
-  MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
-else
-  MAX_BY_RAM=1
-fi
-[ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1
-
 MAX_PROCS_VAL="$(getenv MAX_PROCS)"
 if [ -n "$MAX_PROCS_VAL" ]; then
   N="$MAX_PROCS_VAL"
 else
-  if [ "$CORES" -lt "$MAX_BY_RAM" ]; then N="$CORES"; else N="$MAX_BY_RAM"; fi
+  N="$CORES"
 fi
+log "Launching $N workers (vCPU-based); MAX_PROCS can override."
 
-MEM_LIMIT="$(getenv_or_default MEM_LIMIT "$TARGET_MEM_PER_WORKER")"
+# optional per-container memory cap (only if MEM_LIMIT is set)
+MEM_LIMIT_VAL="$(getenv MEM_LIMIT)"
+run_mem_flag=""
+[ -n "$MEM_LIMIT_VAL" ] && run_mem_flag="-m $MEM_LIMIT_VAL --memory-swap -1"
 
-log "Capacity: CORES=$CORES TOTAL_RAM_KB=$TOTAL_KB RES_KB=$RES_KB PER_WORKER_KB=$PER_KB"
-log "Computed: MAX_BY_RAM=$MAX_BY_RAM  N=$N  MEM_LIMIT=$MEM_LIMIT"
-
-# ---- launch workers (no CPU cap, unbuffered Python, visible logs) ----
+# unbuffered Python logs
 PYTHONUNBUFFERED="$(getenv_or_default PYTHONUNBUFFERED 1)"
 
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
-  LOG="/var/log/$${NAME}.log"   # terraform-safe: $$ expands at runtime in bash
+  LOG="/var/log/$${NAME}.log"   # terraform-safe
 
-  # build command (plain string; terraform-safe)
+  # command
   cmd="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
   if [ -n "$sqs_dlq_url" ]; then
     cmd="$cmd --dlq-url $sqs_dlq_url"
   fi
 
-  # build env args (plain string; add AWS keys only if present)
-  docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
-  if [ -n "$access_key_id" ]; then docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"; fi
-  if [ -n "$secret_access_key" ]; then docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"; fi
+  # envs for container
+  docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
+               -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 \
+               -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
+               -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
+  [ -n "$access_key_id" ]     && docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"
+  [ -n "$secret_access_key" ] && docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"
 
   docker run -d --rm \
     --name "$NAME" \
-    -m "$MEM_LIMIT" \
-    --memory-swap -1 \
+    $run_mem_flag \
     --env-file /etc/pokerai.env \
     $docker_args \
     "$ecr_image" \
