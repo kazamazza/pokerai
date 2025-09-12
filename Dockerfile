@@ -22,14 +22,17 @@ RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/local/bin/pi
 # Install prebuilt TexasSolver
 WORKDIR /opt/texas-solver
 ARG TEXASSOLVER_VERSION=v0.2.0
-RUN wget -q https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip -O /tmp/solver.zip \
+RUN set -e; \
+    wget -q "https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip" -O /tmp/solver.zip \
  && unzip -q /tmp/solver.zip -d /opt/texas-solver/ \
  && rm -rf /tmp/solver.zip __MACOSX \
  && chmod -R 755 /opt/texas-solver \
- && ln -sf /opt/texas-solver/console_solver /usr/local/bin/texas-solver
+ && ln -sf /opt/texas-solver/console_solver /usr/local/bin/texas-solver \
+ && ls -l /opt/texas-solver /usr/local/bin | sed -n '1,200p' \
+ && test -x /opt/texas-solver/console_solver
 
 ENV PATH="/opt/texas-solver:${PATH}" \
-    SOLVER_BIN="/usr/local/bin/texas-solver" \
+    SOLVER_BIN="/opt/texas-solver/console_solver" \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
