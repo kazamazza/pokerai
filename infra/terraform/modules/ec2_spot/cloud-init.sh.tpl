@@ -193,25 +193,16 @@ if ! pull_with_retry "$ecr_image"; then log "[fatal] docker pull failed"; push_c
 
 # ---- capacity planning (max out vCPU, cap by RAM) ----
 # knobs (can be set in /etc/pokerai.env): TARGET_MEM_PER_WORKER (e.g. 3g), RESERVE_MEM_GB (e.g. 2), MAX_PROCS
-TARGET_MEM_PER_WORKER="$(printenv TARGET_MEM_PER_WORKER 2>/dev/null)"
-[ -z "$TARGET_MEM_PER_WORKER" ] && TARGET_MEM_PER_WORKER="3g"    # per worker container
-RESERVE_MEM_GB="$(printenv RESERVE_MEM_GB 2>/dev/null)"
-[ -z "$RESERVE_MEM_GB" ] && RESERVE_MEM_GB="2"                   # leave for OS/docker
 
-to_kb() {
-  v="$1"
-  case "$v" in
-    *g|*G) echo $(( ${v%[gG]} * 1024 * 1024 ));;
-    *m|*M) echo $(( ${v%[mM]} * 1024 ));;
-    *k|*K) echo $(( ${v%[kK]} ));;
-    *)     echo "$v";;
-  esac
-}
+TARGET_MEM_PER_WORKER="$(printenv TARGET_MEM_PER_WORKER 2>/dev/null)"
+[ -z "$TARGET_MEM_PER_WORKER" ] && TARGET_MEM_PER_WORKER="3g"
+RESERVE_MEM_GB="$(printenv RESERVE_MEM_GB 2>/dev/null)"
+[ -z "$RESERVE_MEM_GB" ] && RESERVE_MEM_GB="2"
 
 CORES="$(nproc || echo 1)"
-TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
+TOTAL_KB="$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)"
 RES_KB=$(( RESERVE_MEM_GB * 1024 * 1024 ))
-PER_KB=$(to_kb "$TARGET_MEM_PER_WORKER")
+PER_KB="$(to_kb "$TARGET_MEM_PER_WORKER")"
 
 if [ "$TOTAL_KB" -gt "$RES_KB" ] && [ "$PER_KB" -gt 0 ]; then
   MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
@@ -226,13 +217,11 @@ else
   if [ "$CORES" -lt "$MAX_BY_RAM" ]; then N="$CORES"; else N="$MAX_BY_RAM"; fi
 fi
 
-# per-container memory limit
 MEM_LIMIT="$(printenv MEM_LIMIT 2>/dev/null)"
 [ -z "$MEM_LIMIT" ] && MEM_LIMIT="$TARGET_MEM_PER_WORKER"
 
 log "Capacity: CORES=$CORES TOTAL_RAM_KB=$TOTAL_KB RES_KB=$RES_KB PER_WORKER_KB=$PER_KB"
 log "Computed: MAX_BY_RAM=$MAX_BY_RAM  N=$N  MEM_LIMIT=$MEM_LIMIT"
-log "Launching $N worker containers..."
 
 # ---- launch workers (no CPU cap, unbuffered Python, visible logs) ----
 # ensure python logs are unbuffered
