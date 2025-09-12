@@ -191,56 +191,83 @@ if ! debug_ecr; then log "[fatal] ECR login failed"; push_cw_init_log; exit 1; f
 log "Pulling image: $ecr_image"
 if ! pull_with_retry "$ecr_image"; then log "[fatal] docker pull failed"; push_cw_init_log; exit 1; fi
 
-# Determine process count; cap by RAM to avoid OOM
+# ---- capacity planning (max out vCPU, cap by RAM) ----
+# knobs (can be set in /etc/pokerai.env): TARGET_MEM_PER_WORKER (e.g. 3g), RESERVE_MEM_GB (e.g. 2), MAX_PROCS
+TARGET_MEM_PER_WORKER="$(printenv TARGET_MEM_PER_WORKER 2>/dev/null)"
+[ -z "$TARGET_MEM_PER_WORKER" ] && TARGET_MEM_PER_WORKER="3g"    # per worker container
+RESERVE_MEM_GB="$(printenv RESERVE_MEM_GB 2>/dev/null)"
+[ -z "$RESERVE_MEM_GB" ] && RESERVE_MEM_GB="2"                   # leave for OS/docker
+
+to_kb() {
+  v="$1"
+  case "$v" in
+    *g|*G) echo $(( ${v%[gG]} * 1024 * 1024 ));;
+    *m|*M) echo $(( ${v%[mM]} * 1024 ));;
+    *k|*K) echo $(( ${v%[kK]} ));;
+    *)     echo "$v";;
+  esac
+}
+
+CORES="$(nproc || echo 1)"
+TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
+RES_KB=$(( RESERVE_MEM_GB * 1024 * 1024 ))
+PER_KB=$(to_kb "$TARGET_MEM_PER_WORKER")
+
+if [ "$TOTAL_KB" -gt "$RES_KB" ] && [ "$PER_KB" -gt 0 ]; then
+  MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
+else
+  MAX_BY_RAM=1
+fi
+[ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1
+
 if env | grep -q '^MAX_PROCS=' && [ -n "$(printenv MAX_PROCS)" ]; then
   N="$(printenv MAX_PROCS)"
 else
-  CORES="$(nproc || echo 1)"
-  TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
-  RES_KB=$((3*1024*1024))    # reserve 3 GiB for OS/docker
-  PER_KB=$((6*1024*1024))    # ~6 GiB per worker
-  if [ "$TOTAL_KB" -gt 0 ]; then
-    MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
-    [ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1
-  else
-    MAX_BY_RAM=1
-  fi
-  # take the min of cores and RAM capacity
   if [ "$CORES" -lt "$MAX_BY_RAM" ]; then N="$CORES"; else N="$MAX_BY_RAM"; fi
 fi
+
+# per-container memory limit
+MEM_LIMIT="$(printenv MEM_LIMIT 2>/dev/null)"
+[ -z "$MEM_LIMIT" ] && MEM_LIMIT="$TARGET_MEM_PER_WORKER"
+
+log "Capacity: CORES=$CORES TOTAL_RAM_KB=$TOTAL_KB RES_KB=$RES_KB PER_WORKER_KB=$PER_KB"
+log "Computed: MAX_BY_RAM=$MAX_BY_RAM  N=$N  MEM_LIMIT=$MEM_LIMIT"
 log "Launching $N worker containers..."
 
-if [ -z "$(printenv CPU_LIMIT 2>/dev/null)" ]; then
-  CPU_LIMIT="2"
-else
-  CPU_LIMIT="$(printenv CPU_LIMIT)"
-fi
-
-if [ -z "$(printenv MEM_LIMIT 2>/dev/null)" ]; then
-  MEM_LIMIT="3g"
-else
-  MEM_LIMIT="$(printenv MEM_LIMIT)"
-fi
+# ---- launch workers (no CPU cap, unbuffered Python, visible logs) ----
+# ensure python logs are unbuffered
+PYTHONUNBUFFERED="$(printenv PYTHONUNBUFFERED 2>/dev/null)"
+[ -z "$PYTHONUNBUFFERED" ] && PYTHONUNBUFFERED="1"
 
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
   LOG="/var/log/$${NAME}.log"
 
-  CMD=(python tools/rangenet/worker_flop.py
-       --queue-url "$sqs_queue_url"
-       --region "$AWS_REGION")
+  # build command (unbuffered python)
+  CMD_STR="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
   if [ -n "$sqs_dlq_url" ]; then
-    CMD+=(--dlq-url "$sqs_dlq_url")
+    CMD_STR="$CMD_STR --dlq-url $sqs_dlq_url"
   fi
 
-  DOCKER_ENV_ARGS="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1"
+  DOCKER_ENV_ARGS="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
+                   -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
+                   -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
   if [ -n "$access_key_id" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_ACCESS_KEY_ID=$access_key_id"; fi
   if [ -n "$secret_access_key" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_SECRET_ACCESS_KEY=$secret_access_key"; fi
 
-  CMD_STR="python tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
-if [ -n "$sqs_dlq_url" ]; then
-  CMD_STR="$CMD_STR --dlq-url $sqs_dlq_url"
-fi
+  docker run -d --rm \
+    --name "$NAME" \
+    -m "$MEM_LIMIT" \
+    --memory-swap -1 \
+    --env-file /etc/pokerai.env \
+    $DOCKER_ENV_ARGS \
+    "$ecr_image" \
+    $CMD_STR
+
+  echo "[init] started $NAME -> $LOG"
+  ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
+  sleep 0.2
+done
 
 docker run -d --rm \
   --name "$NAME" \
