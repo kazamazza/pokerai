@@ -100,18 +100,6 @@ else
 fi
 log "Disk usage after resize:"; df -h /
 
-REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
-log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
-cd /home/ubuntu || exit 1
-if ! git clone "$REPO_URL"; then log "[ERROR] Git clone failed."; exit 1; fi
-cd pokerai
-python3.11 -m venv env || { log "venv failed"; exit 1; }
-source env/bin/activate
-
-
-pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
-pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
-
 # Build env file for containers (instead of /etc/environment)
 CONTAINER_ENV="/etc/pokerai.env"
 sudo bash -c "cat > $CONTAINER_ENV" <<EOF
