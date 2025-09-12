@@ -122,6 +122,8 @@ AWS_SQS_QUEUE_URL=$sqs_queue_url
 AWS_SQS_DLQ_URL=$sqs_dlq_url
 SOLVER_BIN=/opt/texas-solver/console_solver
 WORKER_TAG=${worker_name}
+MEM_LIMIT=6g
+MAX_PROCS=
 EOF
 sudo chmod 0644 "$CONTAINER_ENV"
 
@@ -190,14 +192,21 @@ log "Pulling image: $ecr_image"
 if ! pull_with_retry "$ecr_image"; then log "[fatal] docker pull failed"; push_cw_init_log; exit 1; fi
 
 # Determine process count; cap by RAM to avoid OOM
-if env | grep -q '^MAX_PROCS='; then N="$(printenv MAX_PROCS)"; else N="$(nproc || echo 1)"; fi
-TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
-RES_KB=$((3*1024*1024))
-PER_KB=$((3*1024*1024))
-if [ "$TOTAL_KB" -gt 0 ]; then
-  MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
-  [ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1 || true
-  [ "$N" -gt "$MAX_BY_RAM" ] && N="$MAX_BY_RAM"
+if env | grep -q '^MAX_PROCS=' && [ -n "$(printenv MAX_PROCS)" ]; then
+  N="$(printenv MAX_PROCS)"
+else
+  CORES="$(nproc || echo 1)"
+  TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo || echo 0)
+  RES_KB=$((3*1024*1024))    # reserve 3 GiB for OS/docker
+  PER_KB=$((6*1024*1024))    # ~6 GiB per worker
+  if [ "$TOTAL_KB" -gt 0 ]; then
+    MAX_BY_RAM=$(( (TOTAL_KB - RES_KB) / PER_KB ))
+    [ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1
+  else
+    MAX_BY_RAM=1
+  fi
+  # take the min of cores and RAM capacity
+  if [ "$CORES" -lt "$MAX_BY_RAM" ]; then N="$CORES"; else N="$MAX_BY_RAM"; fi
 fi
 log "Launching $N worker containers..."
 
@@ -234,13 +243,13 @@ if [ -n "$sqs_dlq_url" ]; then
 fi
 
 docker run -d --rm \
-    --name "$NAME" \
-    --cpus="$CPU_LIMIT" \
-    -m "$MEM_LIMIT" \
-    --env-file /etc/pokerai.env \
-    $DOCKER_ENV_ARGS \
-    "$ecr_image" \
-    $CMD_STR
+  --name "$NAME" \
+  -m "$MEM_LIMIT" \
+  --memory-swap -1 \
+  --env-file /etc/pokerai.env \
+  $DOCKER_ENV_ARGS \
+  "$ecr_image" \
+  $CMD_STR
 
   echo "[init] started $NAME -> $LOG"
   ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &

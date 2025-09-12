@@ -19,24 +19,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Make python/pip default to 3.11
 RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip
 
-# Install prebuilt TexasSolver
+# Install prebuilt TexasSolver (console_solver) and expose a stable binary path
 WORKDIR /opt/texas-solver
 ARG TEXASSOLVER_VERSION=v0.2.0
-RUN set -e; \
-    wget -q "https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip" -O /tmp/solver.zip \
- && unzip -q /tmp/solver.zip -d /opt/texas-solver/ \
- && rm -rf /tmp/solver.zip __MACOSX \
- && chmod -R 755 /opt/texas-solver \
- && ln -sf /opt/texas-solver/console_solver /usr/local/bin/texas-solver \
- && ls -l /opt/texas-solver /usr/local/bin | sed -n '1,200p' \
- && test -x /opt/texas-solver/console_solver
 
-ENV PATH="/opt/texas-solver:${PATH}" \
-    SOLVER_BIN="/opt/texas-solver/console_solver" \
+RUN set -e; \
+    ASSET="TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip"; \
+    URL="https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/${ASSET}"; \
+    echo "Fetching ${URL}"; \
+    wget -q "${URL}" -O /tmp/solver.zip; \
+    unzip -oq /tmp/solver.zip -d /opt/texas-solver/; \
+    rm -f /tmp/solver.zip __MACOSX || true; \
+    chmod -R 755 /opt/texas-solver; \
+    BIN="$(find /opt/texas-solver -maxdepth 2 -type f -name console_solver | head -n1)"; \
+    if [ -z "$BIN" ]; then echo "console_solver not found after unzip" >&2; ls -R /opt/texas-solver >&2; exit 1; fi; \
+    install -m 0755 "$BIN" /usr/local/bin/texas-solver; \
+    ls -l /usr/local/bin/texas-solver; \
+    command -v texas-solver >/dev/null
+
+ENV PATH="/usr/local/bin:/opt/texas-solver:${PATH}" \
+    SOLVER_BIN="/usr/local/bin/texas-solver" \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1
+
 
 ############################
 # worker image
