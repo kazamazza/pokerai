@@ -176,66 +176,52 @@ if ! debug_ecr; then echo "[cloud-init] [fatal] ECR login failed"; exit 1; fi
 log "Pulling image: $ecr_image"
 if ! pull_with_retry "$ecr_image"; then echo "[cloud-init] [fatal] docker pull failed for $ecr_image"; exit 1; fi
 
-# ---- capacity planning (max out vCPU, cap by RAM) ----
-TARGET_MEM_PER_WORKER="$(getenv_or_default TARGET_MEM_PER_WORKER 3g)"
-RESERVE_MEM_GB="$(getenv_or_default RESERVE_MEM_GB 2)"
-
-to_kb() {
-  val="$1"
-  lc="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
-  case "$lc" in
-    *g) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*g$//')"; echo $(( num * 1024 * 1024 ));;
-    *m) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*m$//')"; echo $(( num * 1024 ));;
-    *k) num="$(printf '%s' "$lc" | sed 's/[[:space:]]*k$//')"; echo "$num";;
-    *)   echo "$lc";;
-  esac
-}
-
-# === SIMPLE CAPACITY: one worker per vCPU (MAX_PROCS can override) ===
+# === SIMPLE CAPACITY: one worker per vCPU minus one for the OS ===
 CORES="$(nproc || echo 1)"
+OS_HEADROOM=1
 MAX_PROCS_VAL="$(getenv MAX_PROCS)"
 if [ -n "$MAX_PROCS_VAL" ]; then
   N="$MAX_PROCS_VAL"
 else
-  N="$CORES"
+  N=$(( CORES > OS_HEADROOM ? CORES - OS_HEADROOM : 1 ))
 fi
-log "Launching $N workers (vCPU-based); MAX_PROCS can override."
+log "Launching $N workers (leaving $OS_HEADROOM vCPU for OS); MAX_PROCS can override."
 
-# optional per-container memory cap (only if MEM_LIMIT is set)
+# optional per-container memory guardrail (ignored if unset)
 MEM_LIMIT_VAL="$(getenv MEM_LIMIT)"
 run_mem_flag=""
 [ -n "$MEM_LIMIT_VAL" ] && run_mem_flag="-m $MEM_LIMIT_VAL --memory-swap -1"
 
-# unbuffered Python logs
 PYTHONUNBUFFERED="$(getenv_or_default PYTHONUNBUFFERED 1)"
 
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
   LOG="/var/log/$${NAME}.log"   # terraform-safe
+  CPU=$(( i - 1 )); [ $CPU -ge $CORES ] && CPU=$((CORES - 1))
 
-  # command
-  cmd="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
+  # base command (nice lowers priority so OS stays responsive)
+  cmd="nice -n 5 python -u tools/rangenet/worker_flop.py --queue-url \"$sqs_queue_url\" --region \"$AWS_REGION\""
   if [ -n "$sqs_dlq_url" ]; then
-    cmd="$cmd --dlq-url $sqs_dlq_url"
+    cmd="$cmd --dlq-url \"$sqs_dlq_url\""
   fi
 
-  # envs for container
   docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
                -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 \
                -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
-               -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
+               -e PYTHONUNBUFFERED=$(getenv_or_default PYTHONUNBUFFERED 1)"
   [ -n "$access_key_id" ]     && docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"
   [ -n "$secret_access_key" ] && docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"
 
   docker run -d --rm \
     --name "$NAME" \
+    --cpuset-cpus "$CPU" \
     $run_mem_flag \
     --env-file /etc/pokerai.env \
     $docker_args \
     "$ecr_image" \
-    $cmd
+    sh -lc "$cmd"
 
-  echo "[init] started $NAME -> $LOG"
+  echo "[init] started $NAME (cpu=$CPU) -> $LOG"
   ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
   sleep 0.2
 done

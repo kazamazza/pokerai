@@ -67,7 +67,6 @@ worker_configs = {
     worker_name       = "preflop_worker"
   }
 
-
   equities = {
     script_to_run     = "workers/equity/sqs_worker.py"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-queue"
