@@ -151,12 +151,12 @@ systemctl enable --now docker
 # ECR login + pull with debug and retries (tag-aware)
 ecr_repo="214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker"
 
+# --- safe env helpers (no failing printenv) ---
+getenv() { printenv "$1" 2>/dev/null || true; }
+getenv_or_default() { v="$(getenv "$1")"; [ -n "$v" ] && printf '%s' "$v" || printf '%s' "$2"; }
+
 # Determine tag (default to amd64 if IMAGE_TAG not provided)
-if [ -z "$(printenv IMAGE_TAG 2>/dev/null)" ]; then
-  IMAGE_TAG="amd64"
-else
-  IMAGE_TAG="$(printenv IMAGE_TAG)"
-fi
+IMAGE_TAG="$(getenv_or_default IMAGE_TAG amd64)"
 ecr_image="$ecr_repo:$IMAGE_TAG"
 
 debug_ecr(){
@@ -168,30 +168,17 @@ debug_ecr(){
   aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$reg"
 }
 
-pull_with_retry(){
-  local img="$1"
-  retry "docker pull $img" 5
-}
+pull_with_retry(){ local img="$1"; retry "docker pull $img" 5; }
 
 log "Logging into ECR..."
-if ! debug_ecr; then
-  echo "[cloud-init] [fatal] ECR login failed"
-  exit 1
-fi
+if ! debug_ecr; then echo "[cloud-init] [fatal] ECR login failed"; exit 1; fi
 
 log "Pulling image: $ecr_image"
-if ! pull_with_retry "$ecr_image"; then
-  echo "[cloud-init] [fatal] docker pull failed for $ecr_image"
-  exit 1
-fi
+if ! pull_with_retry "$ecr_image"; then echo "[cloud-init] [fatal] docker pull failed for $ecr_image"; exit 1; fi
 
 # ---- capacity planning (max out vCPU, cap by RAM) ----
-# knobs (can be set in /etc/pokerai.env): TARGET_MEM_PER_WORKER (e.g. 3g), RESERVE_MEM_GB (e.g. 2), MAX_PROCS
-
-TARGET_MEM_PER_WORKER="$(printenv TARGET_MEM_PER_WORKER 2>/dev/null)"
-[ -z "$TARGET_MEM_PER_WORKER" ] && TARGET_MEM_PER_WORKER="3g"
-RESERVE_MEM_GB="$(printenv RESERVE_MEM_GB 2>/dev/null)"
-[ -z "$RESERVE_MEM_GB" ] && RESERVE_MEM_GB="2"
+TARGET_MEM_PER_WORKER="$(getenv_or_default TARGET_MEM_PER_WORKER 3g)"
+RESERVE_MEM_GB="$(getenv_or_default RESERVE_MEM_GB 2)"
 
 to_kb() {
   val="$1"
@@ -216,21 +203,20 @@ else
 fi
 [ "$MAX_BY_RAM" -lt 1 ] && MAX_BY_RAM=1
 
-if env | grep -q '^MAX_PROCS=' && [ -n "$(printenv MAX_PROCS)" ]; then
-  N="$(printenv MAX_PROCS)"
+MAX_PROCS_VAL="$(getenv MAX_PROCS)"
+if [ -n "$MAX_PROCS_VAL" ]; then
+  N="$MAX_PROCS_VAL"
 else
   if [ "$CORES" -lt "$MAX_BY_RAM" ]; then N="$CORES"; else N="$MAX_BY_RAM"; fi
 fi
 
-MEM_LIMIT="$(printenv MEM_LIMIT 2>/dev/null)"
-[ -z "$MEM_LIMIT" ] && MEM_LIMIT="$TARGET_MEM_PER_WORKER"
+MEM_LIMIT="$(getenv_or_default MEM_LIMIT "$TARGET_MEM_PER_WORKER")"
 
 log "Capacity: CORES=$CORES TOTAL_RAM_KB=$TOTAL_KB RES_KB=$RES_KB PER_WORKER_KB=$PER_KB"
 log "Computed: MAX_BY_RAM=$MAX_BY_RAM  N=$N  MEM_LIMIT=$MEM_LIMIT"
 
 # ---- launch workers (no CPU cap, unbuffered Python, visible logs) ----
-# ensure unbuffered python logs
-PYTHONUNBUFFERED="$(printenv PYTHONUNBUFFERED 2>/dev/null)"; [ -z "$PYTHONUNBUFFERED" ] && PYTHONUNBUFFERED="1"
+PYTHONUNBUFFERED="$(getenv_or_default PYTHONUNBUFFERED 1)"
 
 for i in $(seq 1 "$N"); do
   NAME="worker_$i"
@@ -244,12 +230,8 @@ for i in $(seq 1 "$N"); do
 
   # build env args (plain string; add AWS keys only if present)
   docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
-  if [ -n "$access_key_id" ]; then
-    docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"
-  fi
-  if [ -n "$secret_access_key" ]; then
-    docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"
-  fi
+  if [ -n "$access_key_id" ]; then docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"; fi
+  if [ -n "$secret_access_key" ]; then docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"; fi
 
   docker run -d --rm \
     --name "$NAME" \
