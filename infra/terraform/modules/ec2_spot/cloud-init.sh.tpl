@@ -232,15 +232,15 @@ for i in $(seq 1 "$N"); do
   NAME="worker_$i"
   LOG="/var/log/$${NAME}.log"
 
-  # build command (unbuffered python)
   CMD_STR="python -u tools/rangenet/worker_flop.py --queue-url $sqs_queue_url --region $AWS_REGION"
   if [ -n "$sqs_dlq_url" ]; then
     CMD_STR="$CMD_STR --dlq-url $sqs_dlq_url"
   fi
 
   DOCKER_ENV_ARGS="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
-                   -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
-                   -e PYTHONUNBUFFERED=$PYTHONUNBUFFERED"
+                   -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 \
+                   -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
+                   -e PYTHONUNBUFFERED=1"
   if [ -n "$access_key_id" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_ACCESS_KEY_ID=$access_key_id"; fi
   if [ -n "$secret_access_key" ]; then DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e AWS_SECRET_ACCESS_KEY=$secret_access_key"; fi
 
