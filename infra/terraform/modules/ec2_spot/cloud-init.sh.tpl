@@ -122,10 +122,17 @@ set +o allexport
 N="$${MAX_PROCS:-}"
 if [ -z "$N" ]; then
   CORES="$(nproc || echo 1)"
-  HEADROOM=1
-  N=$(( CORES - HEADROOM ))
-  [ "$N" -lt 1 ] && N=1
+  HALF=$(( CORES / 2 ))              # vCPU/2
+  [ "$HALF" -lt 1 ] && HALF=1
+  MAXCPU=$(( CORES - 1 ))            # leave 1 core for OS/sshd
+  [ "$MAXCPU" -lt 1 ] && MAXCPU=1
+  if [ "$HALF" -le "$MAXCPU" ]; then
+    N="$HALF"
+  else
+    N="$MAXCPU"
+  fi
 fi
+echo "[init] Launching $N worker processes..."
 
 # Don’t let native libs oversubscribe threads
 export OMP_NUM_THREADS=1
