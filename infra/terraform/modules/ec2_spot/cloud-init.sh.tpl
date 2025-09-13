@@ -52,9 +52,38 @@ else
   log "[WARN] Unknown FS type: $FS_TYPE"
 fi
 
-log "Disk usage after resize:"
-df -h /
+# --- Install TexasSolver (Linux x86_64) and publish SOLVER_BIN ---
+SOLVER_DIR="/opt/texas-solver"
+VER="v0.2.0"   # change here when you want a newer release
+ASSET="TexasSolver-$VER-Linux.zip"
+URL="https://github.com/bupticybee/TexasSolver/releases/download/$VER/$ASSET"
 
+if [ ! -x "$SOLVER_DIR/console_solver" ]; then
+  log "Installing TexasSolver $VER …"
+  mkdir -p "$SOLVER_DIR"
+  curl -fsSL "$URL" -o /tmp/solver.zip
+  unzip -oq /tmp/solver.zip -d "$SOLVER_DIR/"
+  rm -f /tmp/solver.zip || true
+
+  # find the console_solver inside the extracted folder
+  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n1 || true)"
+  if [ -z "$BIN" ]; then
+    log "[ERROR] console_solver not found after unzip"; ls -R "$SOLVER_DIR"; exit 1
+  fi
+
+  install -m 0755 "$BIN" "$SOLVER_DIR/console_solver"
+  ln -sf "$SOLVER_DIR/console_solver" /usr/local/bin/texas-solver
+fi
+
+chmod 0755 "$SOLVER_DIR/console_solver"
+
+# Make it visible to all users and future shells
+grep -q '^SOLVER_BIN=' /etc/environment || echo "SOLVER_BIN=$SOLVER_DIR/console_solver" | sudo tee -a /etc/environment >/dev/null
+# (optionally ensure /opt/texas-solver is on PATH for interactive shells)
+if ! grep -q '/opt/texas-solver' /etc/environment; then
+  echo 'PATH="/opt/texas-solver:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' | sudo tee -a /etc/environment >/dev/null
+fi
+export SOLVER_BIN="$SOLVER_DIR/console_solver"
 
 REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
 log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
@@ -70,10 +99,6 @@ python3.11 -m venv env || { log "venv failed"; exit 1; }
 source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
-
-
-# Export config to global environment
-
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
@@ -95,7 +120,8 @@ set +o allexport
 # Escape ONLY this default expansion so Terraform doesn't interpolate it.
 N="$${MAX_PROCS:-}"
 if [ -z "$N" ]; then
-  N="$(nproc || echo 1)"
+  CORES="$(nproc || echo 1)"
+  N=$(( CORES > 1 ? CORES - 1 : 1 ))   # leave 1 core for sshd/OS by default
 fi
 
 # Don’t let native libs oversubscribe threads
