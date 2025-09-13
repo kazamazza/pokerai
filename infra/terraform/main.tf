@@ -58,11 +58,11 @@ module "ephemeral_jobs" {
   security_group_ids    = var.security_group_ids
   github_token          = var.github_token
 
-  script_to_run         = each.value.script_to_run
-  aws_sqs_queue_url     = each.value.aws_sqs_queue_url
-  instance_type         = each.value.instance_type
   subnet_id             = var.subnet_ids[0] # pick one subnet
-  aws_sqs_dlq_url       = each.value.aws_sqs_queue_url
+  aws_sqs_dlq_url   = ""
+  aws_sqs_queue_url = ""
+  instance_type     = ""
+  script_to_run     = ""
 }
 
 output "ephemeral_job_names" {

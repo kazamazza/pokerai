@@ -4,6 +4,11 @@ resource "aws_launch_template" "worker_template" {
   instance_type = "c5.xlarge"
   key_name      = var.key_name
 
+  network_interfaces {
+    device_index                = 0
+    associate_public_ip_address = true   # 👈 ensure a public IP is given
+  }
+
   monitoring {
     enabled = true
   }

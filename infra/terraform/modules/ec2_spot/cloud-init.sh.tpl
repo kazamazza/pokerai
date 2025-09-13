@@ -1,115 +1,90 @@
 #!/bin/bash
 # cloud-init.sh.tpl
 
-# Strict + trap to surface exact failure line and push logs
-set -Eeuo pipefail
-trap 'ec=$?; echo "[cloud-init:ERR] line $LINENO: $BASH_COMMAND (exit=$ec)" >&2; push_cw_init_log || true; exit $ec' ERR
+set -euo pipefail
 
-# ===== Terraform-injected vars =====
+# Variables passed from Terraform
 github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
 sqs_dlq_url="${aws_sqs_dlq_url}"
-script_to_run="${script_to_run}"            # e.g. tools/rangenet/worker_flop.py
+access_key_id="${aws_access_key_id}"
+secret_access_key="${aws_secret_access_key}"
+script_to_run="${script_to_run}"
 worker_name="${worker_name}"
 
-
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-log(){ echo "[cloud-init] $*"; }
-safe(){ "$@" || echo "[WARN] $* failed (ignored)"; }
 
-
-retry() {
-  local cmd="$1"
-  local max
-  if [ $# -ge 2 ] && [ -n "$2" ]; then
-    max="$2"
-  else
-    max=5
-  fi
-  local a=0
-  while :; do
-    eval "$cmd" && return 0
-    a=$((a+1))
-    [ "$a" -ge "$max" ] && return 1
-    sleep $((2**a))
-  done
-}
-
-# Push cloud-init logs to CloudWatch
-push_cw_init_log(){
-  local REGION; REGION="$(printenv AWS_REGION 2>/dev/null || echo eu-central-1)"
-  local GROUP="/spot-workers/${worker_name}"
-  local TOKEN; TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" || true)"
-  local IID; IID="$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo unknown)"
-  local STREAM="init-$IID"
-
-  aws logs create-log-group  --log-group-name "$GROUP" --region "$REGION" 2>/dev/null || true
-  aws logs create-log-stream --log-group-name "$GROUP" --log-stream-name "$STREAM" --region "$REGION" 2>/dev/null || true
-
-  local TS; TS="$(date +%s%3N)"
-  local MSG; MSG="$(sed 's/\"/'\''/g' /var/log/user-data.log 2>/dev/null || true)"
-  [ -n "$MSG" ] && aws logs put-log-events --log-group-name "$GROUP" --log-stream-name "$STREAM" --region "$REGION" --log-events timestamp="$TS",message="$MSG" >/dev/null 2>&1 || true
+log() {
+  echo "[cloud-init] $1"
 }
 
 log "Starting instance initialization."
 
-# ===== Base OS + AWS CLI + Python 3.11 =====
-retry "apt-get update -y" 4 || apt-get update -y
-retry "apt-get -y upgrade" 2 || true
-apt-get install -y git software-properties-common unzip curl jq taskset util-linux
-curl -fsSLo awscliv2.zip "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
-unzip -q awscliv2.zip
-./aws/install --update || ./aws/install || true
+apt-get update -y && apt-get upgrade -y
+apt-get install -y git software-properties-common unzip curl jq
 
-add-apt-repository -y ppa:deadsnakes/ppa
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip -q awscliv2.zip
+./aws/install --update
+
+add-apt-repository ppa:deadsnakes/ppa -y
 apt-get update -y
 apt-get install -y python3.11 python3.11-venv python3.11-dev
 
-# ===== Grow root FS (idempotent) =====
 PARTITION=$(findmnt -n -o SOURCE /)
-ROOT_DEVICE="/dev/$(lsblk -no pkname "$PARTITION")"
-log "Root device: $ROOT_DEVICE  Partition: $PARTITION"
-log "Disk usage before resize:"; df -h /
-safe growpart "$ROOT_DEVICE" 1
-FS_TYPE=$(df -T / | tail -1 | awk '{print $2}')
-if [ "$FS_TYPE" = "ext4" ]; then safe resize2fs "$PARTITION"
-elif [ "$FS_TYPE" = "xfs" ]; then safe xfs_growfs /
-else log "[WARN] Unknown FS type: $FS_TYPE"
-fi
-log "Disk usage after resize:"; df -h /
+ROOT_DEVICE=$(lsblk -no pkname "$PARTITION")
+ROOT_DEVICE="/dev/$ROOT_DEVICE"
 
-# ===== Clone repo =====
+log "Root device: $ROOT_DEVICE"
+log "Partition: $PARTITION"
+
+log "Disk usage before resize:"
+df -h /
+
+growpart "$ROOT_DEVICE" 1 || log "[WARN] growpart may already be applied"
+
+FS_TYPE=$(df -T / | tail -1 | awk '{print $2}')
+if [[ "$FS_TYPE" == "ext4" ]]; then
+  resize2fs "$PARTITION" || log "[WARN] resize2fs may already be applied"
+elif [[ "$FS_TYPE" == "xfs" ]]; then
+  xfs_growfs / || log "[WARN] xfs_growfs may already be applied"
+else
+  log "[WARN] Unknown FS type: $FS_TYPE"
+fi
+
+log "Disk usage after resize:"
+df -h /
+
+
 REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
-cd /home/ubuntu
-if [ ! -d pokerai ]; then
-  log "Cloning repo…"
-  if ! git clone "$REPO_URL" pokerai; then log "[ERROR] Git clone failed"; exit 1; fi
+log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
+
+cd /home/ubuntu || exit 1
+if ! git clone "$REPO_URL"; then
+  log "[ERROR] Git clone failed."
+  exit 1
 fi
 cd pokerai
 
-# ===== Python venv + deps =====
 python3.11 -m venv env || { log "venv failed"; exit 1; }
-# shellcheck disable=SC1091
-. env/bin/activate
+source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-
+# === TexasSolver install ===
 SOLVER_DIR="/opt/texas-solver"
+TEXASSOLVER_VERSION="v0.2.0"
+ASSET="TexasSolver-$${TEXASSOLVER_VERSION}-Linux.zip"
+URL="https://github.com/bupticybee/TexasSolver/releases/download/$${TEXASSOLVER_VERSION}/TexasSolver-$${TEXASSOLVER_VERSION}-Linux.zip"
+
 if [ ! -x "$SOLVER_DIR/console_solver" ]; then
-  log "Installing TexasSolver..."
+  log "Installing TexasSolver $${TEXASSOLVER_VERSION}…"
   mkdir -p "$SOLVER_DIR"
-
-  TEXASSOLVER_VERSION="v0.2.0"
-  ASSET="TexasSolver-$TEXASSOLVER_VERSION-Linux.zip"
-  URL="https://github.com/bupticybee/TexasSolver/releases/download/$TEXASSOLVER_VERSION/$ASSET"
-
-  curl -fSL "$URL" -o /tmp/solver.zip
+  curl -fsSL "$URL" -o /tmp/solver.zip
   unzip -oq /tmp/solver.zip -d "$SOLVER_DIR/"
   rm -f /tmp/solver.zip || true
 
-  # find placed binary
-  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n 1 || true)"
+  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n1 || true)"
   if [ -z "$BIN" ]; then
     log "[ERROR] console_solver not found after unzip"
     ls -R "$SOLVER_DIR"
@@ -118,78 +93,76 @@ if [ ! -x "$SOLVER_DIR/console_solver" ]; then
 
   install -m 0755 "$BIN" "$SOLVER_DIR/console_solver"
 fi
-
 chmod 0755 "$SOLVER_DIR/console_solver"
+
+# Make it visible to all processes (shells and workers)
+echo "SOLVER_BIN=$SOLVER_DIR/console_solver" | sudo tee -a /etc/environment >/dev/null
 export SOLVER_BIN="$SOLVER_DIR/console_solver"
 
-# ===== Export runtime env for this shell (and children) =====
-export AWS_REGION="eu-central-1"
-export AWS_DEFAULT_REGION="eu-central-1"
-export AWS_SQS_QUEUE_URL="$sqs_queue_url"
-export AWS_SQS_DLQ_URL="$sqs_dlq_url"
-export WORKER_TAG="$worker_name"
-export PYTHONUNBUFFERED=1
+# === Global environment vars ===
+echo "AWS_REGION=eu-central-1"            | sudo tee -a /etc/environment >/dev/null
+echo "AWS_DEFAULT_REGION=eu-central-1"    | sudo tee -a /etc/environment >/dev/null
+echo "AWS_BUCKET_NAME=pokeraistore"       | sudo tee -a /etc/environment >/dev/null
+echo "AWS_SQS_QUEUE_URL=$sqs_queue_url"   | sudo tee -a /etc/environment >/dev/null
+echo "AWS_SQS_DLQ_URL=$sqs_dlq_url"       | sudo tee -a /etc/environment >/dev/null
 
-# ===== Worker scaling: one process per vCPU with headroom (defaults) =====
-CORES="$(nproc || echo 1)"
-HEADROOM="$(printenv HEADROOM 2>/dev/null || echo 1)"          # leave at least 1 core for OS/sshd
-if [ "$HEADROOM" -lt 1 ]; then HEADROOM=1; fi
-MAX_PROCS_ENV="$(printenv MAX_PROCS 2>/dev/null || true)"
-if [ -n "$MAX_PROCS_ENV" ]; then
-  N="$MAX_PROCS_ENV"
-else
-  N=$(( CORES - HEADROOM ))
-  [ "$N" -lt 1 ] && N=1
+# Optional: tag shell sessions
+echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
+
+# ===== Runtime setup & launch =====
+set +u
+set -o allexport
+source /etc/environment || true
+set +o allexport
+
+# Decide process count: operator can export MAX_PROCS in /etc/environment.
+# Escape ONLY this default expansion so Terraform doesn't interpolate it.
+N="$${MAX_PROCS:-}"
+if [ -z "$N" ]; then
+  N="$(nproc || echo 1)"
 fi
 
-# Each worker should use exactly 1 thread to avoid oversubscription
-THREADS_PER_WORKER="$(printenv THREADS_PER_WORKER 2>/dev/null || echo 1)"
-log "CORES=$CORES  HEADROOM=$HEADROOM  N(workers)=$N  THREADS_PER_WORKER=$THREADS_PER_WORKER"
+# Don’t let native libs oversubscribe threads
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
 
-# Wait for sshd to be active before loading CPU
-for _ in 1 2 3 4 5; do systemctl is-active ssh >/dev/null 2>&1 && break; sleep 2; done
+echo "[init] Launching $N worker processes..."
 
-# Gentle pre-launch guard: 1-min load < CORES
-for _ in 1 2 3 4 5; do
-  LA_INT="$(awk '{print int($1)}' /proc/loadavg)"
-  [ "$LA_INT" -lt "$CORES" ] && break
-  log "Host busy (load=$LA_INT); sleeping 5s…"; sleep 5
-done
-
-# ===== Launch N pinned workers (nice + taskset) =====
-mkdir -p /var/log
-PIDS_FILE="/var/run/pokerai_workers.pids"
+PIDS_FILE=/var/run/worker_pids.txt
+mkdir -p /var/run
 : > "$PIDS_FILE"
 
 for i in $(seq 1 "$N"); do
-  # Pin away from CPU 0 if possible to keep OS/sshd responsive
-  if [ "$CORES" -gt 1 ]; then
-    CPU="$i"
-    [ "$CPU" -ge "$CORES" ] && CPU=$(( (i % (CORES-1)) + 1 ))
-  else
-    CPU=0
-  fi
-
-  NAME="worker_$i"
-  LOGF="/var/log/$NAME.log"
-
-  # Exact command your worker expects
-  CMD="python -u $script_to_run --queue-url \"$AWS_SQS_QUEUE_URL\" --region \"$AWS_REGION\" --threads \"$THREADS_PER_WORKER\""
-  [ -n "$AWS_SQS_DLQ_URL" ] && CMD="$CMD --dlq-url \"$AWS_SQS_DLQ_URL\""
-
-  # Run unbuffered, pinned, lower priority; tee to log and background
-  bash -lc "exec nice -n 5 taskset -c $CPU stdbuf -oL -eL $CMD" >> "$LOGF" 2>&1 &
-
+  LOG="/var/log/worker_$i.log"
+  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "$LOG" 2>&1 &
   PID=$!
   echo "$PID" >> "$PIDS_FILE"
-  log "Started $NAME (pid=$PID, cpu=$CPU) -> $LOGF"
-  sleep 0.5
+  echo "[init] started worker_$i pid $PID -> $LOG"
+  sleep 0.2
 done
 
-# ===== Summary + keep running (no shutdown here) =====
-log "Workers started: $(wc -l < "$PIDS_FILE") of $N expected."
-ps -o pid,psr,ni,pcpu,pmem,cmd -p $(tr '\n' ' ' < "$PIDS_FILE") || true
+STARTED="$(wc -l < "$PIDS_FILE" | tr -d ' ')"
+echo "[init] Launched $STARTED workers."
 
-push_cw_init_log || true
+# CloudWatch Log Upload (safe method without inline subshells)
+REGION="eu-central-1"
+IMDS_TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo unknown)
+
+set +e
+aws logs create-log-group --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
+aws logs create-log-stream --log-group-name "/spot-workers/${worker_name}" --log-stream-name "init-$INSTANCE_ID" --region "$REGION" || true
+TIMESTAMP=$(date +%s%3N)
+LOG_MSG=$(sed "s/\"/'/g" /var/log/cloud-init-output.log)
+aws logs put-log-events \
+  --log-group-name "/spot-workers/${worker_name}" \
+  --log-stream-name "init-$INSTANCE_ID" \
+  --region "$REGION" \
+  --log-events timestamp=$TIMESTAMP,message="$LOG_MSG" || true
+set -e
+
+log "CloudWatch init logs pushed."
 log "Initialization complete."
 exit 0
