@@ -117,22 +117,9 @@ set -o allexport
 source /etc/environment || true
 set +o allexport
 
-# Decide process count: operator can export MAX_PROCS in /etc/environment.
-# Escape ONLY this default expansion so Terraform doesn't interpolate it.
-N="$${MAX_PROCS:-}"
-if [ -z "$N" ]; then
-  CORES="$(nproc || echo 1)"
-  HALF=$(( CORES / 2 ))              # vCPU/2
-  [ "$HALF" -lt 1 ] && HALF=1
-  MAXCPU=$(( CORES - 1 ))            # leave 1 core for OS/sshd
-  [ "$MAXCPU" -lt 1 ] && MAXCPU=1
-  if [ "$HALF" -le "$MAXCPU" ]; then
-    N="$HALF"
-  else
-    N="$MAXCPU"
-  fi
-fi
-echo "[init] Launching $N worker processes..."
+# Decide process count: force a single worker
+N=1
+echo "[init] Launching $N worker process..."
 
 # Don’t let native libs oversubscribe threads
 export OMP_NUM_THREADS=1
@@ -140,23 +127,18 @@ export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-echo "[init] Launching $N worker processes..."
-
 PIDS_FILE=/var/run/worker_pids.txt
 mkdir -p /var/run
 : > "$PIDS_FILE"
 
-for i in $(seq 1 "$N"); do
-  LOG="/var/log/worker_$i.log"
-  nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "$LOG" 2>&1 &
-  PID=$!
-  echo "$PID" >> "$PIDS_FILE"
-  echo "[init] started worker_$i pid $PID -> $LOG"
-  sleep 0.2
-done
+LOG="/var/log/worker_1.log"
+nohup /home/ubuntu/pokerai/env/bin/python -u "$script_to_run" > "$LOG" 2>&1 &
+PID=$!
+echo "$PID" >> "$PIDS_FILE"
+echo "[init] started worker_1 pid $PID -> $LOG"
 
 STARTED="$(wc -l < "$PIDS_FILE" | tr -d ' ')"
-echo "[init] Launched $STARTED workers."
+echo "[init] Launched $STARTED worker."
 
 # CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"

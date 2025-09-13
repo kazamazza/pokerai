@@ -50,16 +50,8 @@ worker_configs = {
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/214061305689/postflop-chart-dlq"
     instance_types    = [
       # Primary compute families
-      "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
-      "c6a.xlarge", "c6a.2xlarge", "c6a.4xlarge",
-      "c5.xlarge",  "c5.2xlarge",  "c5.4xlarge",
-      "c5a.xlarge", "c5a.2xlarge", "c5a.4xlarge",
-      "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge",
-      "c6in.xlarge","c6in.2xlarge","c6in.4xlarge",
-      # NVMe instance-store variants
-      "c6id.xlarge","c6id.2xlarge","c5d.xlarge","c5d.2xlarge",
-      # General-purpose fallbacks
-      "m6i.xlarge","m6i.2xlarge","m5.xlarge","m5.2xlarge"
+      "m6i.xlarge", "m6i.2xlarge", "r6i.xlarge", "r6i.2xlarge",
+  "m5.xlarge",  "m5.2xlarge",  "r5.xlarge",  "r5.2xlarge"
     ]
     min_size          = 0
     max_size          = 15
