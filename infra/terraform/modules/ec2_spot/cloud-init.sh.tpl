@@ -1,220 +1,195 @@
 #!/bin/bash
 # cloud-init.sh.tpl
 
-# strict mode + line-level error tracing into logs
+# Strict + trap to surface exact failure line and push logs
 set -Eeuo pipefail
 trap 'ec=$?; echo "[cloud-init:ERR] line $LINENO: $BASH_COMMAND (exit=$ec)" >&2; push_cw_init_log || true; exit $ec' ERR
 
-# Variables passed from Terraform
+# ===== Terraform-injected vars =====
 github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
 sqs_dlq_url="${aws_sqs_dlq_url}"
-access_key_id="${aws_access_key_id}"
-secret_access_key="${aws_secret_access_key}"
-script_to_run="${script_to_run}"
+script_to_run="${script_to_run}"            # e.g. tools/rangenet/worker_flop.py
 worker_name="${worker_name}"
 
-# unified logging
+
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-
 log(){ echo "[cloud-init] $*"; }
-
 safe(){ "$@" || echo "[WARN] $* failed (ignored)"; }
 
-retry(){
-  local cmd=$1
-  local max=$2
-  if [ -z "$max" ]; then
+
+retry() {
+  local cmd="$1"
+  local max
+  if [ $# -ge 2 ] && [ -n "$2" ]; then
+    max="$2"
+  else
     max=5
   fi
   local a=0
-  while true; do
+  while :; do
     eval "$cmd" && return 0
     a=$((a+1))
-    if [ $a -ge $max ]; then
-      return 1
-    fi
+    [ "$a" -ge "$max" ] && return 1
     sleep $((2**a))
   done
 }
 
-# push cloud-init logs to CloudWatch (called on success and in trap)
+# Push cloud-init logs to CloudWatch
 push_cw_init_log(){
-  REGION="$(printenv AWS_REGION 2>/dev/null)"
-  if [ -z "$REGION" ]; then
-    REGION="eu-central-1"
-  fi
-
-  GROUP="/spot-workers/${worker_name}"
-
-  TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" \
-           -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" || true)"
-  IID="$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
-          http://169.254.169.254/latest/meta-data/instance-id || echo unknown)"
-  STREAM="init-$IID"
+  local REGION; REGION="$(printenv AWS_REGION 2>/dev/null || echo eu-central-1)"
+  local GROUP="/spot-workers/${worker_name}"
+  local TOKEN; TOKEN="$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" || true)"
+  local IID; IID="$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo unknown)"
+  local STREAM="init-$IID"
 
   aws logs create-log-group  --log-group-name "$GROUP" --region "$REGION" 2>/dev/null || true
   aws logs create-log-stream --log-group-name "$GROUP" --log-stream-name "$STREAM" --region "$REGION" 2>/dev/null || true
 
-  TS="$(date +%s%3N)"
-  MSG="$(sed 's/\"/'\''/g' /var/log/cloud-init-output.log 2>/dev/null || true)"
-
-  if [ -n "$MSG" ]; then
-    aws logs put-log-events \
-      --log-group-name "$GROUP" \
-      --log-stream-name "$STREAM" \
-      --region "$REGION" \
-      --log-events timestamp="$TS",message="$MSG" >/dev/null 2>&1 || true
-  fi
+  local TS; TS="$(date +%s%3N)"
+  local MSG; MSG="$(sed 's/\"/'\''/g' /var/log/user-data.log 2>/dev/null || true)"
+  [ -n "$MSG" ] && aws logs put-log-events --log-group-name "$GROUP" --log-stream-name "$STREAM" --region "$REGION" --log-events timestamp="$TS",message="$MSG" >/dev/null 2>&1 || true
 }
 
 log "Starting instance initialization."
 
+# ===== Base OS + AWS CLI + Python 3.11 =====
 retry "apt-get update -y" 4 || apt-get update -y
 retry "apt-get -y upgrade" 2 || true
-apt-get install -y git software-properties-common unzip curl jq
-
+apt-get install -y git software-properties-common unzip curl jq taskset util-linux
 curl -fsSLo awscliv2.zip "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
 unzip -q awscliv2.zip
 ./aws/install --update || ./aws/install || true
 
-add-apt-repository ppa:deadsnakes/ppa -y
+add-apt-repository -y ppa:deadsnakes/ppa
 apt-get update -y
 apt-get install -y python3.11 python3.11-venv python3.11-dev
 
+# ===== Grow root FS (idempotent) =====
 PARTITION=$(findmnt -n -o SOURCE /)
-ROOT_DEVICE=$(lsblk -no pkname "$PARTITION")
-ROOT_DEVICE="/dev/$ROOT_DEVICE"
-log "Root device: $ROOT_DEVICE"
-log "Partition: $PARTITION"
+ROOT_DEVICE="/dev/$(lsblk -no pkname "$PARTITION")"
+log "Root device: $ROOT_DEVICE  Partition: $PARTITION"
 log "Disk usage before resize:"; df -h /
-
 safe growpart "$ROOT_DEVICE" 1
 FS_TYPE=$(df -T / | tail -1 | awk '{print $2}')
-if [[ "$FS_TYPE" == "ext4" ]]; then
-  safe resize2fs "$PARTITION"
-elif [[ "$FS_TYPE" == "xfs" ]]; then
-  safe xfs_growfs /
-else
-  log "[WARN] Unknown FS type: $FS_TYPE"
+if [ "$FS_TYPE" = "ext4" ]; then safe resize2fs "$PARTITION"
+elif [ "$FS_TYPE" = "xfs" ]; then safe xfs_growfs /
+else log "[WARN] Unknown FS type: $FS_TYPE"
 fi
 log "Disk usage after resize:"; df -h /
 
-# Build env file for containers (instead of /etc/environment)
-CONTAINER_ENV="/etc/pokerai.env"
-sudo bash -c "cat > $CONTAINER_ENV" <<EOF
-AWS_REGION=eu-central-1
-AWS_DEFAULT_REGION=eu-central-1
-AWS_BUCKET_NAME=pokeraistore
-AWS_SQS_QUEUE_URL=$sqs_queue_url
-AWS_SQS_DLQ_URL=$sqs_dlq_url
-SOLVER_BIN=/opt/texas-solver/console_solver
-WORKER_TAG=${worker_name}
-MEM_LIMIT=6g
-MAX_PROCS=
-EOF
-sudo chmod 0644 "$CONTAINER_ENV"
-
-# Tag shell sessions with worker name
-echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
-
-# Docker
-set +u
-set -o allexport
-source "$CONTAINER_ENV" || true
-set +o allexport
-
-log "Installing Docker..."
-apt-get update -y
-apt-get install -y ca-certificates curl gnupg
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc >/dev/null
-chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
-apt-get update -y
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-usermod -aG docker ubuntu || true
-systemctl enable --now docker
-
-# ECR login + pull with debug and retries (tag-aware)
-ecr_repo="214061305689.dkr.ecr.eu-central-1.amazonaws.com/pokerai-worker"
-
-# --- safe env helpers (no failing printenv) ---
-getenv() { printenv "$1" 2>/dev/null || true; }
-getenv_or_default() { v="$(getenv "$1")"; [ -n "$v" ] && printf '%s' "$v" || printf '%s' "$2"; }
-
-# Determine tag (default to amd64 if IMAGE_TAG not provided)
-IMAGE_TAG="$(getenv_or_default IMAGE_TAG amd64)"
-ecr_image="$ecr_repo:$IMAGE_TAG"
-
-debug_ecr(){
-  local reg
-  reg="$(echo "$ecr_repo" | cut -d/ -f1)"
-  echo "[debug] identity:"; aws sts get-caller-identity || true
-  echo "[debug] docker:"; systemctl is-active docker || true; docker info || sudo journalctl -u docker -n 120 --no-pager || true
-  echo "[debug] ecr login -> $reg"
-  aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$reg"
-}
-
-pull_with_retry(){ local img="$1"; retry "docker pull $img" 5; }
-
-log "Logging into ECR..."
-if ! debug_ecr; then echo "[cloud-init] [fatal] ECR login failed"; exit 1; fi
-
-log "Pulling image: $ecr_image"
-if ! pull_with_retry "$ecr_image"; then echo "[cloud-init] [fatal] docker pull failed for $ecr_image"; exit 1; fi
-
-# === SIMPLE CAPACITY: one worker per vCPU minus one for the OS ===
-CORES="$(nproc || echo 1)"
-OS_HEADROOM=1
-MAX_PROCS_VAL="$(getenv MAX_PROCS)"
-if [ -n "$MAX_PROCS_VAL" ]; then
-  N="$MAX_PROCS_VAL"
-else
-  N=$(( CORES > OS_HEADROOM ? CORES - OS_HEADROOM : 1 ))
+# ===== Clone repo =====
+REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
+cd /home/ubuntu
+if [ ! -d pokerai ]; then
+  log "Cloning repo…"
+  if ! git clone "$REPO_URL" pokerai; then log "[ERROR] Git clone failed"; exit 1; fi
 fi
-log "Launching $N workers (leaving $OS_HEADROOM vCPU for OS); MAX_PROCS can override."
+cd pokerai
 
-# optional per-container memory guardrail (ignored if unset)
-MEM_LIMIT_VAL="$(getenv MEM_LIMIT)"
-run_mem_flag=""
-[ -n "$MEM_LIMIT_VAL" ] && run_mem_flag="-m $MEM_LIMIT_VAL --memory-swap -1"
+# ===== Python venv + deps =====
+python3.11 -m venv env || { log "venv failed"; exit 1; }
+# shellcheck disable=SC1091
+. env/bin/activate
+pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
+pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-PYTHONUNBUFFERED="$(getenv_or_default PYTHONUNBUFFERED 1)"
 
-for i in $(seq 1 "$N"); do
-  NAME="worker_$i"
-  LOG="/var/log/$${NAME}.log"   # terraform-safe
-  CPU=$(( i - 1 )); [ $CPU -ge $CORES ] && CPU=$((CORES - 1))
+SOLVER_DIR="/opt/texas-solver"
+if [ ! -x "$SOLVER_DIR/console_solver" ]; then
+  log "Installing TexasSolver..."
+  mkdir -p "$SOLVER_DIR"
 
-  # base command (nice lowers priority so OS stays responsive)
-  cmd="nice -n 5 python -u tools/rangenet/worker_flop.py --queue-url \"$sqs_queue_url\" --region \"$AWS_REGION\""
-  if [ -n "$sqs_dlq_url" ]; then
-    cmd="$cmd --dlq-url \"$sqs_dlq_url\""
+  TEXASSOLVER_VERSION="v0.2.0"
+  ASSET="TexasSolver-$TEXASSOLVER_VERSION-Linux.zip"
+  URL="https://github.com/bupticybee/TexasSolver/releases/download/$TEXASSOLVER_VERSION/$ASSET"
+
+  curl -fSL "$URL" -o /tmp/solver.zip
+  unzip -oq /tmp/solver.zip -d "$SOLVER_DIR/"
+  rm -f /tmp/solver.zip || true
+
+  # find placed binary
+  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n 1 || true)"
+  if [ -z "$BIN" ]; then
+    log "[ERROR] console_solver not found after unzip"
+    ls -R "$SOLVER_DIR"
+    exit 1
   fi
 
-  docker_args="-e AWS_REGION=$AWS_REGION -e WORKER_TAG=$worker_name \
-               -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 \
-               -e MKL_NUM_THREADS=1 -e NUMEXPR_NUM_THREADS=1 \
-               -e PYTHONUNBUFFERED=$(getenv_or_default PYTHONUNBUFFERED 1)"
-  [ -n "$access_key_id" ]     && docker_args="$docker_args -e AWS_ACCESS_KEY_ID=$access_key_id"
-  [ -n "$secret_access_key" ] && docker_args="$docker_args -e AWS_SECRET_ACCESS_KEY=$secret_access_key"
+  install -m 0755 "$BIN" "$SOLVER_DIR/console_solver"
+fi
 
-  docker run -d --rm \
-    --name "$NAME" \
-    --cpuset-cpus "$CPU" \
-    $run_mem_flag \
-    --env-file /etc/pokerai.env \
-    $docker_args \
-    "$ecr_image" \
-    sh -lc "$cmd"
+chmod 0755 "$SOLVER_DIR/console_solver"
+export SOLVER_BIN="$SOLVER_DIR/console_solver"
 
-  echo "[init] started $NAME (cpu=$CPU) -> $LOG"
-  ( docker logs -f "$NAME" > "$LOG" 2>&1 ) &
-  sleep 0.2
+# ===== Export runtime env for this shell (and children) =====
+export AWS_REGION="eu-central-1"
+export AWS_DEFAULT_REGION="eu-central-1"
+export AWS_SQS_QUEUE_URL="$sqs_queue_url"
+export AWS_SQS_DLQ_URL="$sqs_dlq_url"
+export WORKER_TAG="$worker_name"
+export PYTHONUNBUFFERED=1
+
+# ===== Worker scaling: one process per vCPU with headroom (defaults) =====
+CORES="$(nproc || echo 1)"
+HEADROOM="$(printenv HEADROOM 2>/dev/null || echo 1)"          # leave at least 1 core for OS/sshd
+if [ "$HEADROOM" -lt 1 ]; then HEADROOM=1; fi
+MAX_PROCS_ENV="$(printenv MAX_PROCS 2>/dev/null || true)"
+if [ -n "$MAX_PROCS_ENV" ]; then
+  N="$MAX_PROCS_ENV"
+else
+  N=$(( CORES - HEADROOM ))
+  [ "$N" -lt 1 ] && N=1
+fi
+
+# Each worker should use exactly 1 thread to avoid oversubscription
+THREADS_PER_WORKER="$(printenv THREADS_PER_WORKER 2>/dev/null || echo 1)"
+log "CORES=$CORES  HEADROOM=$HEADROOM  N(workers)=$N  THREADS_PER_WORKER=$THREADS_PER_WORKER"
+
+# Wait for sshd to be active before loading CPU
+for _ in 1 2 3 4 5; do systemctl is-active ssh >/dev/null 2>&1 && break; sleep 2; done
+
+# Gentle pre-launch guard: 1-min load < CORES
+for _ in 1 2 3 4 5; do
+  LA_INT="$(awk '{print int($1)}' /proc/loadavg)"
+  [ "$LA_INT" -lt "$CORES" ] && break
+  log "Host busy (load=$LA_INT); sleeping 5s…"; sleep 5
 done
 
-log "All workers launched."
+# ===== Launch N pinned workers (nice + taskset) =====
+mkdir -p /var/log
+PIDS_FILE="/var/run/pokerai_workers.pids"
+: > "$PIDS_FILE"
+
+for i in $(seq 1 "$N"); do
+  # Pin away from CPU 0 if possible to keep OS/sshd responsive
+  if [ "$CORES" -gt 1 ]; then
+    CPU="$i"
+    [ "$CPU" -ge "$CORES" ] && CPU=$(( (i % (CORES-1)) + 1 ))
+  else
+    CPU=0
+  fi
+
+  NAME="worker_$i"
+  LOGF="/var/log/$NAME.log"
+
+  # Exact command your worker expects
+  CMD="python -u $script_to_run --queue-url \"$AWS_SQS_QUEUE_URL\" --region \"$AWS_REGION\" --threads \"$THREADS_PER_WORKER\""
+  [ -n "$AWS_SQS_DLQ_URL" ] && CMD="$CMD --dlq-url \"$AWS_SQS_DLQ_URL\""
+
+  # Run unbuffered, pinned, lower priority; tee to log and background
+  bash -lc "exec nice -n 5 taskset -c $CPU stdbuf -oL -eL $CMD" >> "$LOGF" 2>&1 &
+
+  PID=$!
+  echo "$PID" >> "$PIDS_FILE"
+  log "Started $NAME (pid=$PID, cpu=$CPU) -> $LOGF"
+  sleep 0.5
+done
+
+# ===== Summary + keep running (no shutdown here) =====
+log "Workers started: $(wc -l < "$PIDS_FILE") of $N expected."
+ps -o pid,psr,ni,pcpu,pmem,cmd -p $(tr '\n' ' ' < "$PIDS_FILE") || true
+
 push_cw_init_log || true
 log "Initialization complete."
 exit 0

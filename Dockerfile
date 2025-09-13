@@ -1,80 +1,31 @@
-############################
-# base: Ubuntu + Python 3.11 + solver (no ML)
-############################
-FROM ubuntu:20.04 AS base
-ARG DEBIAN_FRONTEND=noninteractive
+# API-only image (no solver, no worker stage)
+FROM python:3.11-slim AS api
 
-# System deps + Python 3.11
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget unzip curl \
-      software-properties-common \
-      libstdc++6 libgomp1 \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-      python3.11 python3.11-venv python3.11-dev \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
-    && python3.11 /tmp/get-pip.py \
-    && rm -rf /var/lib/apt/lists/* /tmp/get-pip.py
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Make python/pip default to 3.11
-RUN ln -sf /usr/bin/python3.11 /usr/local/bin/python && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip
-
-# Install prebuilt TexasSolver (console_solver) and expose a stable binary path
-WORKDIR /opt/texas-solver
-ARG TEXASSOLVER_VERSION=v0.2.0
-
-RUN set -e; \
-    ASSET="TexasSolver-${TEXASSOLVER_VERSION}-Linux.zip"; \
-    URL="https://github.com/bupticybee/TexasSolver/releases/download/${TEXASSOLVER_VERSION}/${ASSET}"; \
-    echo "Fetching ${URL}"; \
-    wget -q "${URL}" -O /tmp/solver.zip; \
-    unzip -oq /tmp/solver.zip -d /opt/texas-solver/; \
-    rm -f /tmp/solver.zip __MACOSX || true; \
-    chmod -R 755 /opt/texas-solver; \
-    BIN="$(find /opt/texas-solver -maxdepth 2 -type f -name console_solver | head -n1)"; \
-    if [ -z "$BIN" ]; then echo "console_solver not found after unzip" >&2; ls -R /opt/texas-solver >&2; exit 1; fi; \
-    install -m 0755 "$BIN" /usr/local/bin/texas-solver; \
-    ls -l /usr/local/bin/texas-solver; \
-    command -v texas-solver >/dev/null
-
-ENV PATH="/usr/local/bin:/opt/texas-solver:${PATH}" \
-    SOLVER_BIN="/usr/local/bin/texas-solver" \
-    OMP_NUM_THREADS=1 \
-    OPENBLAS_NUM_THREADS=1 \
-    MKL_NUM_THREADS=1 \
-    NUMEXPR_NUM_THREADS=1
-
-
-############################
-# worker image
-############################
-FROM base AS worker
 WORKDIR /app
 
-# Copy full project
-COPY . /app
+# Optional system deps (uncomment if you need to compile wheels)
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#       build-essential \
+#     && rm -rf /var/lib/apt/lists/*
 
-# Install runtime deps (use minimal worker requirements)
-COPY requirements-worker.txt /app/requirements-worker.txt
-RUN pip install --no-cache-dir -r /app/requirements-worker.txt \
- && rm -rf /root/.cache/pip
-
-# stay idle; cloud-init will call python tools/rangenet/worker_flop.py
-CMD ["sleep","infinity"]
-
-############################
-# api image
-############################
-FROM base AS api
-WORKDIR /app
-
-# Copy full project
-COPY . /app
-
-# Install runtime deps (use minimal API requirements)
+# Install runtime deps
 COPY requirements-api.txt /app/requirements-api.txt
-RUN pip install --no-cache-dir -r /app/requirements-api.txt \
- && rm -rf /root/.cache/pip
+RUN pip install --no-cache-dir -r /app/requirements-api.txt
+
+# Copy application code
+COPY . /app
+
+# Run as non-root
+RUN useradd -m -u 10001 appuser && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8080
+
+# (Optional) healthcheck if curl is available in your requirements
+# HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+#   CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]
