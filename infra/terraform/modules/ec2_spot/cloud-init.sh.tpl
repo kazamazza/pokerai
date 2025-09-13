@@ -71,40 +71,16 @@ source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-# === TexasSolver install ===
-SOLVER_DIR="/opt/texas-solver"
-TEXASSOLVER_VERSION="v0.2.0"
-ASSET="TexasSolver-$${TEXASSOLVER_VERSION}-Linux.zip"
-URL="https://github.com/bupticybee/TexasSolver/releases/download/$${TEXASSOLVER_VERSION}/TexasSolver-$${TEXASSOLVER_VERSION}-Linux.zip"
 
-if [ ! -x "$SOLVER_DIR/console_solver" ]; then
-  log "Installing TexasSolver $${TEXASSOLVER_VERSION}…"
-  mkdir -p "$SOLVER_DIR"
-  curl -fsSL "$URL" -o /tmp/solver.zip
-  unzip -oq /tmp/solver.zip -d "$SOLVER_DIR/"
-  rm -f /tmp/solver.zip || true
+# Export config to global environment
 
-  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n1 || true)"
-  if [ -z "$BIN" ]; then
-    log "[ERROR] console_solver not found after unzip"
-    ls -R "$SOLVER_DIR"
-    exit 1
-  fi
 
-  install -m 0755 "$BIN" "$SOLVER_DIR/console_solver"
-fi
-chmod 0755 "$SOLVER_DIR/console_solver"
-
-# Make it visible to all processes (shells and workers)
-echo "SOLVER_BIN=$SOLVER_DIR/console_solver" | sudo tee -a /etc/environment >/dev/null
-export SOLVER_BIN="$SOLVER_DIR/console_solver"
-
-# === Global environment vars ===
-echo "AWS_REGION=eu-central-1"            | sudo tee -a /etc/environment >/dev/null
-echo "AWS_DEFAULT_REGION=eu-central-1"    | sudo tee -a /etc/environment >/dev/null
-echo "AWS_BUCKET_NAME=pokeraistore"       | sudo tee -a /etc/environment >/dev/null
-echo "AWS_SQS_QUEUE_URL=$sqs_queue_url"   | sudo tee -a /etc/environment >/dev/null
-echo "AWS_SQS_DLQ_URL=$sqs_dlq_url"       | sudo tee -a /etc/environment >/dev/null
+# Set global environment vars
+echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
+echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
+echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 
 # Optional: tag shell sessions
 echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
