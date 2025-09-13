@@ -21,7 +21,8 @@ log() {
 log "Starting instance initialization."
 
 apt-get update -y && apt-get upgrade -y
-apt-get install -y git software-properties-common unzip curl jq libgomp1 libstdc++6
+apt-get install -y git software-properties-common unzip curl jq \
+  libgomp1 libstdc++6
 
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip -q awscliv2.zip
@@ -121,7 +122,9 @@ set +o allexport
 N="$${MAX_PROCS:-}"
 if [ -z "$N" ]; then
   CORES="$(nproc || echo 1)"
-  N=$(( CORES > 1 ? CORES - 1 : 1 ))   # leave 1 core for sshd/OS by default
+  HEADROOM=1
+  N=$(( CORES - HEADROOM ))
+  [ "$N" -lt 1 ] && N=1
 fi
 
 # Don’t let native libs oversubscribe threads
