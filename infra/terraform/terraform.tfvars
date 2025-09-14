@@ -15,30 +15,93 @@ security_group_ids = [
 ]
 
 job_configs = {
-  preflop_producer = {
-    script_to_run     = "workers/preflop/sqs_producer.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/preflop-chart-queue"
-    instance_type     = "c5.large"
-    worker_name       = "preflop_producer"
-    volume_size       = 100
+  postflop_heavy = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
+    volume_size       = 150
+    worker_name       = "postflop_heavy"
     disabled          = true
   }
 
-  equity_producer = {
-    script_to_run     = "workers/equity/sqs_producer.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/equity-simulations-queue"
-    instance_type     = "c5.large"
-    worker_name       = "equity_producer"
-    volume_size       = 100
+  postflop_heavy_2 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_2"
     disabled          = true
   }
 
-  exploit_producer = {
-    script_to_run     = "workers/exploit/sqs_producer.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/214061305689/exploit-logs-queue"
-    instance_type     = "c5.large"
-    worker_name       = "exploit_producer"
-    volume_size       = 100
+  postflop_heavy_3 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_3"
+    disabled          = true
+  }
+
+  postflop_heavy_4 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_4"
+    disabled          = true
+  }
+
+  postflop_heavy_5 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_5"
+    disabled          = true
+  }
+
+   postflop_heavy_6 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_6"
+    disabled          = true
+  }
+
+   postflop_heavy_7 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_7"
+    disabled          = true
+  }
+
+  postflop_heavy_8 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_8"
+    disabled          = true
+  }
+
+  postflop_heavy_9 = {
+    script_to_run     = "tools/rangenet/worker_flop.py"
+    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    instance_type     = "r6i.2xlarge"
+    volume_size       = 150
+    worker_name       = "postflop_heavy_9"
     disabled          = true
   }
 }

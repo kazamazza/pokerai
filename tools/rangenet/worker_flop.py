@@ -94,12 +94,16 @@ def _nnz_and_sum_from_monker(s: str) -> tuple[int, float]:
     except Exception:
         return -1, -1.0
 
-def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str = "noid") -> tuple[str, Path]:
+def _build_solver_cmd_text(
+    params: Dict[str, Any],
+    dump_path: Path,
+    job_id: str = "noid"
+) -> Path:
     pot_bb  = float(params["pot_bb"])
     eff_bb  = float(params["effective_stack_bb"])
     board   = str(params["board"])
 
-    # --- pre-conversion stats (as received from manifest) ---
+    # --- pre-conversion stats ---
     pre_ip_nnz, pre_ip_sum = _nnz_stats_from_payload(params["range_ip"])
     pre_oop_nnz, pre_oop_sum = _nnz_stats_from_payload(params["range_oop"])
     print(f"[range-stats:pre] IP nnz={pre_ip_nnz} sum={pre_ip_sum:.2f} | OOP nnz={pre_oop_nnz} sum={pre_oop_sum:.2f}")
@@ -108,12 +112,12 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     range_ip  = to_monker(params["range_ip"])
     range_oop = to_monker(params["range_oop"])
 
-    # --- post-conversion stats (monker string -> vec169) ---
+    # --- post-conversion stats ---
     post_ip_nnz, post_ip_sum = _nnz_and_sum_from_monker(range_ip)
     post_oop_nnz, post_oop_sum = _nnz_and_sum_from_monker(range_oop)
     print(f"[range-stats:post] IP nnz={post_ip_nnz} sum={post_ip_sum:.2f} | OOP nnz={post_oop_nnz} sum={post_oop_sum:.2f}")
 
-    # Hard guard on post-conversion
+    # Guards
     if post_ip_nnz != -1 and post_ip_nnz < 10:
         raise RuntimeError(f"IP range too sparse post-conversion (nnz={post_ip_nnz}) – source looks wrong")
     if post_oop_nnz != -1 and post_oop_nnz < 10:
@@ -142,30 +146,12 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
         dump_path=str(dump_path),
     )
 
-    # 🔍 per-job debug dump (unique dir)
-    dbg_dir = Path("debug_cmds") / job_id
-    dbg_dir.mkdir(parents=True, exist_ok=True)
-
-    # Full command file
-    cmd_path = dbg_dir / "commands.txt"
+    # Write the command file in the job’s work_dir instead of debug_cmds/
+    cmd_path = Path(dump_path).parent / f"{job_id}_commands.txt"
     cmd_path.write_text(txt, encoding="utf-8")
+    print(f"📝 wrote solver command → {cmd_path}")
 
-    # Also dump raw payloads and converted strings (first 400 chars to keep readable)
-    def _clip(s): return s if len(s) <= 400 else s[:400] + "..."
-    (dbg_dir / "ranges.txt").write_text(
-        "RAW range_ip:\n"
-        f"{str(params['range_ip'])[:400]}\n\n"
-        "RAW range_oop:\n"
-        f"{str(params['range_oop'])[:400]}\n\n"
-        "MONKER range_ip:\n"
-        f"{_clip(range_ip)}\n\n"
-        "MONKER range_oop:\n"
-        f"{_clip(range_oop)}\n",
-        encoding="utf-8"
-    )
-
-    print(f"📝 dumped worker command → {cmd_path}")
-    return txt, cmd_path
+    return cmd_path
 
 
 def _run_solver(cmd_file: Path) -> None:
@@ -222,7 +208,7 @@ def handle_message(body: str) -> bool:
         raise RuntimeError("AWS_S3_BUCKET env var is required")
 
     msg = json.loads(body)
-    sha1 = msg["sha1"]
+    sha1   = msg["sha1"]
     s3_key = msg["s3_key"]
     params = msg["params"]
 
@@ -232,33 +218,30 @@ def handle_message(body: str) -> bool:
         print(f"[skip] already in S3: s3://{S3_BUCKET}/{s3_key}")
         return True
 
-    # Work dir
     work_dir = Path(tempfile.mkdtemp(prefix=f"solve_{sha1[:8]}_"))
     try:
         out_json = work_dir / "result.json"
 
-        # Build command text
-        cmd_text, cmd_txt = _build_solver_cmd_text(params, out_json, job_id=sha1)
-        cmd_txt.write_text(cmd_text)
+        # Build command file (function writes it and returns its path)
+        cmd_path = _build_solver_cmd_text(params, out_json, job_id=sha1)
 
-        # Run worker
-        _run_solver(cmd_txt)
+        # Run solver
+        _run_solver(cmd_path)
 
-        # Sanity: result file present & nonempty
+        # Sanity: result file must exist and be non-empty
         if not out_json.exists() or out_json.stat().st_size == 0:
             raise RuntimeError("worker produced no result.json or file empty")
 
-        # Upload
+        # Upload to S3
         _upload_file(s3, out_json, S3_BUCKET, s3_key)
         print(f"✅ uploaded → s3://{S3_BUCKET}/{s3_key}")
         return True
 
     except Exception as e:
-        # Log full error; returning False lets the SQSWorker move to DLQ per its policy.
         print(f"❌ job {sha1} failed: {e}")
         return False
     finally:
-        # Clean up temp files to save disk
+        # Clean up temp files
         try:
             shutil.rmtree(work_dir)
         except Exception:

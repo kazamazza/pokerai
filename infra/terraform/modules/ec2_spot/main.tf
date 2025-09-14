@@ -1,21 +1,16 @@
 resource "aws_launch_template" "worker_template" {
-  name_prefix   = "${var.worker_name}-worker-"
-  image_id      = var.ami_id
-  instance_type = "c5.xlarge"
-  key_name      = var.key_name
+  name_prefix = "${var.worker_name}-worker-"
+  image_id    = var.ami_id
+  key_name    = var.key_name
 
   network_interfaces {
     device_index                = 0
-    associate_public_ip_address = true   # 👈 ensure a public IP is given
+    associate_public_ip_address = true
   }
 
-  monitoring {
-    enabled = true
-  }
+  monitoring { enabled = true }
 
-  iam_instance_profile {
-    name = var.instance_profile_name
-  }
+  iam_instance_profile { name = var.instance_profile_name }
 
   block_device_mappings {
     device_name = "/dev/sda1"
@@ -36,46 +31,59 @@ resource "aws_launch_template" "worker_template" {
       aws_secret_access_key = var.aws_secret_access_key,
       worker_name           = var.worker_name
     })
-)
+  )
 
-  metadata_options {
-    http_tokens = "required"
-  }
+  metadata_options { http_tokens = "required" }
 
-  lifecycle {
-    create_before_destroy = true
-  }
+  lifecycle { create_before_destroy = true }
 }
 
 resource "aws_autoscaling_group" "spot_asg" {
-  name                   = "${var.worker_name}-worker-asg"
-  max_size               = var.max_size
-  min_size               = var.min_size
-  desired_capacity       = var.desired_capacity
-  vpc_zone_identifier    = var.subnet_ids
-  health_check_type      = "EC2"
-  force_delete           = true
-  capacity_rebalance     = true  # replace interrupted instances faster
+  name                 = "${var.worker_name}-worker-asg"
+  max_size             = var.max_size
+  min_size             = var.min_size
+  desired_capacity     = var.desired_capacity
+  vpc_zone_identifier  = var.subnet_ids
+  health_check_type    = "EC2"
+  health_check_grace_period = 120
+  force_delete         = true
+  capacity_rebalance   = true
 
   mixed_instances_policy {
-  instances_distribution {
-    on_demand_base_capacity                  = 0
-    on_demand_percentage_above_base_capacity = 0
-    spot_allocation_strategy                 = "capacity-optimized"
-  }
-  launch_template {
-    launch_template_specification {
-      launch_template_id = aws_launch_template.worker_template.id
-      version            = "$Latest"
+    instances_distribution {
+      # Always launch at least one On-Demand so work starts even if Spot is scarce
+      on_demand_base_capacity                  = 1
+      on_demand_percentage_above_base_capacity = 0
+      spot_allocation_strategy                 = "capacity-optimized"
     }
-    dynamic "override" {
-      for_each = var.instance_types
-      content {
-        instance_type = override.value
+
+    launch_template {
+      launch_template_specification {
+        launch_template_id = aws_launch_template.worker_template.id
+        version            = "$Latest"
+      }
+
+      # Single "override" using instance requirements so EC2 can pick any matching pool
+      override {
+        instance_requirements {
+          vcpu_count {
+            min = 4
+            max = 32
+          }
+          memory_mib {
+            min = 32768     # >= 32 GiB
+          }
+          cpu_manufacturers       = ["intel", "amd"]
+          instance_generations    = ["current", "previous"]
+          excluded_instance_types = ["*metal*"]
+          bare_metal              = "excluded"
+          accelerator_count {
+            max = 0
+          }
+        }
       }
     }
   }
-}
 
   tag {
     key                 = "Name"

@@ -64,12 +64,12 @@ variable "worker_configs" {
 
 variable "job_configs" {
   type = map(object({
-    script_to_run         = string
-    aws_sqs_queue_url     = string
-    instance_type         = string
-    worker_name           = string
-    volume_size           = number
-    disabled              = optional(bool, false)
+    script_to_run     = string
+    aws_sqs_queue_url = string
+    aws_sqs_dlq_url   = optional(string)   # optional and nullable
+    instance_type     = string
+    volume_size       = number
+    worker_name       = optional(string, null)
+    disabled          = optional(bool, false)
   }))
-  description = "Configuration for ephemeral one-off jobs"
 }

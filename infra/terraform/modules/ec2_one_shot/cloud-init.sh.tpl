@@ -6,6 +6,9 @@ set -euo pipefail
 # Variables passed from Terraform
 github_token="${github_token}"
 sqs_queue_url="${aws_sqs_queue_url}"
+sqs_dlq_url="${aws_sqs_dlq_url}"
+access_key_id="${aws_access_key_id}"
+secret_access_key="${aws_secret_access_key}"
 script_to_run="${script_to_run}"
 worker_name="${worker_name}"
 
@@ -18,7 +21,8 @@ log() {
 log "Starting instance initialization."
 
 apt-get update -y && apt-get upgrade -y
-apt-get install -y git software-properties-common unzip curl jq
+apt-get install -y git software-properties-common unzip curl jq \
+  libgomp1 libstdc++6
 
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip -q awscliv2.zip
@@ -49,8 +53,38 @@ else
   log "[WARN] Unknown FS type: $FS_TYPE"
 fi
 
-log "Disk usage after resize:"
-df -h /
+# --- Install TexasSolver (Linux x86_64) and publish SOLVER_BIN ---
+SOLVER_DIR="/opt/texas-solver"
+VER="v0.2.0"   # change here when you want a newer release
+ASSET="TexasSolver-$VER-Linux.zip"
+URL="https://github.com/bupticybee/TexasSolver/releases/download/$VER/$ASSET"
+
+if [ ! -x "$SOLVER_DIR/console_solver" ]; then
+  log "Installing TexasSolver $VER …"
+  mkdir -p "$SOLVER_DIR"
+  curl -fsSL "$URL" -o /tmp/solver.zip
+  unzip -oq /tmp/solver.zip -d "$SOLVER_DIR/"
+  rm -f /tmp/solver.zip || true
+
+  # find the console_solver inside the extracted folder
+  BIN="$(find "$SOLVER_DIR" -maxdepth 2 -type f -name console_solver | head -n1 || true)"
+  if [ -z "$BIN" ]; then
+    log "[ERROR] console_solver not found after unzip"; ls -R "$SOLVER_DIR"; exit 1
+  fi
+
+  install -m 0755 "$BIN" "$SOLVER_DIR/console_solver"
+  ln -sf "$SOLVER_DIR/console_solver" /usr/local/bin/texas-solver
+fi
+
+chmod 0755 "$SOLVER_DIR/console_solver"
+
+# Make it visible to all users and future shells
+grep -q '^SOLVER_BIN=' /etc/environment || echo "SOLVER_BIN=$SOLVER_DIR/console_solver" | sudo tee -a /etc/environment >/dev/null
+# (optionally ensure /opt/texas-solver is on PATH for interactive shells)
+if ! grep -q '/opt/texas-solver' /etc/environment; then
+  echo 'PATH="/opt/texas-solver:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' | sudo tee -a /etc/environment >/dev/null
+fi
+export SOLVER_BIN="$SOLVER_DIR/console_solver"
 
 REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
 log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
@@ -67,38 +101,78 @@ source env/bin/activate
 pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
 pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-# Export config for this shell
-export AWS_REGION=eu-central-1
-export AWS_SQS_QUEUE_URL="$sqs_queue_url"
-export WORKER_TAG="$worker_name"
+# Set global environment vars
+echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment
+echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
+echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
+echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 
-# Run script and wait
-log "Running script: $script_to_run"
-python3.11 "$script_to_run"
+# Optional: tag shell sessions
+echo "export WORKER_TAG=${worker_name}" >> ~/.bashrc
 
-# CloudWatch log push
+# ===== Runtime setup & launch =====
+set +u
+set -o allexport
+source /etc/environment || true
+set +o allexport
+
+# Decide process count
+N=6
+echo "[init] Launching $N worker processes..."
+
+# Don’t let native libs oversubscribe threads
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+
+PIDS_FILE=/var/run/worker_pids.txt
+mkdir -p /var/run /var/log
+: > "$PIDS_FILE"
+
+# Optional: detect cores for light CPU pinning (comment out if undesired)
+CORES="$(nproc || echo 1)"
+
+for i in $(seq 1 "$N"); do
+  LOG="/var/log/worker_$i.log"
+
+  # Optional gentle pin: skip CPU 0 for OS/sshd if we have >1 core
+  CPUFLAG=""
+  if [ "$CORES" -gt 1 ]; then
+    CPU=$(( (i % (CORES-1)) + 1 ))   # cycles 1..(CORES-1)
+    CPUFLAG="taskset -c $CPU"
+  fi
+
+  nohup bash -lc "exec nice -n 5 $CPUFLAG /home/ubuntu/pokerai/env/bin/python -u \"$script_to_run\"" \
+    > "$LOG" 2>&1 &
+
+  PID=$!
+  echo "$PID" >> "$PIDS_FILE"
+  echo "[init] started worker_$i pid $PID -> $LOG"
+  sleep 0.2
+done
+
+STARTED="$(wc -l < "$PIDS_FILE" | tr -d ' ')"
+echo "[init] Launched $STARTED workers."
+
+# CloudWatch Log Upload (safe method without inline subshells)
 REGION="eu-central-1"
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+IMDS_TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo unknown)
 
+set +e
 aws logs create-log-group --log-group-name "/spot-workers/${worker_name}" --region "$REGION" || true
 aws logs create-log-stream --log-group-name "/spot-workers/${worker_name}" --log-stream-name "init-$INSTANCE_ID" --region "$REGION" || true
-
 TIMESTAMP=$(date +%s%3N)
-LOG_MSG=$(sed "s/\"/'/g" /var/log/user-data.log)
-
+LOG_MSG=$(sed "s/\"/'/g" /var/log/cloud-init-output.log)
 aws logs put-log-events \
   --log-group-name "/spot-workers/${worker_name}" \
   --log-stream-name "init-$INSTANCE_ID" \
   --region "$REGION" \
   --log-events timestamp=$TIMESTAMP,message="$LOG_MSG" || true
+set -e
 
-log "CloudWatch logs pushed. Preparing shutdown."
-
-# Shutdown logic with retry
-for i in {1..3}; do
-  shutdown -h now && break
-  log "Retrying shutdown ($i)..."
-  sleep 10
-done
-
+log "CloudWatch init logs pushed."
 log "Initialization complete."
+exit 0
