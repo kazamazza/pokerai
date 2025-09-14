@@ -21,7 +21,7 @@ manifest_build:
 
 solver:
   accuracy: 0.05
-  max_iterations: 5000
+  max_iterations: 10000
   threads: 1
   allin_threshold: 0.67
   s3_prefix: worker/outputs/v1
