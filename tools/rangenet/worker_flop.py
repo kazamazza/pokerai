@@ -141,8 +141,8 @@ def _build_solver_cmd_text(
         thread_num=1,
         accuracy=accuracy,
         max_iteration=max_iter,
-        print_interval=10,
-        use_isomorphism=0,
+        print_interval=20,
+        use_isomorphism=1,
         dump_path=str(dump_path),
     )
 

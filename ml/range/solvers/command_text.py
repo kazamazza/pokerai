@@ -61,7 +61,7 @@ def build_command_text(
     lines.append(f"set_print_interval {int(print_interval)}")
     lines.append(f"set_use_isomorphism {int(use_isomorphism)}")
     lines.append("start_solve")
-    lines.append("set_dump_rounds 3")
+    lines.append("set_dump_rounds 1")
     lines.append(f"dump_result {dump_path}")
     # optional but harmless
     # lines.append("quit")
