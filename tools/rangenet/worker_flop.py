@@ -2,7 +2,7 @@ from __future__ import annotations
 import os, json, tempfile, shutil, subprocess, uuid
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Literal, TypedDict, List, Sequence, Mapping
 import boto3
 import numpy as np
 from botocore.exceptions import ClientError
@@ -26,7 +26,24 @@ LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).res
 S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
 REGION = os.getenv("AWS_REGION", "eu-central-1")
 
-BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]] = {
+
+Street = Literal["flop", "turn", "river"]
+Role   = Literal["ip", "oop"]
+
+KindMenu = TypedDict(
+    "KindMenu",
+    {
+        "bet":   Sequence[float],
+        "raise": Sequence[float],
+        "donk":  Sequence[float],
+        "allin": bool,
+    },
+    total=False,
+)
+
+BetMenus = Dict[str, Dict[Street, Dict[Role, KindMenu]]]
+
+BET_MENUS: BetMenus = {
     "std": {
         "flop": {
             "oop": {"donk": [25], "bet": [33, 50, 75], "raise": [66, 100, 150], "allin": True},
@@ -44,11 +61,24 @@ BET_MENUS: Dict[str, Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]] = 
 }
 
 def _format_bet_sizes(
-    menu_id: Optional[str]
-) -> Optional[Dict[str, Dict[str, Dict[str, Union[list[int], bool]]]]]:
-    # Default to "std", and if an unknown id is passed, fall back to "std"
-    key = (menu_id or "std")
-    return BET_MENUS.get(key, BET_MENUS.get("std"))
+    menu_id: Optional[str],
+) -> Dict[Street, Dict[Role, Dict[str, Union[List[float], bool]]]]:
+    key = menu_id or "std"
+    raw = BET_MENUS.get(key, BET_MENUS["std"])
+
+    out: Dict[Street, Dict[Role, Dict[str, Union[List[float], bool]]]] = {}
+    for street, per_role in raw.items():
+        out[street] = {}
+        for role, kinds in per_role.items():
+            coerced: Dict[str, Union[List[float], bool]] = {}
+            for k, v in kinds.items():
+                if isinstance(v, (list, tuple)):
+                    coerced[k] = [float(x) for x in v]
+                elif isinstance(v, bool):
+                    coerced[k] = v
+            out[street][role] = coerced
+
+    return out
 
 
 def _exists_in_s3(s3, bucket: str, key: str) -> bool:
@@ -123,12 +153,22 @@ def _build_solver_cmd_text(
     if post_oop_nnz != -1 and post_oop_nnz < 10:
         raise RuntimeError(f"OOP range too sparse post-conversion (nnz={post_oop_nnz}) – source looks wrong")
 
+    # Menus
     bet_menu_id = str(params.get("bet_sizing_id", "std"))
     bet_sizes = _format_bet_sizes(bet_menu_id)
 
-    accuracy = float(params.get("accuracy", 0.5))
-    max_iter = int(params.get("max_iter", params.get("max_iterations", 200)))
+    # Numeric controls
+    accuracy = float(params.get("accuracy", 0.01))
+    max_iter = int(params.get("max_iter", params.get("max_iterations", 15000)))
     a_th = float(params.get("allin_threshold", 0.67))
+
+    # SPR-derived toggles passed to build_command_text (prevents tiny jam trees)
+    spr = (eff_bb / pot_bb) if pot_bb > 0 else 0.0
+    pot_type = str(params.get("pot_type", "")).lower()  # e.g., "srp","3bet","4bet"
+    allow_low_spr = bool(params.get("allow_low_spr", False)) or (spr < 2.0 and pot_type in {"3bet","4bet"})
+    strip_allins_when_spr_ge = float(params.get("strip_allins_when_spr_ge", 3.0))
+    scale_units = int(params.get("scale_units", 100))
+    min_spr = float(params.get("min_spr", 2.0))
 
     txt = build_command_text(
         pot_bb=pot_bb,
@@ -144,6 +184,10 @@ def _build_solver_cmd_text(
         print_interval=20,
         use_isomorphism=1,
         dump_path=str(dump_path),
+        scale_units=scale_units,
+        min_spr=min_spr,
+        allow_low_spr=allow_low_spr,
+        strip_allins_when_spr_ge=strip_allins_when_spr_ge,
     )
 
     # Write the command file in the job’s work_dir instead of debug_cmds/
@@ -154,10 +198,12 @@ def _build_solver_cmd_text(
     return cmd_path
 
 
-def _run_solver(cmd_file: Path) -> None:
+
+def _run_solver(cmd_file: Path) -> subprocess.CompletedProcess[str]:
     """
     Run the external console_solver with the given command file.
     On failure, include the command file path and contents for debugging.
+    Returns the CompletedProcess so callers can inspect stdout/stderr for QA.
     """
     import os
     solver_bin = Path(SOLVER_BIN)
@@ -175,13 +221,10 @@ def _run_solver(cmd_file: Path) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        # read command file content for debugging
         try:
             content = cmd_file.read_text()
         except Exception as e:
             content = f"<unable to read command file: {e}>"
-
-        # truncate if massive
         MAX_SHOW = 20000
         shown = content if len(content) <= MAX_SHOW else (content[:MAX_SHOW] + "\n…<truncated>…\n")
 
@@ -197,6 +240,8 @@ def _run_solver(cmd_file: Path) -> None:
             "\n--- worker stderr ---\n"
             f"{result.stderr}"
         )
+
+    return result
 
 
 def handle_message(body: str) -> bool:
@@ -225,12 +270,35 @@ def handle_message(body: str) -> bool:
         # Build command file (function writes it and returns its path)
         cmd_path = _build_solver_cmd_text(params, out_json, job_id=sha1)
 
-        # Run solver
-        _run_solver(cmd_path)
+        # Run solver (capture stdout/stderr for QA heuristics if needed)
+        result = _run_solver(cmd_path)
 
         # Sanity: result file must exist and be non-empty
         if not out_json.exists() or out_json.stat().st_size == 0:
             raise RuntimeError("worker produced no result.json or file empty")
+
+        # Basic post-solve QA: try exploitability or gap if present
+        try:
+            with out_json.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as e:
+            raise RuntimeError(f"unable to parse result.json: {e}")
+
+        max_expl = float(params.get("max_exploitability", 0.02))
+        keys = ("exploitability", "nash_conv", "nash_gap", "epsilon")
+        found = None
+        for k in keys:
+            if k in data and isinstance(data[k], (int, float)):
+                found = (k, float(data[k]))
+                break
+
+        if found and found[1] > max_expl:
+            raise RuntimeError(f"quality gate failed: {found[0]}={found[1]:.6f} > {max_expl:.6f}")
+
+        # Optional: heuristic check on iterations logged to stdout
+        if "converged" in result.stdout.lower() and "iterations" in result.stdout.lower():
+            pass  # ok
+        # else we could parse last printed gap from result.stdout if needed
 
         # Upload to S3
         _upload_file(s3, out_json, S3_BUCKET, s3_key)
@@ -241,7 +309,6 @@ def handle_message(body: str) -> bool:
         print(f"❌ job {sha1} failed: {e}")
         return False
     finally:
-        # Clean up temp files
         try:
             shutil.rmtree(work_dir)
         except Exception:

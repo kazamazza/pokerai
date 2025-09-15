@@ -24,16 +24,10 @@ def _ensure_subdir(rel_path: str, subdir: str) -> str:
     return rel if rel.startswith(sub + "/") else f"{sub}/{rel}"
 
 class SphIndex:
-    def __init__(
-        self,
-        manifest_parquet: str | Path,
-        cache_dir: str = "data/vendor_cache",
-        *,
-        s3_vendor: str | None = None,
-        s3_client: "S3Client | None" = None,
-    ):
+    def __init__(self, manifest_parquet: str | Path, cache_dir: str = "data/vendor_cache",
+                 *, s3_vendor: str | None = None, s3_client: "S3Client | None" = None):
         df = pd.read_parquet(str(manifest_parquet)).copy()
-        need = {"stack_bb", "ip_pos", "oop_pos", "ctx", "hero_pos", "rel_path", "abs_path"}
+        need = {"stack_bb","ip_pos","oop_pos","ctx","hero_pos","rel_path","abs_path"}
         missing = [c for c in need if c not in df.columns]
         if missing:
             raise RuntimeError(f"sph_manifest missing columns: {missing}")
@@ -46,50 +40,54 @@ class SphIndex:
         df["stack_bb"] = df["stack_bb"].astype("Int64")
 
         self.df = df
+        # primary cache root (configurable) + a safe fallback that matches your SPH packer
         self.cache_dir = Path(cache_dir)
+        self.cache_fallback = Path("data/vendor_cache")
         self.s3_vendor = (s3_vendor or "").rstrip("/") if s3_vendor else None
         self.s3 = s3_client
 
-        self.stacks: list[int] = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
+        self.stacks = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
 
-        # key: (stack, ctx, hero, ip, oop)
-        self.idx: Dict[Tuple[int, str, str, str, str], List[dict]] = {}
+        # build index
+        self.idx: Dict[Tuple[int,str,str,str,str], List[dict]] = {}
         for _, r in df.iterrows():
-            key = (int(r["stack_bb"]), str(r["ctx"]), str(r["hero_pos"]), str(r["ip_pos"]), str(r["oop_pos"]))
-            self.idx.setdefault(key, []).append({
+            self.idx.setdefault(
+                (int(r["stack_bb"]), str(r["ctx"]), str(r["hero_pos"]), str(r["ip_pos"]), str(r["oop_pos"])), []
+            ).append({
                 "rel_path": str(r["rel_path"]),
-                "abs_path": str(r["abs_path"]),
+                "abs_path": str(r["abs_path"]) if pd.notna(r["abs_path"]) else "",
             })
 
     def _pick(self, stack: int, ctx: str, hero: str, ip: str, oop: str) -> Optional[dict]:
-        key = (int(stack), str(ctx).upper(), str(hero), canon_pos(ip), canon_pos(oop))
-        rows = self.idx.get(key)
-        return rows[0] if rows else None
+        return (self.idx.get((int(stack), str(ctx).upper(), str(hero), canon_pos(ip), canon_pos(oop))) or [None])[0]
 
     def _resolve_path(self, row: dict) -> Path:
-        # 1) Absolute: only if non-empty and is a file
-        abs_str = (row.get("abs_path") or "").strip()
+        # 1) absolute path if it’s a real string path
+        abs_val = row.get("abs_path")
+        abs_str = abs_val if isinstance(abs_val, str) else ""
         if abs_str:
             p_abs = Path(abs_str)
-            if p_abs.exists() and p_abs.is_file():
+            if p_abs.is_file():
                 return p_abs
 
-        # 2) Cache dir + rel_path: only if is a file
+        # 2) try both cache roots with rel_path
         rel = str(row["rel_path"]).lstrip("/").replace("\\", "/")
-        p_local = self.cache_dir / rel
-        if p_local.exists() and p_local.is_file():
-            return p_local
-        print("vendor folder is", self.s3_vendor)
-        # 3) S3 → cache
-        if self.s3_vendor and self.s3:
-            rel_sph = _ensure_subdir(rel, "sph")  # keep your helper
-            s3_key = _join_s3(self.s3_vendor, rel_sph)
-            p_local.parent.mkdir(parents=True, exist_ok=True)
-            self.s3.download_file_if_missing(s3_key, p_local)
-            if p_local.exists() and p_local.is_file():
+        for root in (self.cache_dir, self.cache_fallback):
+            p_local = root / rel
+            if p_local.is_file():
                 return p_local
 
-        raise RuntimeError(f"SPH file not found locally or on S3: {row}")
+        # 3) S3 → cache (under the primary cache_dir)
+        if self.s3_vendor and self.s3:
+            rel_sph = _ensure_subdir(rel, "sph")
+            s3_key = _join_s3(self.s3_vendor, rel_sph)
+            p_local = self.cache_dir / rel
+            p_local.parent.mkdir(parents=True, exist_ok=True)
+            self.s3.download_file_if_missing(s3_key, p_local)
+            if p_local.is_file():
+                return p_local
+
+        raise RuntimeError(f"SPH file not found locally or on S3: rel={row.get('rel_path')} abs={row.get('abs_path')}")
 
 def _monker_to_vec169(monker_str: str) -> list[float]:
     vals = [0.0]*169
@@ -137,90 +135,173 @@ def load_sph_range_compact(path: Path, *, pick: str|None=None) -> str:
 
 
 class PreflopRangeLookup:
+    # -------- Context normalization (public labels -> canonical) --------
+    CTX_ALIAS = {
+        # SRP-like contexts all normalize to SRP
+        "OPEN": "SRP",
+        "VS_OPEN": "SRP",
+        "VS_OPEN_RFI": "SRP",
+        "BLIND_VS_STEAL": "SRP",
+        "SRP": "SRP",
+        # higher-raise trees
+        "3BET": "VS_3BET",
+        "VS_3BET": "VS_3BET",
+        "4BET": "VS_4BET",
+        "VS_4BET": "VS_4BET",
+        # limp variants (kept distinct)
+        "LIMPED_SINGLE": "LIMPED_SINGLE",
+        "LIMP_SINGLE": "LIMPED_SINGLE",
+        "LIMPED_MULTI": "LIMPED_MULTI",
+        "LIMP_MULTI": "LIMPED_MULTI",
+    }
+
     def __init__(
         self,
         monker_manifest_parquet: str | Path,
         *,
-        sph_manifest_parquet: str | Path | None = None,
-        s3_client: Optional[S3Client] = None,
+        sph_manifest_parquet: str | Path | None = None,   # accepted for backward compat; ignored now
+        s3_client: Optional["S3Client"] = None,
         s3_vendor: Optional[str] = None,
         cache_dir: str = "data/vendor_cache",
         allow_pair_subs: bool = False,
         max_stack_delta: Optional[int] = None,
     ):
-        # -------- Monker --------
+        # ---- Load & normalize manifest (new/old schema tolerant) ----
         df = pd.read_parquet(str(monker_manifest_parquet)).copy()
-        need = {"stack_bb","hero_pos","sequence_raw","rel_path","abs_path"}
-        missing = [c for c in need if c not in df.columns]
-        if missing:
-            raise RuntimeError(f"monker_manifest missing columns: {missing}")
 
-        df["hero_pos"] = df["hero_pos"].map(canon_pos)
-        df["stack_bb"] = df["stack_bb"].astype("Int64")
+        # 1) Map new-schema column names to legacy names this class uses
+        if "ip_pos" not in df.columns and "ip_actor_flop" in df.columns:
+            df["ip_pos"] = df["ip_actor_flop"]
+        if "oop_pos" not in df.columns and "oop_actor_flop" in df.columns:
+            df["oop_pos"] = df["oop_actor_flop"]
+
+        # 2) hero_pos: explicit -> hint -> derive from rel_path parent
+        if "hero_pos" not in df.columns:
+            if "hero_pos_hint" in df.columns:
+                df["hero_pos"] = df["hero_pos_hint"]
+            elif "rel_path" in df.columns:
+                def _hero_from_rel(p):
+                    try:
+                        return Path(str(p)).parent.name  # .../<HERO>/<file>.txt
+                    except Exception:
+                        return None
+                df["hero_pos"] = df["rel_path"].map(_hero_from_rel)
+            else:
+                df["hero_pos"] = None
+
+        # 3) ctx: derive from topology if missing
+        if "ctx" not in df.columns:
+            topo2ctx = {
+                "srp_hu": "SRP", "srp_multi": "SRP",
+                "3bet_hu": "VS_3BET", "3bet_multi": "VS_3BET",
+                "4bet_hu": "VS_4BET", "4bet_multi": "VS_4BET",
+                "limped_single": "LIMPED_SINGLE",
+                "limped_multi":  "LIMPED_MULTI",
+            }
+            if "topology" in df.columns:
+                df["ctx"] = df["topology"].map(lambda t: topo2ctx.get(str(t).lower(), None))
+            else:
+                df["ctx"] = None
+
+        # 4) ensure path columns exist
+        if "rel_path" not in df.columns: df["rel_path"] = None
+        if "abs_path" not in df.columns: df["abs_path"] = None
+
+        # 5) canon + types
+        for c in ("hero_pos", "ip_pos", "oop_pos"):
+            if c in df.columns:
+                df[c] = df[c].map(canon_pos)
+        if "ctx" in df.columns:
+            df["ctx"] = df["ctx"].map(lambda s: str(s).upper() if s is not None else None)
+        if "stack_bb" in df.columns:
+            df["stack_bb"] = pd.to_numeric(df["stack_bb"], errors="coerce").astype("Int64")
+
+        # Keep only usable HU rows with all key fields present
+        df = df[
+            df["ctx"].notna()
+            & df["stack_bb"].notna()
+            & df["hero_pos"].notna()
+            & df["ip_pos"].notna()
+            & df["oop_pos"].notna()
+        ].copy()
+
+        # Save & props
         self.monker_df = df
-        self.monker_stacks: list[int] = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
+        self.monker_stacks: List[int] = sorted(int(s) for s in df["stack_bb"].dropna().unique())
 
-        self.s3 = s3_client
+        # IO knobs
+        self.s3: Optional["S3Client"] = s3_client
         self.s3_vendor = (s3_vendor or "").strip("/") if s3_vendor else None
         self.cache_dir = Path(cache_dir)
         self.allow_pair_subs = bool(allow_pair_subs)
         self.max_stack_delta = max_stack_delta if (max_stack_delta is None or max_stack_delta >= 0) else None
 
-        # Build monker SRP-only index (as before)
-        self._monker_idx: Dict[Tuple[int, str, str, str], List[dict]] = {}
+        # ---- Build indices ----
+        # Context-aware index: (stack, ctx, hero, ip, oop)
+        self._monker_idx_ctx: Dict[Tuple[int, str, str, str, str], List[dict]] = {}
+        # SRP alias index: (stack, hero, ip, oop)
+        self._monker_idx_srp: Dict[Tuple[int, str, str, str], List[dict]] = {}
+        # NEW: pair-level (ignores hero)
+        # (stack, ctx, ip, oop)
+        self._monker_idx_ctx_pair: Dict[Tuple[int, str, str, str], List[dict]] = {}
+        # (stack, ip, oop) for SRP alias
+        self._monker_idx_srp_pair: Dict[Tuple[int, str, str], List[dict]] = {}
 
         for _, r in df.iterrows():
-            try:
-                seq_raw = json.loads(r["sequence_raw"])
-            except Exception:
-                continue
-            if not isinstance(seq_raw, list) or len(seq_raw) < 2:
-                continue
+            st   = int(r["stack_bb"])
+            ctx  = str(r["ctx"])
+            hero = str(r["hero_pos"])
+            ip   = str(r["ip_pos"])
+            oop  = str(r["oop_pos"])
 
-            opener_pos_raw, _ = first_non_fold_opener(seq_raw)
-            if not opener_pos_raw:
-                continue
+            # full (includes hero)
+            k_ctx_full = (st, ctx, hero, ip, oop)
+            self._monker_idx_ctx.setdefault(k_ctx_full, []).append({
+                "rel_path": str(r["rel_path"]) if pd.notna(r["rel_path"]) else "",
+                "abs_path": str(r["abs_path"])  if pd.notna(r["abs_path"])  else "",
+                "hero": hero, "ip": ip, "oop": oop, "ctx": ctx, "stack": st
+            })
 
-            seen_positions = {e.get("pos") for e in seq_raw if e.get("pos")}
-            hero = canon_pos(str(r["hero_pos"]))
-            stack = int(r["stack_bb"])
-            for oop_pos_raw in seen_positions:
-                ip_pos = canon_pos(opener_pos_raw)
-                oop_pos = canon_pos(oop_pos_raw)
-                if not ip_pos or not oop_pos or ip_pos == oop_pos:
-                    continue
-                if not is_srp_open_call(seq_raw, ip_pos, oop_pos):
-                    continue
-                if hero not in (ip_pos, oop_pos):
-                    continue
-                key = (stack, hero, ip_pos, oop_pos)
-                self._monker_idx.setdefault(key, []).append({
-                    "rel_path": r["rel_path"],
-                    "abs_path": r["abs_path"],
+            # pair-level (ignores hero)
+            k_ctx_pair = (st, ctx, ip, oop)
+            self._monker_idx_ctx_pair.setdefault(k_ctx_pair, []).append({
+                "rel_path": str(r["rel_path"]) if pd.notna(r["rel_path"]) else "",
+                "abs_path": str(r["abs_path"])  if pd.notna(r["abs_path"])  else "",
+                "hero": hero, "ip": ip, "oop": oop, "ctx": ctx, "stack": st
+            })
+
+            if ctx == "SRP":
+                k_srp_full = (st, hero, ip, oop)
+                self._monker_idx_srp.setdefault(k_srp_full, []).append({
+                    "rel_path": str(r["rel_path"]) if pd.notna(r["rel_path"]) else "",
+                    "abs_path": str(r["abs_path"])  if pd.notna(r["abs_path"])  else "",
+                    "hero": hero, "ip": ip, "oop": oop, "ctx": ctx, "stack": st
                 })
-        self._seen_pairs = {(k[2], k[3]) for k in self._monker_idx.keys()}
+                k_srp_pair = (st, ip, oop)
+                self._monker_idx_srp_pair.setdefault(k_srp_pair, []).append({
+                    "rel_path": str(r["rel_path"]) if pd.notna(r["rel_path"]) else "",
+                    "abs_path": str(r["abs_path"])  if pd.notna(r["abs_path"])  else "",
+                    "hero": hero, "ip": ip, "oop": oop, "ctx": ctx, "stack": st
+                })
 
-        # -------- SPH (optional) --------
-        self.sph: Optional[SphIndex] = None
-        if sph_manifest_parquet and Path(sph_manifest_parquet).exists():
-            self.sph = SphIndex(
-                manifest_parquet=sph_manifest_parquet,
-                cache_dir=cache_dir,
-                s3_vendor="data/vendor",  # e.g. "s3://mybucket/data/vendor_cache"
-                s3_client=S3Client(),  # your existing S3 client class
-            )
-        # Union of available stacks for nearest-fallback ordering
-        self.stacks: list[int] = sorted({
-            *self.monker_stacks,
-            *(self.sph.stacks if self.sph else []),
-        })
 
+        # quick diag set
+        self._seen_pairs_ctx = {(k[1], k[3], k[4]) for k in self._monker_idx_ctx.keys()}
+
+        # No SPH now; stacks set = Monker stacks
+        self.stacks: List[int] = list(self.monker_stacks)
+
+    # ---------- path resolution ----------
     def _resolve_monker_path(self, row: dict) -> Path:
-        abs_path = Path(row["abs_path"])
-        if abs_path.exists():
+        abs_path = Path(row.get("abs_path") or "")
+        if str(abs_path) and abs_path.exists():
             return abs_path
 
-        rel_path = Path(row["rel_path"])
+        rel_path_str = row.get("rel_path") or ""
+        if not rel_path_str:
+            raise RuntimeError("Missing rel_path/abs_path for vendor file")
+
+        rel_path = Path(rel_path_str)
         cache_path = self.cache_dir / rel_path
         if cache_path.exists():
             return cache_path
@@ -228,46 +309,80 @@ class PreflopRangeLookup:
         if not (self.s3 and self.s3_vendor):
             raise RuntimeError(f"Vendor file not found locally: {rel_path}")
 
-        # Build S3 key from base vendor folder + monker subdir + rel_path (dedup if needed)
         rel_monker = _ensure_subdir(str(rel_path), "monker")
         s3_key = _join_s3(self.s3_vendor, rel_monker)
-
+        cache_path = self.cache_dir / rel_monker
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         self.s3.download_file_if_missing(s3_key, cache_path)
         if not cache_path.exists():
             raise RuntimeError(f"Failed to materialize vendor file: {s3_key}")
         return cache_path
 
-    # ---------- Monker index access ----------
-    def _monker_pick(self, stack: int, hero: str, ip: str, oop: str) -> Optional[dict]:
-        key = (int(stack), canon_pos(hero), canon_pos(ip), canon_pos(oop))
-        rows = self._monker_idx.get(key)
+    # ---------- small helpers ----------
+    def _canon_ctx(self, ctx: str) -> str:
+        c = str(ctx).upper()
+        return type(self).CTX_ALIAS.get(c, c)
+
+    def _monker_pick_ctx(self, stack: int, ctx: str, hero: str, ip: str, oop: str) -> Optional[dict]:
+        key = (int(stack), self._canon_ctx(ctx), canon_pos(hero), canon_pos(ip), canon_pos(oop))
+        rows = self._monker_idx_ctx.get(key)
         return rows[0] if rows else None
+
+    def _monker_pick_srp(self, stack: int, hero: str, ip: str, oop: str) -> Optional[dict]:
+        key = (int(stack), canon_pos(hero), canon_pos(ip), canon_pos(oop))
+        rows = self._monker_idx_srp.get(key)
+        return rows[0] if rows else None
+
+    # NEW: choose best two rows (prefer hero==ip and hero==oop)
+    def _pick_best_two(self, rows: List[dict], ip: str, oop: str) -> Tuple[Optional[dict], Optional[dict]]:
+        if not rows:
+            return None, None
+        ip_row  = next((r for r in rows if r["hero"] == ip), None)
+        oop_row = next((r for r in rows if r["hero"] == oop), None)
+        if ip_row is None:
+            ip_row = rows[0]
+        if oop_row is None:
+            oop_row = rows[1] if len(rows) > 1 else rows[0]
+        return ip_row, oop_row
+
+    def _monker_pick_ctx_pair(self, stack: int, ctx: str, ip: str, oop: str) -> Tuple[Optional[dict], Optional[dict]]:
+        key = (int(stack), self._canon_ctx(ctx), canon_pos(ip), canon_pos(oop))
+        rows = self._monker_idx_ctx_pair.get(key, [])
+        return self._pick_best_two(rows, canon_pos(ip), canon_pos(oop))
+
+    def _monker_pick_srp_pair(self, stack: int, ip: str, oop: str) -> Tuple[Optional[dict], Optional[dict]]:
+        key = (int(stack), canon_pos(ip), canon_pos(oop))
+        rows = self._monker_idx_srp_pair.get(key, [])
+        return self._pick_best_two(rows, canon_pos(ip), canon_pos(oop))
 
     def _ordered_stacks(self, target: int) -> List[int]:
         return sorted(self.stacks, key=lambda s: (abs(s - int(target)), s))
 
+    # ---------- public API ----------
     def ranges_for_pair(
-            self,
-            *,
-            stack_bb: float,
-            ip: str,
-            oop: str,
-            ctx: str = "SRP",
-            strict: bool = True,
-    ) -> Tuple[Optional[str], Optional[str], Dict[str, object]]:
+        self,
+        *,
+        stack_bb: float,
+        ip: str,
+        oop: str,
+        ctx: str = "SRP",
+        strict: bool = True,
+    ) -> Tuple[str, str, Dict[str, object]]:
+        """
+        Returns (range_ip_json169, range_oop_json169, meta).
+        range_* are JSON-serialized 169-length lists (vendor-compact converted).
+        meta['source'] ∈ {'monker:<ctx>','monker:SRP-fallback','fallback:default'}.
+        """
         ip = canon_pos(ip)
         oop = canon_pos(oop)
-        ctx = str(ctx).upper()
+        if not ip or not oop or ip == oop:
+            raise RuntimeError(f"Bad positions ip={ip} oop={oop}")
+
+        ctx = self._canon_ctx(ctx)
         near_stack = nearest_stack(stack_bb, self.stacks)
 
-        # SRP: prefer Monker, others: prefer SPH
-        source_order = ("monker", "sph") if ctx == "SRP" else ("sph", "monker")
-
-        last_meta: Dict[str, Any] = {}
-
         for cand_ip, cand_oop, level, substituted in candidate_pairs(
-                ip, oop, ctx=ctx, allow_pair_subs=self.allow_pair_subs
+            ip, oop, ctx=ctx, allow_pair_subs=self.allow_pair_subs
         ):
             base_meta = {
                 "source": None,
@@ -284,57 +399,70 @@ class PreflopRangeLookup:
             }
 
             for s in self._ordered_stacks(int(near_stack)):
-                delta = abs(s - int(near_stack))
-                if self.max_stack_delta is not None and delta > self.max_stack_delta:
+                if self.max_stack_delta is not None and abs(s - int(near_stack)) > self.max_stack_delta:
                     continue
+                delta = abs(s - int(near_stack))
 
-                for source in source_order:
-                    meta = dict(base_meta)
+                # 1) exact-context (requires both heroes present)
+                row_ip  = self._monker_pick_ctx(s, ctx, hero=cand_ip,  ip=cand_ip,  oop=cand_oop)
+                row_oop = self._monker_pick_ctx(s, ctx, hero=cand_oop, ip=cand_ip,  oop=cand_oop)
+                if row_ip and row_oop:
+                    p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
+                    rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
+                    meta = {**base_meta, "source": f"monker:{ctx}",
+                            "range_ip_source_stack": s, "range_oop_source_stack": s,
+                            "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                            "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
+                    return rng_ip, rng_oop, meta
 
-                    # ---------- SPH ----------
-                    if source == "sph" and self.sph is not None:
-                        # IMPORTANT: SPH manifest uses hero="IP"/"OOP" (not seat names)
-                        row_ip = self.sph._pick(s, ctx, hero="IP", ip=cand_ip, oop=cand_oop)
-                        row_oop = self.sph._pick(s, ctx, hero="OOP", ip=cand_ip, oop=cand_oop)
-                        if row_ip and row_oop:
-                            p_ip = self.sph._resolve_path(row_ip)
-                            p_oop = self.sph._resolve_path(row_oop)
-                            rng_ip = load_sph_range_compact(p_ip, pick="ip")
-                            rng_oop = load_sph_range_compact(p_oop, pick="oop")
-                            meta.update({
-                                "source": "sph",
+                # 1b) NEW: pair-level for this ctx (ignore hero; pick best available heroes)
+                row_ip2, row_oop2 = self._monker_pick_ctx_pair(s, ctx, ip=cand_ip, oop=cand_oop)
+                if row_ip2 and row_oop2:
+                    p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
+                    rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
+                    meta = {**base_meta, "source": f"monker:{ctx}",
+                            "range_ip_source_stack": s, "range_oop_source_stack": s,
+                            "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                            "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
+                    return rng_ip, rng_oop, meta
+
+                # 2) SRP fallback for SRP-like contexts (strict hero)
+                if ctx == "SRP":
+                    row_ip  = self._monker_pick_srp(s, hero=cand_ip,  ip=cand_ip,  oop=cand_oop)
+                    row_oop = self._monker_pick_srp(s, hero=cand_oop, ip=cand_ip,  oop=cand_oop)
+                    if row_ip and row_oop:
+                        p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
+                        rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
+                        meta = {**base_meta, "source": "monker:SRP-fallback",
                                 "range_ip_source_stack": s, "range_oop_source_stack": s,
                                 "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
-                                "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop),
-                            })
-                            return rng_ip, rng_oop, meta
+                                "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
+                        return rng_ip, rng_oop, meta
 
-                    # ---------- Monker ----------
-                    if source == "monker":
-                        row_ip = self._monker_pick(s, hero=cand_ip, ip=cand_ip, oop=cand_oop)
-                        row_oop = self._monker_pick(s, hero=cand_oop, ip=cand_ip, oop=cand_oop)
-                        if row_ip and row_oop:
-                            p_ip = self._resolve_monker_path(row_ip)
-                            p_oop = self._resolve_monker_path(row_oop)
-                            rng_ip = _load_vendor_range_compact(p_ip)
-                            rng_oop = _load_vendor_range_compact(p_oop)
-                            meta.update({
-                                "source": "monker",
+                    # 2b) NEW: SRP pair-level alias
+                    row_ip2, row_oop2 = self._monker_pick_srp_pair(s, ip=cand_ip, oop=cand_oop)
+                    if row_ip2 and row_oop2:
+                        p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
+                        rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
+                        meta = {**base_meta, "source": "monker:SRP-fallback",
                                 "range_ip_source_stack": s, "range_oop_source_stack": s,
                                 "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
-                                "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop),
-                            })
-                            return rng_ip, rng_oop, meta
+                                "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
+                        return rng_ip, rng_oop, meta
 
-                # keep diagnostics if this stack attempt failed
-                last_meta = {
-                    **base_meta,
-                    "range_ip_source_stack": s,
-                    "range_oop_source_stack": s,
-                    "range_ip_stack_delta": delta,
-                    "range_oop_stack_delta": delta,
-                }
-
-        if strict:
+        # 3) last-resort flat 169 distribution (keeps pipeline moving)
+        flat_range = json.dumps([1.0] * 169)
+        meta = {
+            "source": "fallback:default",
+            "ctx": ctx,
+            "range_pair_substituted": False,
+            "range_ip_source_pair": f"{ip}v{oop}",
+            "range_oop_source_pair": f"{ip}v{oop}",
+            "range_ip_source_stack": near_stack,
+            "range_oop_source_stack": near_stack,
+            "range_ip_stack_delta": 0,
+            "range_oop_stack_delta": 0,
+        }
+        if strict and not flat_range:
             raise RuntimeError(f"No ranges found for {ip}v{oop}@{stack_bb} ctx={ctx}")
-        return None, None, last_meta
+        return flat_range, flat_range, meta

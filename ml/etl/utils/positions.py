@@ -1,52 +1,73 @@
-# --- positions helpers ---
+from typing import Set, Tuple
 
-VALID_SRP_PAIRS = {
-    ("UTG","BB"),
-    ("HJ","BB"),
-    ("CO","BB"),
-    ("BTN","BB"),
-    ("SB","BB"),
+Pair = Tuple[str, str]
+
+# Normalize various spellings to canonical keys we handle
+CTX_ALIASES = {
+    "SRP": "SRP",
+    "OPEN": "SRP",
+    "VS_OPEN": "SRP",
+
+    "VS_3BET": "VS_3BET",
+    "3BET": "VS_3BET",
+
+    "VS_4BET": "VS_4BET",
+    "4BET": "VS_4BET",
+
+    "BLIND_VS_STEAL": "BLIND_VS_STEAL",
+    "BVS": "BLIND_VS_STEAL",
+
+    "LIMPED_SINGLE": "LIMP_SINGLE",
+    "LIMP_SINGLE": "LIMP_SINGLE",
+
+    "LIMPED_MULTI": "LIMP_MULTI",
+    "LIMP_MULTI": "LIMP_MULTI",
+
+    "VS_CBET": "VS_CBET",
+    "VS_CBET_TURN": "VS_CBET_TURN",
+    "VS_CHECK_RAISE": "VS_CHECK_RAISE",
+    "VS_DONK": "VS_DONK",
 }
 
-# Keep these in sync with what you actually have in SPH
-VALID_LIMP_SINGLE_PAIRS = {
-    ("UTG","BB"), ("HJ","BB"), ("CO","BB"), ("BTN","BB"), ("SB","BB"),
-    ("CO","SB"), ("BTN","SB"), ("UTG","SB"),
-}
-
-VALID_LIMP_MULTI_PAIRS = {
-    ("UTG","BB"), ("HJ","BB"), ("CO","BB"), ("BTN","BB"), ("SB","BB"),
-    ("CO","SB"),
-}
-
-def canon_pair(ip: str, oop: str) -> tuple[str, str]:
-    """Uppercase + trims; leaves order intact (IP,OOP)."""
+def canon_pair(ip: str, oop: str) -> Pair:
     return (str(ip).strip().upper(), str(oop).strip().upper())
 
-def valid_pairs_for_ctx(ctx: str) -> set[tuple[str,str]]:
-    ctx = str(ctx).upper()
-    if ctx == "SRP":
-        return VALID_SRP_PAIRS
-    if ctx == "LIMP_SINGLE":
-        return VALID_LIMP_SINGLE_PAIRS
-    if ctx == "LIMP_MULTI":
-        return VALID_LIMP_MULTI_PAIRS
-    # default: empty (unknown ctx)
-    return set()
+# --- Minimal legal (IP,OOP) sets per context (flop positions) ---
 
-def sanitize_position_pairs(pairs_in: list[tuple[str,str]], ctx: str) -> list[tuple[str,str]]:
-    """Canonicalize and filter to those legal for this context; dedupe."""
-    legal = valid_pairs_for_ctx(ctx)
-    seen = set()
-    out = []
-    for ip, oop in pairs_in:
-        ip2, oop2 = canon_pair(ip, oop)
-        if ip2 == oop2:
-            continue
-        if (ip2, oop2) not in legal:
-            # skip illegal for this context
-            continue
-        if (ip2, oop2) not in seen:
-            seen.add((ip2, oop2))
-            out.append((ip2, oop2))
-    return out
+# SRP heads-up: opener vs blind; include SB-open vs BB-call (IP=BB)
+VALID_SRP_PAIRS: Set[Pair] = {
+    ("BTN", "BB"), ("CO", "BB"), ("HJ", "BB"), ("UTG", "BB"),
+    ("SB",  "BB"),  # SB opens, BB calls → OOP=BB? (preflop), but on flop IP is BB if SB checked
+    ("BB",  "SB"),  # SB opens, BB calls → IP=BB on flop; include this explicit ordering
+}
+
+# Typical 3-bet pots (caller can be IP vs BB/SB 3-bettor, or caller OOP vs IP 3-bettor)
+VALID_3BET_PAIRS: Set[Pair] = {
+    # Caller IP vs OOP 3-bettor in blinds
+    ("BTN", "BB"), ("CO", "BB"), ("HJ", "BB"), ("UTG", "BB"),
+    ("BTN", "SB"), ("CO", "SB"),
+    # Caller OOP vs IP 3-bettor (IP 3-bets BTN vs blinds or BTN vs CO)
+    ("BB", "BTN"), ("SB", "BTN"), ("CO", "BTN"),
+}
+
+# Lean 4-bet coverage (both orientations)
+VALID_4BET_PAIRS: Set[Pair] = {
+    ("BTN", "BB"), ("BB", "BTN"),
+    ("BTN", "SB"), ("SB", "BTN"),
+}
+
+# Blind vs steal (SRP subclass): stealer IP vs blind OOP
+VALID_BVS_PAIRS: Set[Pair] = {
+    ("BTN", "BB"), ("BTN", "SB"), ("CO", "BB"),
+}
+
+# Limped pots (keep conservative)
+VALID_LIMP_SINGLE_PAIRS: Set[Pair] = {
+    ("BB", "SB"),  # SB limps, BB checks → IP=BB on flop
+}
+
+VALID_LIMP_MULTI_PAIRS: Set[Pair] = {
+    # Minimal heads-up extraction from multiway (optional)
+    ("BB", "SB"), ("BTN", "SB"),
+}
+

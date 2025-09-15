@@ -1,9 +1,15 @@
 from __future__ import annotations
-
 import re
 from typing import Optional, List, Dict, Tuple, Any
 
+from ml.etl.utils.range_lookup import POS_ORDER
+
+SIZE_X_RE   = re.compile(r"^\d+(\.\d+)?x$", re.IGNORECASE)   # e.g., 2.5x, 9x
 PERCENT_RE = re.compile(r"^\d+%$")
+
+RAISE_CANON = {"OPEN","RAISE","BET","3BET","4BET","5BET","ALL_IN"}
+RAISE_RAW   = {"Min","AI","3sb","Open","Raise","Bet","3Bet","4Bet","5Bet"}  # vendor tokens you’ve seen
+
 
 POS_SET = {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
 
@@ -66,18 +72,28 @@ def parse_seq_from_stem(stem: str) -> List[Dict[str, str]]:
         seq.append(e)
     return seq
 
-# ---- raw token predicates (recognize vendor % as raise) ----
+
 
 def _is_raise_token_raw(a: Optional[str]) -> bool:
     if not a:
         return False
-    return a in {"Min", "AI", "3sb"} or PERCENT_RE.match(a)
+    # Fast-path for known vendor tokens (case-sensitive as provided)
+    if a in RAISE_RAW:
+        return True
+    # Case-insensitive check on canonicalized action
+    ac = canon_action(a)  # uses your ACTION_NORMALIZE (+ upper)
+    if ac in RAISE_CANON:
+        return True
+    # Size-bearing tokens (2.5x, 60%) should count as raises too
+    if SIZE_X_RE.match(a) or PERCENT_RE.match(a):
+        return True
+    return False
 
 def _is_call_token_raw(a: Optional[str]) -> bool:
-    return a in {"Call", "CALL"}
+    return bool(a) and a.lower() == "call".lower()
 
 def _is_fold_token_raw(a: Optional[str]) -> bool:
-    return a in {"Fold", "FOLD"}
+    return bool(a) and a.lower() == "fold".lower()
 
 # ---- simple open/defender helpers on RAW sequence ----
 
@@ -177,3 +193,38 @@ def classify_context(seq_raw: List[Dict[str, str]]) -> Dict[str, Any]:
         "opener_pos_raw": opener_pos_raw,
         "opener_action_raw": opener_action_raw,
     }
+
+PAIR_PATTERNS = [
+    re.compile(r"\b(UTG|HJ|CO|BTN|SB|BB)[\s_\-]*vs[\s_\-]*(UTG|HJ|CO|BTN|SB|BB)\b", re.IGNORECASE),
+    re.compile(r"\b(UTG|HJ|CO|BTN|SB|BB)[\s_\-]*(?:v|x)[\s_\-]*(UTG|HJ|CO|BTN|SB|BB)\b", re.IGNORECASE),
+    re.compile(r"\b(UTG|HJ|CO|BTN|SB|BB)[\s_\-]+(UTG|HJ|CO|BTN|SB|BB)\b", re.IGNORECASE),
+]
+
+def find_hu_pair_in_text(text: str):
+    # try explicit patterns like "BTN_vs_BB", "CO-BB"
+    for pat in PAIR_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return canon_pos(m.group(1)), canon_pos(m.group(2))
+    # fallback: first two distinct seat hits in order of appearance
+    hits = []
+    for p in POS_ORDER:
+        for mm in re.finditer(fr"\b{p}\b", text, flags=re.IGNORECASE):
+            hits.append((mm.start(), canon_pos(p)))
+    hits.sort()
+    uniq = []
+    for _, p in hits:
+        if p and p not in uniq:
+            uniq.append(p)
+        if len(uniq) == 2:
+            break
+    return (uniq[0], uniq[1]) if len(uniq) == 2 else (None, None)
+
+def detect_raise_depth_from_text(text: str) -> int:
+    t = text.lower()
+    if "5bet" in t: return 3
+    if "4bet" in t: return 3
+    if "3bet" in t: return 2
+    if "open" in t or "raise" in t or "bet" in t: return 1
+    if "limp" in t: return 0
+    return 0
