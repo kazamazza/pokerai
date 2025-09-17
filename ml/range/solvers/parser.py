@@ -8,20 +8,6 @@ from infra.storage.s3_client import S3Client
 from ml.config.types_hands import RANK_TO_I, HAND_TO_ID
 from ml.range.solvers.keying import solve_sha1
 
-
-# ------------------------------
-# Deterministic keying for solves
-# ------------------------------
-
-def s3_key_for_solve(sha1: str, *, prefix: str) -> str:
-    """
-    Deterministic S3 key layout for a solve result (gzipped JSON).
-    Keep it flat by sha to avoid very deep hierarchies; include prefix for versioning.
-    """
-    # simplest reliable convention
-    return f"{prefix}/{sha1}/output_result.json.gz"
-
-
 # ------------------------------
 # JSON parsing → 169 distribution
 # ------------------------------

@@ -79,20 +79,22 @@ manifest_build:
     # --- Limped pots ---
     - name: LIMPED_SINGLE
       ctx: LIMPED_SINGLE
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        # SB limps, BB checks → (IP,OOP)=("BB","SB")
-        - [ "BB", "SB" ]
-      pots_bb: [3, 4]
+        - [ "BB","SB" ]
+        - [ "BTN","SB" ]
+        - [ "BTN","BB" ]
+      pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
     - name: LIMPED_MULTI
       ctx: LIMPED_MULTI
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        # keep HU-derivable pairs only; true multiway postflop is out-of-scope for now
-        - [ "BB", "SB" ]
-      pots_bb: [3, 4]
+        - [ "BB","SB" ]
+        - [ "BTN","SB" ]
+        - [ "BTN","BB" ]
+      pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
 solver:
@@ -101,7 +103,7 @@ solver:
   max_iterations: 15000
   threads: 1
   allin_threshold: 0.67
-  s3_prefix: worker/outputs/v1
+  s3_prefix: solver/outputs/v1
   local_cache_dir: data/solver_cache
 
 train:

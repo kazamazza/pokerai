@@ -24,7 +24,7 @@ def _ensure_subdir(rel_path: str, subdir: str) -> str:
     return rel if rel.startswith(sub + "/") else f"{sub}/{rel}"
 
 class SphIndex:
-    def __init__(self, manifest_parquet: str | Path, cache_dir: str = "data/vendor_cache",
+    def __init__(self, manifest_parquet: str | Path, cache_dir: str | Path = "data/vendor_cache",
                  *, s3_vendor: str | None = None, s3_client: "S3Client | None" = None):
         df = pd.read_parquet(str(manifest_parquet)).copy()
         need = {"stack_bb","ip_pos","oop_pos","ctx","hero_pos","rel_path","abs_path"}
@@ -37,16 +37,22 @@ class SphIndex:
         df["oop_pos"]  = df["oop_pos"].map(canon_pos)
         df["hero_pos"] = df["hero_pos"].map(lambda p: canon_pos(p) or str(p).upper())
         df["ctx"]      = df["ctx"].map(lambda s: str(s).upper())
-        df["stack_bb"] = df["stack_bb"].astype("Int64")
+        df["stack_bb"] = pd.to_numeric(df["stack_bb"], errors="coerce").astype("Int64")
 
         self.df = df
-        # primary cache root (configurable) + a safe fallback that matches your SPH packer
+
+        # expose stacks for union in PreflopRangeLookup
+        self.stacks: list[int] = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
+
+        # (optional) quick diags
+        self.ctxs  = sorted(df["ctx"].dropna().unique().tolist())
+        self.pairs = sorted({(str(r.ip_pos), str(r.oop_pos)) for _, r in df[["ip_pos","oop_pos"]].dropna().iterrows()})
+
+        # primary cache root + fallback
         self.cache_dir = Path(cache_dir)
         self.cache_fallback = Path("data/vendor_cache")
         self.s3_vendor = (s3_vendor or "").rstrip("/") if s3_vendor else None
         self.s3 = s3_client
-
-        self.stacks = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
 
         # build index
         self.idx: Dict[Tuple[int,str,str,str,str], List[dict]] = {}
@@ -236,6 +242,22 @@ class PreflopRangeLookup:
         self.allow_pair_subs = bool(allow_pair_subs)
         self.max_stack_delta = max_stack_delta if (max_stack_delta is None or max_stack_delta >= 0) else None
 
+        # ---- SPH (optional; used for limped ctx) ----
+        self.sph: Optional[SphIndex] = None
+        if sph_manifest_parquet and Path(sph_manifest_parquet).exists():
+            self.sph = SphIndex(
+                manifest_parquet=sph_manifest_parquet,
+                cache_dir=self.cache_dir,  # use same cache root
+                s3_vendor=(self.s3_vendor or "data/vendor"),
+                s3_client=S3Client(),
+            )
+
+        # union stacks so nearest-stack search can land on SPH-only stacks
+        if self.sph is not None:
+            self.stacks = sorted({*self.monker_stacks, *self.sph.stacks})
+        else:
+            self.stacks = list(self.monker_stacks)
+
         # ---- Build indices ----
         # Context-aware index: (stack, ctx, hero, ip, oop)
         self._monker_idx_ctx: Dict[Tuple[int, str, str, str, str], List[dict]] = {}
@@ -287,10 +309,6 @@ class PreflopRangeLookup:
 
         # quick diag set
         self._seen_pairs_ctx = {(k[1], k[3], k[4]) for k in self._monker_idx_ctx.keys()}
-
-        # No SPH now; stacks set = Monker stacks
-        self.stacks: List[int] = list(self.monker_stacks)
-
     # ---------- path resolution ----------
     def _resolve_monker_path(self, row: dict) -> Path:
         abs_path = Path(row.get("abs_path") or "")
@@ -322,6 +340,12 @@ class PreflopRangeLookup:
     def _canon_ctx(self, ctx: str) -> str:
         c = str(ctx).upper()
         return type(self).CTX_ALIAS.get(c, c)
+
+    def _canon_ctx_sph(self, ctx: str) -> str:
+        c = str(ctx).upper()
+        if c == "LIMPED_SINGLE": return "LIMP_SINGLE"
+        if c == "LIMPED_MULTI":  return "LIMP_MULTI"
+        return c
 
     def _monker_pick_ctx(self, stack: int, ctx: str, hero: str, ip: str, oop: str) -> Optional[dict]:
         key = (int(stack), self._canon_ctx(ctx), canon_pos(hero), canon_pos(ip), canon_pos(oop))
@@ -448,6 +472,22 @@ class PreflopRangeLookup:
                                 "range_ip_source_stack": s, "range_oop_source_stack": s,
                                 "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
                                 "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
+                        return rng_ip, rng_oop, meta
+
+                # SPH fallback for limped contexts
+                if self.sph is not None and ctx in {"LIMPED_SINGLE", "LIMPED_MULTI"}:
+                    ctx_sph = self._canon_ctx_sph(ctx)
+                    row_ip = self.sph._pick(s, ctx_sph, hero="IP", ip=cand_ip, oop=cand_oop)
+                    row_oop = self.sph._pick(s, ctx_sph, hero="OOP", ip=cand_ip, oop=cand_oop)
+                    if row_ip and row_oop:
+                        p_ip = self.sph._resolve_path(row_ip)
+                        p_oop = self.sph._resolve_path(row_oop)
+                        rng_ip = load_sph_range_compact(p_ip, pick="ip")
+                        rng_oop = load_sph_range_compact(p_oop, pick="oop")
+                        meta = {**base_meta, "source": f"sph:{ctx_sph}",
+                                "range_ip_source_stack": s, "range_oop_source_stack": s,
+                                "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                                "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop)}
                         return rng_ip, rng_oop, meta
 
         # 3) last-resort flat 169 distribution (keeps pipeline moving)

@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import sys
 from pathlib import Path
 import pandas as pd
-
-
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
@@ -20,6 +16,7 @@ from ml.features.boards.board_clusterers.utils import discover_representative_fl
 from ml.features.boards import load_board_clusterer
 from ml.utils.config import load_model_config
 from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
+from ml.range.solvers.keying import s3_key_for_solve, solve_sha1
 
 # =========================
 # Size presets (deterministic)
@@ -31,7 +28,6 @@ FOURBET_X = 24.0                      # final 4bet size
 
 POS_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
 POS_SET = set(POS_ORDER)
-
 
 # =========================
 # Helpers: ctx + topology
@@ -160,40 +156,43 @@ def _compute_pot_bb(ctx: str, opener: Optional[str], ip: str, three_bettor: Opti
 # =========================
 # Menu binding (topology+roles)
 # =========================
-def _menu_for(ctx: str, ip: str, oop: str, opener: Optional[str], three_bettor: Optional[str]) -> Tuple[str, List[float]]:
+def _menu_for(
+    ctx: str,
+    ip: str,
+    oop: str,
+    opener: Optional[str],
+    three_bettor: Optional[str],
+) -> Tuple[str, List[float]]:
     topo, opener_h, three_h = _infer_topology_and_roles(ctx, ip, oop)
+
+    # Ask the mapper
     menu_id = expected_menu_id(
         topo=topo,
         ip=_canon_pos(ip),
         oop=_canon_pos(oop),
         opener=opener or opener_h,
         three_bettor=three_bettor or three_h,
-    ) or "srp_hu.PFR_IP"
-    sizes = BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU)
+    )
+
+    # ---- explicit context fallbacks (no silent SRP default) ----
+    if not menu_id:
+        if topo == "limped_multi":
+            menu_id = "limped_multi.Any"
+        elif topo == "limped_single":
+            # HU limp: SB is IP vs BB
+            menu_id = "limped_single.SB_IP"
+        else:
+            raise ValueError(
+                f"Cannot derive bet_sizing_id for ctx={ctx} topo={topo} ip={ip} oop={oop} "
+                f"(opener={opener or opener_h}, 3bettor={three_bettor or three_h})"
+            )
+
+    # Hard guard: the id must exist
+    if menu_id not in BET_SIZE_MENUS:
+        raise ValueError(f"Unknown bet_sizing_id '{menu_id}' for ctx={ctx} topo={topo} ip={ip} oop={oop}")
+
+    sizes = BET_SIZE_MENUS[menu_id]
     return menu_id, sizes
-
-
-# =========================
-# Stable job-id (structural only)
-# =========================
-def _stable_job_id_structural(params: Dict) -> str:
-    key = {
-        "stack": int(round(float(params["effective_stack_bb"]))),
-        "pot": round(float(params["pot_bb"]), 2),
-        "ip": str(params["positions"]).split("v")[0],
-        "oop": str(params["positions"]).split("v")[1],
-        "ctx": str(params.get("ctx", "")),
-        "menu": str(params["bet_sizing_id"]),
-        "board": str(params["board"]),
-        "cluster": int(params["board_cluster_id"]),
-        "rake": str(params.get("rake_tier", "nl10_5pct_1bbcap")),
-        "acc": float(params.get("accuracy", 0.75)),
-        "iters": int(params.get("max_iter", 100)),
-        "a_th": float(params.get("allin_threshold", 0.67)),
-    }
-    s = json.dumps(key, sort_keys=True)
-    return hashlib.sha1(s.encode("utf-8")).hexdigest()
-
 
 # =========================
 # Builder
@@ -208,7 +207,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     iters = int(sv.get("max_iterations", 100))
     a_th = float(sv.get("allin_threshold", 0.67))
     ver = str(sv.get("version", "v1"))
-    s3_prefix_outputs = str(sv.get("s3_prefix", f"worker/outputs/{ver}"))
+    s3_prefix_outputs = str(sv.get("s3_prefix", f"solver/outputs/{ver}"))
     rake_tier = str(sv.get("rake_tier", "nl10_5pct_1bbcap"))
 
     # Scenarios (config-driven)
@@ -240,7 +239,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     # Preflop range lookup (Monker-only)
     lookup = PreflopRangeLookup(
         monker_manifest_parquet=inputs.get("monker_manifest", "data/artifacts/monker_manifest.parquet"),
-        sph_manifest_parquet=None,  # <- removed SPH
+        sph_manifest_parquet=inputs.get("sph_manifest", "data/artifacts/sph_manifest.parquet"),
         s3_client=S3Client(),
         s3_vendor=inputs.get("vendor_s3_prefix", "data/vendor"),
         cache_dir=sv.get("local_cache_dir", "data/vendor_cache"),
@@ -359,10 +358,12 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                             "range_source": meta.get("source", "unknown"),
                         }
 
-                        sha = _stable_job_id_structural(params)
-
-                        # If you have an S3 path function, call it here; placeholder below:
-                        s3_key = f"{s3_prefix_outputs}/{sha[:2]}/{sha}.json"
+                        sha = solve_sha1(params)
+                        s3_key = s3_key_for_solve(
+                            params,
+                            sha1=sha,
+                            prefix="solver/outputs/v1"  # use canonical solver prefix
+                        )
 
                         rows.append({
                             **params,
