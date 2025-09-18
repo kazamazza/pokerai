@@ -7,6 +7,7 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
+from ml.config.solver_profiles import profile_for
 from typing import List, Dict, Optional, Tuple
 from ml.config.bet_menus import BET_SIZE_MENUS, DEFAULT_MENU
 from ml.etl.rangenet.preflop.monker_manifest import expected_menu_id
@@ -201,13 +202,6 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     mb = cfg.get("manifest_build", {}) or {}
     sv = cfg.get("solver", {}) or {}
     inputs = cfg.get("inputs", {}) or {}
-
-    # Solver knobs
-    acc = float(sv.get("accuracy", 0.75))
-    iters = int(sv.get("max_iterations", 100))
-    a_th = float(sv.get("allin_threshold", 0.67))
-    ver = str(sv.get("version", "v1"))
-    s3_prefix_outputs = str(sv.get("s3_prefix", f"solver/outputs/{ver}"))
     rake_tier = str(sv.get("rake_tier", "nl10_5pct_1bbcap"))
 
     # Scenarios (config-driven)
@@ -312,6 +306,9 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                     for board_tuple in boards_by_cluster[cluster_id]:
                         board_str = "".join(board_tuple)
 
+                        # ⬇️ contextual solver knobs based on this menu/context
+                        knobs = profile_for(menu_id)  # {"accuracy", "max_iter", "allin_threshold"}
+
                         params = {
                             "street": 1,
                             "scenario": scenario_name,
@@ -339,11 +336,11 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                             "range_ip": rng_ip or "",
                             "range_oop": rng_oop or "",
 
-                            # solver knobs
-                            "accuracy": acc,
-                            "max_iter": iters,
-                            "allin_threshold": a_th,
-                            "solver_version": ver,
+                            # 🔧 solver knobs (contextual)
+                            "accuracy": knobs["accuracy"],
+                            "max_iter": knobs["max_iter"],
+                            "allin_threshold": knobs["allin_threshold"],
+                            "solver_version": "v1",  # keep whatever you already set earlier
 
                             # provenance
                             "range_ip_source_stack": meta.get("range_ip_source_stack"),
@@ -362,7 +359,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                         s3_key = s3_key_for_solve(
                             params,
                             sha1=sha,
-                            prefix="solver/outputs/v1"  # use canonical solver prefix
+                            prefix="solver/outputs/v1"
                         )
 
                         rows.append({

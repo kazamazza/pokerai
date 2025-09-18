@@ -1,15 +1,19 @@
 # ml/train/train_preflop_rangenet.py
 from __future__ import annotations
+
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Dict
 import json
-import torch
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT_DIR))
+
 from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet
 from ml.datasets.utils_dataset import stratified_indices
-from ml.models.rangenet import RangeNetLit                  # logits + KL version
+from ml.models.preflop_rangenet import RangeNetLit                  # logits + KL version
 from ml.datasets.rangenet import rangenet_collate_fn
 from ml.utils.config import load_model_config               # your helper
 
@@ -31,7 +35,9 @@ def _save_sidecar(ckpt_dir: Path, *, feature_order: Sequence[str],
 def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
     seed = int(_get(cfg, "train.seed", 42))
-    pl.seed_everything(seed)
+    import random, numpy as np, torch
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+    pl.seed_everything(seed, workers=True)
 
     # -------- Dataset --------
     parquet_path = _get(cfg, "inputs.parquet") or _get(cfg, "dataset.parquet")
@@ -41,30 +47,39 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     x_cols = _get(cfg, "dataset.x_cols") or ["stack_bb","hero_pos","opener_pos","ctx","opener_action"]
     min_weight = _get(cfg, "dataset.min_weight", None)
     weight_col = _get(cfg, "dataset.weight_col", "weight")
+    device = torch.device(_get(cfg, "train.device", "cpu"))
 
     ds = PreflopRangeDatasetParquet(
         parquet_path=parquet_path,
         x_cols=x_cols,
         weight_col=weight_col,
         min_weight=min_weight,
-        device=torch.device("cpu"),
+        device=device,
         strict_canon=True,
     )
 
     cards = ds.cards_info.cards
     feature_order = list(ds.feature_order)
 
-    # Optional stratified split (rarely needed preflop)
+    # -------- Split --------
     stratify_keys = _get(cfg, "dataset.stratify_keys", None)
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
     n = len(ds)
-    if stratify_keys:
+    if n < 2:
+        raise ValueError(f"Dataset too small: {n} rows")
 
+    if stratify_keys:
         train_idx, val_idx = stratified_indices(ds.df, stratify_keys, train_frac, seed)
     else:
-        cut = int(n * train_frac)
         idx = list(range(n))
+        rng = np.random.default_rng(seed)
+        rng.shuffle(idx)
+        cut = max(1, int(n * train_frac))
         train_idx, val_idx = idx[:cut], idx[cut:]
+        if len(val_idx) == 0:  # ensure at least one val sample
+            val_idx = train_idx[-1:]
+            train_idx = train_idx[:-1]
+
     train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
 
     # -------- DataLoaders --------
@@ -102,11 +117,13 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     patience = int(_get(cfg, "train.patience", 3))
 
     logger_name = _get(cfg, "logging.logger", "tensorboard")
+    logger = None
     if logger_name == "tensorboard":
         from pytorch_lightning.loggers import TensorBoardLogger
-        logger = TensorBoardLogger(save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"), name="rangenet_preflop")
-    else:
-        logger = False
+        logger = TensorBoardLogger(
+            save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
+            name="rangenet_preflop"
+        )
 
     ckpt_cb = pl.callbacks.ModelCheckpoint(
         dirpath=str(ckpt_dir),
@@ -118,11 +135,12 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     early_cb = pl.callbacks.EarlyStopping(monitor=monitor, mode=mode, patience=patience)
 
     # -------- Trainer --------
+    precision = _get(cfg, "train.precision", "16-mixed")
     trainer = pl.Trainer(
         max_epochs=int(_get(cfg, "train.max_epochs", 10)),
         accelerator=_get(cfg, "train.accelerator", "auto"),
         devices=_get(cfg, "train.devices", "auto"),
-        precision=_get(cfg, "train.precision", "16-mixed"),
+        precision=precision,
         log_every_n_steps=50,
         callbacks=[ckpt_cb, early_cb],
         deterministic=True,
@@ -139,10 +157,15 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
     _save_sidecar(ckpt_dir, feature_order=feature_order, id_maps=ds.id_maps(), cards=cards)
 
-    # Train (resume optional)
+    # -------- Train (with auto-resume) --------
     resume_from = _get(cfg, "train.resume_from", None)
+    if not resume_from:
+        last_ckpt = ckpt_dir / "last.ckpt"
+        if last_ckpt.exists():
+            resume_from = str(last_ckpt)
+
     if resume_from:
-        trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from))
+        trainer.fit(model, train_dl, val_dl, ckpt_path=resume_from)
     else:
         trainer.fit(model, train_dl, val_dl)
 

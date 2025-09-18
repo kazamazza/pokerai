@@ -382,22 +382,23 @@ class PreflopRangeLookup:
     def _ordered_stacks(self, target: int) -> List[int]:
         return sorted(self.stacks, key=lambda s: (abs(s - int(target)), s))
 
-    # ---------- public API ----------
+    def _sph_ctx_for(self, ctx: str) -> str | None:
+        c = (ctx or "").upper()
+        if c == "SRP": return "SRP"
+        if c == "LIMPED_SINGLE": return "LIMP_SINGLE"
+        if c == "LIMPED_MULTI": return "LIMP_MULTI"
+        return None
+
     def ranges_for_pair(
-        self,
-        *,
-        stack_bb: float,
-        ip: str,
-        oop: str,
-        ctx: str = "SRP",
-        strict: bool = True,
+            self,
+            *,
+            stack_bb: float,
+            ip: str,
+            oop: str,
+            ctx: str = "SRP",
+            strict: bool = True,
     ) -> Tuple[str, str, Dict[str, object]]:
-        """
-        Returns (range_ip_json169, range_oop_json169, meta).
-        range_* are JSON-serialized 169-length lists (vendor-compact converted).
-        meta['source'] ∈ {'monker:<ctx>','monker:SRP-fallback','fallback:default'}.
-        """
-        ip = canon_pos(ip)
+        ip = canon_pos(ip);
         oop = canon_pos(oop)
         if not ip or not oop or ip == oop:
             raise RuntimeError(f"Bad positions ip={ip} oop={oop}")
@@ -406,20 +407,16 @@ class PreflopRangeLookup:
         near_stack = nearest_stack(stack_bb, self.stacks)
 
         for cand_ip, cand_oop, level, substituted in candidate_pairs(
-            ip, oop, ctx=ctx, allow_pair_subs=self.allow_pair_subs
+                ip, oop, ctx=ctx, allow_pair_subs=self.allow_pair_subs
         ):
             base_meta = {
-                "source": None,
-                "ctx": ctx,
+                "source": None, "ctx": ctx,
                 "range_pair_substituted": bool(substituted),
                 "range_ip_source_pair": f"{cand_ip}v{cand_oop}",
                 "range_oop_source_pair": f"{cand_ip}v{cand_oop}",
-                "range_ip_source_stack": None,
-                "range_oop_source_stack": None,
-                "range_ip_stack_delta": None,
-                "range_oop_stack_delta": None,
-                "range_ip_fallback_level": level,
-                "range_oop_fallback_level": level,
+                "range_ip_source_stack": None, "range_oop_source_stack": None,
+                "range_ip_stack_delta": None, "range_oop_stack_delta": None,
+                "range_ip_fallback_level": level, "range_oop_fallback_level": level,
             }
 
             for s in self._ordered_stacks(int(near_stack)):
@@ -427,9 +424,9 @@ class PreflopRangeLookup:
                     continue
                 delta = abs(s - int(near_stack))
 
-                # 1) exact-context (requires both heroes present)
-                row_ip  = self._monker_pick_ctx(s, ctx, hero=cand_ip,  ip=cand_ip,  oop=cand_oop)
-                row_oop = self._monker_pick_ctx(s, ctx, hero=cand_oop, ip=cand_ip,  oop=cand_oop)
+                # 1) Monker exact context (hero)
+                row_ip = self._monker_pick_ctx(s, ctx, hero=cand_ip, ip=cand_ip, oop=cand_oop)
+                row_oop = self._monker_pick_ctx(s, ctx, hero=cand_oop, ip=cand_ip, oop=cand_oop)
                 if row_ip and row_oop:
                     p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
                     rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
@@ -439,7 +436,7 @@ class PreflopRangeLookup:
                             "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
                     return rng_ip, rng_oop, meta
 
-                # 1b) NEW: pair-level for this ctx (ignore hero; pick best available heroes)
+                # 2) Monker exact context (pair-level)
                 row_ip2, row_oop2 = self._monker_pick_ctx_pair(s, ctx, ip=cand_ip, oop=cand_oop)
                 if row_ip2 and row_oop2:
                     p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
@@ -450,10 +447,10 @@ class PreflopRangeLookup:
                             "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
                     return rng_ip, rng_oop, meta
 
-                # 2) SRP fallback for SRP-like contexts (strict hero)
+                # 3) Monker SRP fallback (hero)
                 if ctx == "SRP":
-                    row_ip  = self._monker_pick_srp(s, hero=cand_ip,  ip=cand_ip,  oop=cand_oop)
-                    row_oop = self._monker_pick_srp(s, hero=cand_oop, ip=cand_ip,  oop=cand_oop)
+                    row_ip = self._monker_pick_srp(s, hero=cand_ip, ip=cand_ip, oop=cand_oop)
+                    row_oop = self._monker_pick_srp(s, hero=cand_oop, ip=cand_ip, oop=cand_oop)
                     if row_ip and row_oop:
                         p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
                         rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
@@ -463,7 +460,7 @@ class PreflopRangeLookup:
                                 "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
                         return rng_ip, rng_oop, meta
 
-                    # 2b) NEW: SRP pair-level alias
+                    # 4) Monker SRP fallback (pair-level)
                     row_ip2, row_oop2 = self._monker_pick_srp_pair(s, ip=cand_ip, oop=cand_oop)
                     if row_ip2 and row_oop2:
                         p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
@@ -474,35 +471,33 @@ class PreflopRangeLookup:
                                 "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
                         return rng_ip, rng_oop, meta
 
-                # SPH fallback for limped contexts
-                if self.sph is not None and ctx in {"LIMPED_SINGLE", "LIMPED_MULTI"}:
-                    ctx_sph = self._canon_ctx_sph(ctx)
-                    row_ip = self.sph._pick(s, ctx_sph, hero="IP", ip=cand_ip, oop=cand_oop)
-                    row_oop = self.sph._pick(s, ctx_sph, hero="OOP", ip=cand_ip, oop=cand_oop)
-                    if row_ip and row_oop:
-                        p_ip = self.sph._resolve_path(row_ip)
-                        p_oop = self.sph._resolve_path(row_oop)
-                        rng_ip = load_sph_range_compact(p_ip, pick="ip")
-                        rng_oop = load_sph_range_compact(p_oop, pick="oop")
-                        meta = {**base_meta, "source": f"sph:{ctx_sph}",
-                                "range_ip_source_stack": s, "range_oop_source_stack": s,
-                                "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
-                                "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop)}
-                        return rng_ip, rng_oop, meta
+                # 5) SPH fallback (any mappable ctx: SRP, LIMP_SINGLE, LIMP_MULTI)
+                if self.sph is not None:
+                    sph_ctx = self._sph_ctx_for(ctx)
+                    if sph_ctx:
+                        row_ip = self.sph._pick(s, sph_ctx, hero="IP", ip=cand_ip, oop=cand_oop)
+                        row_oop = self.sph._pick(s, sph_ctx, hero="OOP", ip=cand_ip, oop=cand_oop)
+                        if row_ip and row_oop:
+                            p_ip = self.sph._resolve_path(row_ip)
+                            p_oop = self.sph._resolve_path(row_oop)
+                            rng_ip = load_sph_range_compact(p_ip, pick="ip")
+                            rng_oop = load_sph_range_compact(p_oop, pick="oop")
+                            meta = {**base_meta, "source": f"sph:{sph_ctx}",
+                                    "range_ip_source_stack": s, "range_oop_source_stack": s,
+                                    "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
+                                    "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop)}
+                            return rng_ip, rng_oop, meta
 
-        # 3) last-resort flat 169 distribution (keeps pipeline moving)
+        # 6) Last resort
+        if strict:
+            raise RuntimeError(f"No ranges found for {ip}v{oop}@{stack_bb} ctx={ctx}")
         flat_range = json.dumps([1.0] * 169)
         meta = {
-            "source": "fallback:default",
-            "ctx": ctx,
+            "source": "fallback:default", "ctx": ctx,
             "range_pair_substituted": False,
             "range_ip_source_pair": f"{ip}v{oop}",
             "range_oop_source_pair": f"{ip}v{oop}",
-            "range_ip_source_stack": near_stack,
-            "range_oop_source_stack": near_stack,
-            "range_ip_stack_delta": 0,
-            "range_oop_stack_delta": 0,
+            "range_ip_source_stack": near_stack, "range_oop_source_stack": near_stack,
+            "range_ip_stack_delta": 0, "range_oop_stack_delta": 0,
         }
-        if strict and not flat_range:
-            raise RuntimeError(f"No ranges found for {ip}v{oop}@{stack_bb} ctx={ctx}")
         return flat_range, flat_range, meta

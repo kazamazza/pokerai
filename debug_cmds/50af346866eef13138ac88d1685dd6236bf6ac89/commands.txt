@@ -1,0 +1,17 @@
+set_pot 19
+set_effective_stack 25
+set_board 8d,Qd,Qc
+set_range_ip AKs:0.007000,KQs:0.021000
+set_range_oop AA:1.000000,AKs:1.000000,AQs:1.000000,AJs:0.643000,KK:1.000000,QQ:1.000000,JJ:1.000000,TT:1.000000,99:1.000000,88:1.000000,77:0.394000
+set_bet_sizes ip,flop,bet,33,66
+set_bet_sizes oop,flop,bet,33,66
+set_allin_threshold 0.67
+build_tree
+set_thread_num 1
+set_accuracy 0.02
+set_max_iteration 6000
+set_print_interval 20
+set_use_isomorphism 1
+start_solve
+set_dump_rounds 3
+dump_result /var/folders/hd/sqfg82nn5bx4qb4djlglqq4w0000gn/T/solve_50af3468_2bxmlybz/result.json

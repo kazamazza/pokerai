@@ -32,15 +32,10 @@ def _range_map_to_vector(rng_map: Dict[str, float]) -> np.ndarray:
 
 
 def _aggregate_group(group_df: pd.DataFrame) -> Dict[str, Any]:
-    """
-    Aggregate all files in a scenario group into a single averaged, normalized range.
-    group_df has columns SCENARIO_KEYS + ['abs_path'] (from monker_manifest).
-    """
-    # Average across files, then normalize
     acc: Dict[str, float] = {}
     n_files = 0
     for _, row in group_df.iterrows():
-        rng_map = load_range_file_cached(Path(row["abs_path"]))
+        rng_map = load_range_file_cached(Path(row["abs_path"]))  # must return Dict[str,float] or {}
         if not rng_map:
             continue
         for k, v in rng_map.items():
@@ -48,44 +43,40 @@ def _aggregate_group(group_df: pd.DataFrame) -> Dict[str, Any]:
         n_files += 1
 
     if n_files == 0:
-        # produce a uniform placeholder if nothing parsed
         vec = np.ones(len(ALL_HANDS), dtype="float32") / len(ALL_HANDS)
     else:
-        # average
         for k in list(acc.keys()):
             acc[k] /= n_files
-        vec = _range_map_to_vector(acc)
+        vec = _range_map_to_vector(acc)  # already returns normalized float32
 
-    # Emit row dict
     out: Dict[str, Any] = {k: group_df.iloc[0][k] for k in SCENARIO_KEYS}
-    # y_0..y_168
     for i, p in enumerate(vec):
         out[f"y_{i}"] = float(p)
-    out["weight"] = float(n_files)  # simple & effective: number of contributing files
+    out["weight"] = float(n_files)
     return out
 
 
 def build_rangenet_preflop(manifest_path: Path, out_parquet: Path,
                            min_files: int | None = None) -> pd.DataFrame:
-    """
-    Read monker manifest → aggregate into one row per scenario with 169-dim soft label.
-    """
     manifest = pd.read_parquet(manifest_path)
     need = set(SCENARIO_KEYS) | {"abs_path"}
     missing = sorted([c for c in need if c not in manifest.columns])
     if missing:
         raise ValueError(f"Manifest missing required columns: {missing}")
 
-    # Optional filter by minimum files per scenario (if the manifest already has counts)
     if min_files is not None and "n_files" in manifest.columns:
         manifest = manifest[manifest["n_files"] >= int(min_files)].reset_index(drop=True)
 
     rows: List[Dict[str, Any]] = []
-    for keys, g in manifest.groupby(SCENARIO_KEYS, as_index=False):
-        row = _aggregate_group(g)
-        rows.append(row)
+    # FIX: remove as_index=False
+    for keys, g in manifest.groupby(SCENARIO_KEYS):
+        rows.append(_aggregate_group(g))
 
     out_df = pd.DataFrame(rows)
+
+    # ensure compact dtypes for labels
+    y_cols = [f"y_{i}" for i in range(169)]
+    out_df[y_cols] = out_df[y_cols].astype("float32")
 
     out_parquet.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_parquet(out_parquet, index=False)

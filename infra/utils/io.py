@@ -1,4 +1,4 @@
-import gzip
+import gzip_file
 import json
 import shutil
 from pathlib import Path

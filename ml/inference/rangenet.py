@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Sequence, Optional
 import torch
 import numpy as np
 
-from ml.models.rangenet import RangeNetLit  # your Lightning module
+from ml.models.preflop_rangenet import RangeNetLit  # your Lightning module
 from ml.utils.sidecar import load_sidecar
 
 

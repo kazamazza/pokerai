@@ -1,0 +1,17 @@
+set_pot 6
+set_effective_stack 25
+set_board 8d,Qd,Qc
+set_range_ip 98s:0.989000,97s:0.520000,87s:1.000000,86s:1.000000,77:0.077000,76s:1.000000,75s:0.385000,66:0.836000,65s:0.843000,55:0.517000,44:0.593000,33:1.000000,22:1.000000
+set_range_oop 98s:0.989000,97s:0.520000,87s:1.000000,86s:1.000000,77:0.077000,76s:1.000000,75s:0.385000,66:0.836000,65s:0.843000,55:0.517000,44:0.593000,33:1.000000,22:1.000000
+set_bet_sizes ip,flop,bet,33,66
+set_bet_sizes oop,flop,bet,33,66
+set_allin_threshold 0.67
+build_tree
+set_thread_num 1
+set_accuracy 0.015
+set_max_iteration 6000
+set_print_interval 20
+set_use_isomorphism 1
+start_solve
+set_dump_rounds 3
+dump_result /var/folders/hd/sqfg82nn5bx4qb4djlglqq4w0000gn/T/solve_a3f580c8_jk94ldn8/result.json

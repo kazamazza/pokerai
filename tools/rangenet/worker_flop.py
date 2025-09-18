@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from infra.utils.gzip_file import gzip_file
 from ml.etl.utils.monker_range_converter import to_monker
 from ml.etl.utils.range_lookup import monker_string_to_vec169
 from ml.config.bet_menus import build_contextual_bet_sizes
@@ -26,15 +27,42 @@ LOCAL_CACHE_DIR = Path(os.getenv("SOLVER_LOCAL_CACHE", "data/solver_cache")).res
 S3_BUCKET = os.getenv("AWS_BUCKET_NAME")  # required at runtime
 REGION = os.getenv("AWS_REGION", "eu-central-1")
 
+def _ctx_from_menu(menu_id: str) -> str:
+    m = (menu_id or "").lower()
+    if m.startswith("limped_single"): return "LIMPED_SINGLE"
+    if m.startswith("limped_multi"):  return "LIMPED_MULTI"
+    if m.startswith("3bet_hu"):       return "VS_3BET"
+    if m.startswith("4bet_hu"):       return "VS_4BET"
+    return "SRP"
+
+# floors used for WARNs (not hard failures)
+_MIN_NNZ_WARN = {
+    "SRP": 20,
+    "VS_3BET": 12,
+    "VS_4BET": 2,            # 4-bet trees are tiny; allow very small ranges
+    "LIMPED_SINGLE": 8,
+    "LIMPED_MULTI": 8,
+}
+
+def _sparse_decision(ip_nnz: int, oop_nnz: int, ctx: str) -> tuple[bool, str]:
+    # Only hard-fail on truly empty sides.
+    if ip_nnz == 0 or oop_nnz == 0:
+        return True, f"empty range (ip={ip_nnz}, oop={oop_nnz})"
+    floor = _MIN_NNZ_WARN.get(ctx, 8)
+    if ip_nnz < floor or oop_nnz < floor:
+        return False, f"ranges sparse for {ctx} (ip={ip_nnz}, oop={oop_nnz} < {floor}); continuing"
+    return False, ""
+
 
 def _exists_in_s3(s3, bucket: str, key: str) -> bool:
     try:
         s3.head_object(Bucket=bucket, Key=key)
         return True
     except ClientError as e:
-        if e.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404:
+        code = str(e.response.get("Error", {}).get("Code"))
+        http = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("404", "NotFound") or http == 404:
             return False
-        # treat all other errors as transient (do not ack message)
         raise
 
 
@@ -89,12 +117,17 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     print(f"[range-stats:post] IP nnz={post_ip_nnz} sum={post_ip_sum:.2f} | OOP nnz={post_oop_nnz} sum={post_oop_sum:.2f}")
 
     # Hard guard on post-conversion
-    if post_ip_nnz != -1 and post_ip_nnz < 10:
-        raise RuntimeError(f"IP range too sparse post-conversion (nnz={post_ip_nnz}) – source looks wrong")
-    if post_oop_nnz != -1 and post_oop_nnz < 10:
-        raise RuntimeError(f"OOP range too sparse post-conversion (nnz={post_oop_nnz}) – source looks wrong")
-
     menu_id = str(params.get("bet_sizing_id", "") or "")
+    ctx = _ctx_from_menu(menu_id)
+
+    # Context-aware guard
+    if post_ip_nnz != -1 and post_oop_nnz != -1:
+        fail, msg = _sparse_decision(post_ip_nnz, post_oop_nnz, ctx)
+        if fail:
+            raise RuntimeError(msg + f" – ctx={ctx}")
+        elif msg:
+            print("[warn]", msg)
+
     bet_sizes = build_contextual_bet_sizes(menu_id)
 
     accuracy = float(params.get("accuracy", 0.5))
@@ -194,7 +227,7 @@ def handle_message(body: str) -> bool:
     returns True to delete from queue, False/None to leave (DLQ handled by base).
     """
     if not S3_BUCKET:
-        raise RuntimeError("AWS_S3_BUCKET env var is required")
+        raise RuntimeError("AWS_BUCKET_NAME env var is required")
 
     msg = json.loads(body)
     sha1 = msg["sha1"]
@@ -224,7 +257,8 @@ def handle_message(body: str) -> bool:
             raise RuntimeError("solver produced no result.json or file empty")
 
         # Upload
-        _upload_file(s3, out_json, S3_BUCKET, s3_key)
+        gz_path = gzip_file(out_json)
+        s3.upload_file(str(gz_path), S3_BUCKET, s3_key)
         print(f"✅ uploaded → s3://{S3_BUCKET}/{s3_key}")
         return True
 
