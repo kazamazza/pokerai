@@ -107,6 +107,18 @@ solver:
   local_cache_dir: data/solver_cache
 
 train:
-  batch_size: 2048
-  max_epochs: 10
-  patience: 4
+  seed: 42
+  batch_size: 1024
+  max_epochs: 12
+  patience: 3
+  accelerator: auto
+  devices: auto
+  precision: 16-mixed
+  checkpoints_dir: checkpoints/rangenet_postflop
+
+model:
+  hidden_dims: [256, 256]
+  dropout: 0.10
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  label_smoothing: 0.0

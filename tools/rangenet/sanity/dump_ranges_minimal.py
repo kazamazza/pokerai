@@ -209,8 +209,71 @@ def _pick_root(doc: dict) -> dict:
 
 # --------- per-key worker ----------
 def _process_key(bucket: str, key: str, region: str, parser: str = "json") -> Optional[dict]:
+    """
+    Load one solver JSON (gz or plain) from S3 and extract a 169-dim policy vector
+    at the root node:
+      - Determine actor ('ip'/'oop') from bet_sizing_id's role suffix
+      - Choose action family at root: BET (default) or DONK (if non-agg OOP allowed)
+      - Sum probabilities over all child nodes whose label starts with that action
+      - Put the vector on the acting side; zeros for the other side
+    """
     import io, json, gzip, time, sys
     import boto3
+
+    # --- small local helpers (no external deps) ---
+    def _role_from_menu(menu_id: str) -> str:
+        # "srp_hu.PFR_IP" -> "PFR_IP"; "limped_multi.Any" -> "Any"
+        m = (menu_id or "").strip()
+        return m.split(".", 1)[1] if "." in m else ""
+
+    def _group_from_menu(menu_id: str) -> str:
+        # "srp_hu.PFR_IP" -> "srp_hu"
+        m = (menu_id or "").strip()
+        return m.split(".", 1)[0] if "." in m else m
+
+    def _infer_actor_from_menu(menu_id: str) -> str:
+        role = _role_from_menu(menu_id).upper()
+        if role.endswith("_IP"):
+            return "ip"
+        if role.endswith("_OOP"):
+            return "oop"
+        # limp "Any" etc. — default to IP (harmless for sanity parquet)
+        return "ip"
+
+    def _donk_available(menu_id: str, actor: str) -> bool:
+        """
+        DONK only when actor is the *non-aggressor OOP* or specific limped case.
+        """
+        grp  = _group_from_menu(menu_id)
+        role = _role_from_menu(menu_id)
+        if grp.startswith("limped_multi"):
+            return False
+        if actor != "oop":
+            return False
+        return ("Caller_OOP" in role) or grp.startswith("limped_single")
+
+    def _policy_vec169_from_root(strat_map: dict, child_labels: list[str], action_prefix: str) -> list[float]:
+        # Build a 169 vector = sum of probs for all children whose label startswith action_prefix.
+        indices = [i for i, a in enumerate(child_labels) if str(a).upper().startswith(action_prefix)]
+        v = [0.0] * 169
+        if not indices:
+            return v
+        for hand, probs in (strat_map or {}).items():
+            idx = hand_to_index_169(str(hand))
+            if idx is None:
+                continue
+            try:
+                # probs should be a list/seq of floats aligned with child_labels
+                s = 0.0
+                for i in indices:
+                    s += float(probs[i])
+                if s < 0.0: s = 0.0
+                if s > 1.0: s = 1.0
+                v[idx] = s
+            except Exception:
+                # if entry malformed, leave at 0
+                pass
+        return v
 
     s3 = boto3.client("s3", region_name=region)
     t0 = time.time()
@@ -218,35 +281,54 @@ def _process_key(bucket: str, key: str, region: str, parser: str = "json") -> Op
         obj = s3.get_object(Bucket=bucket, Key=key)
         body = obj["Body"]
 
-        # load JSON (gzip-aware)
+        # --- parse JSON (gzip-aware) ---
         if key.endswith(".gz"):
             data = gzip.decompress(body.read())
             doc = json.loads(data)
         else:
             doc = json.loads(body.read().decode("utf-8"))
 
-        # >>> FIX: zoom into the actual root node <<<
-        root_obj = _pick_root(doc)
-
-        # extract ranges from the root object
-        ip_map, oop_map = _extract_ranges_from_root_obj(root_obj)
-        r_ip  = vec169_from_map(ip_map)
-        r_oop = vec169_from_map(oop_map)
-
-        # (optional sanity) bail if both zero vectors
-        if not any(r_ip) and not any(r_oop):
-            sys.stderr.write(f"[warn] empty ranges in {key} (check bet/ctx or JSON shape)\n")
+        # --- root node and its children/strategy ---
+        root = _pick_root(doc)  # you already have this helper
+        childrens = root.get("childrens") or {}
+        child_labels = list(childrens.keys())
+        strat_map = (root.get("strategy") or {}).get("strategy") or {}
 
         meta = _parts_from_keypath(key)
+        menu_id = meta.get("sizes", "")
+        actor = _infer_actor_from_menu(menu_id)  # 'ip' or 'oop'
+        want = "DONK" if _donk_available(menu_id, actor) else "BET"
+
+        vec = _policy_vec169_from_root(strat_map, child_labels, want)
+
+        if actor == "ip":
+            r_ip, r_oop = vec, [0.0] * 169
+        else:
+            r_ip, r_oop = [0.0] * 169, vec
+
+            # sanity: count non-zero entries
+        nnz = sum(1 for x in vec if x > 0.0)
+        if nnz == 0:
+            sys.stderr.write(f"[warn] empty policy at root ({want}) in {key}\n")
+        else:
+            sys.stderr.write(f"[ok] {key} → actor={actor} action={want} nnz={nnz}\n")
+
         return {
             "street": int(meta.get("street", "1") or "1"),
             "positions": meta.get("pos", ""),
-            "bet_sizing_id": meta.get("sizes", ""),
+            "bet_sizing_id": menu_id,
             "board": meta.get("board", ""),
             "effective_stack_bb": float(meta.get("stack", "0") or "0"),
             "pot_bb": float(meta.get("pot", "0") or "0"),
+
+            # NOTE: these are policy vectors (kept legacy names for compatibility)
             "range_ip_169": r_ip,
             "range_oop_169": r_oop,
+
+            # helpful metadata for inspection
+            "actor": actor,
+            "action": want,
+
             "s3_key": key,
         }
     except Exception as e:

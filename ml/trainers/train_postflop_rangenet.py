@@ -57,7 +57,7 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     pl.seed_everything(seed)
 
     # -------- Dataset --------
-    parquet_path = _get(cfg, "inputs.parquet") or _get(cfg, "dataset.parquet")
+    parquet_path = _get(cfg, "outputs.parquet") or _get(cfg, "dataset.parquet")
     if not parquet_path:
         raise ValueError("Missing inputs.parquet (or dataset.parquet) in config")
 
