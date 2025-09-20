@@ -22,7 +22,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
     volume_size       = 150
     worker_name       = "postflop_heavy"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_2 = {
@@ -42,7 +42,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_3"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_4 = {
@@ -52,7 +52,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_4"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_5 = {
@@ -62,7 +62,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_5"
-    disabled          = true
+    disabled          = false
   }
 
    postflop_heavy_6 = {
@@ -72,7 +72,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_6"
-    disabled          = true
+    disabled          = false
   }
 
    postflop_heavy_7 = {
@@ -82,7 +82,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_7"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_8 = {
@@ -92,7 +92,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_8"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_9 = {
@@ -102,7 +102,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_9"
-    disabled          = true
+    disabled          = false
   }
 }
 

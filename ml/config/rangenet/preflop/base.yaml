@@ -1,33 +1,107 @@
+# ========= Preflop RangeNet — PROD =========
 
-
-# === What we build from ===
+# What we build from
 inputs:
-  # Monker manifest (from your scanner), includes:
-  # stack_bb, hero_pos, opener_pos, opener_action, rel/abs_path, etc.
-  manifest: data/artifacts/monker_manifest.parquet
+  manifest_monker: data/artifacts/monker_manifest.parquet
+  manifest_sph:    data/artifacts/sph_manifest.parquet   # optional but recommended
 
-# === What we produce ===
+# What we produce
 outputs:
   parquet: data/datasets/rangenet_preflop.parquet
 
-# === Build-time knobs (aggregation) ===
-manifest_build:
-  stacks_bb: [ 25, 60, 100, 150 ]
-  # minimum files contributing to a cell before we keep it
-  min_files_per_cell: 1
-  # optional Laplace smoothing on soft labels (applied after averaging)
-  alpha: 0.0
+# Vendor/lookup knobs
+vendor:
+  cache_dir: data/vendor_cache
+  allow_pair_subs: true           # allow BTNvSB -> COvSB style substitutions if missing
+  max_stack_delta: 300            # allow ±200bb nearest-stack fallback in lookup
 
-# === Dataset schema for training ===
+# Build-time knobs (aggregation)
+manifest_build:
+  stacks_bb: [25, 60, 100, 150]   # same as postflop (4bet below narrows)
+  min_files_per_cell: 1
+  alpha: 0.0
+  ctx_backoff:
+    VS_3BET: SRP
+    VS_4BET: SRP
+
+  # Scenarios: (ctx, opener_action, opener_pos, hero_pos)
+  scenarios:
+    # --- Single-raised pots (vs open) ---
+    - name: SRP_IP
+      ctx: SRP
+      opener_action: RAISE
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:               # (opener_pos, hero_pos)
+        - [ "UTG", "BB" ]
+        - [ "HJ",  "BB" ]
+        - [ "CO",  "BB" ]
+        - [ "BTN", "BB" ]
+
+    - name: SRP_OOP
+      ctx: SRP
+      opener_action: RAISE
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "SB",  "BB" ]   # SB opened, BB defending
+        - [ "BTN", "SB" ]   # BTN opened, SB defending
+
+    # --- Blind vs Steal (treated as SRP) ---
+    - name: BLIND_VS_STEAL
+      ctx: SRP
+      opener_action: RAISE
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+
+    # --- 3-bet pots ---
+    - name: VS_3BET_IP
+      ctx: VS_3BET
+      opener_action: 3BET
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BB",  "BTN" ]  # BB 3bet, BTN called
+        - [ "SB",  "BTN" ]  # SB 3bet, BTN called
+
+    - name: VS_3BET_OOP
+      ctx: VS_3BET
+      opener_action: 3BET
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BTN", "BB" ]   # BTN 3bet, BB called
+        - [ "BTN", "SB" ]   # BTN 3bet, SB called
+
+    # --- 4-bet pots (lean) ---
+    - name: VS_4BET
+      ctx: VS_4BET
+      opener_action: 4BET
+      stacks_bb: [60, 100, 150]
+      position_pairs:
+        - [ "BB",  "BTN" ]  # BB 4bet, BTN called
+        - [ "BTN", "BB" ]   # BTN 4bet, BB called
+
+    # --- Limped pots ---
+    - name: LIMPED_SINGLE
+      ctx: LIMPED_SINGLE
+      opener_action: LIMP
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "SB", "BB" ]    # SB limps, BB responds
+        - [ "SB", "BTN" ]   # SB limps, BTN responds
+        - [ "BB", "BTN" ]   # BB limps (rare pool), BTN responds
+
+    - name: LIMPED_MULTI
+      ctx: LIMPED_MULTI
+      opener_action: LIMP
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "SB", "BB" ]
+        - [ "SB", "BTN" ]
+        - [ "BB", "BTN" ]
+
+# Dataset schema for training
 dataset:
-  x_cols: [
-    "stack_bb",
-    "hero_pos",
-    "opener_pos",
-    "opener_action",
-    "ctx"
-  ]
-  # predict villain range over 169 preflop classes
+  x_cols: [ "stack_bb", "hero_pos", "opener_pos", "opener_action", "ctx" ]
   y_cols: [
     "y_0","y_1","y_2","y_3","y_4","y_5","y_6","y_7","y_8","y_9",
     "y_10","y_11","y_12","y_13","y_14","y_15","y_16","y_17","y_18","y_19",
@@ -51,14 +125,13 @@ dataset:
   min_weight: 1
   stratify_by: ["stack_bb","hero_pos","opener_pos","opener_action"]
 
-# === Model ===
+# Model / train blocks (reuse your existing defaults if you like)
 model:
   hidden_dims: [128, 128]
   dropout: 0.10
   lr: 0.001
   weight_decay: 0.0001
 
-# === Training ===
 train:
   batch_size: 2048
   max_epochs: 10
@@ -74,14 +147,11 @@ train:
   train_frac: 0.8
   checkpoints_dir: checkpoints/range_pre
 
-# === Eval/Logging (optional) ===
 eval:
   use_best_ckpt: true
   output_dir: reports/eval/rangenet_preflop
+
 logging:
   logger: tensorboard
   tb_log_dir: logs/tb/range_pre
   csv_log_dir: logs/csv/range_pre
-
-sph:
-  manifest: data/vendor_cache/sph_manifest.parquet

@@ -21,7 +21,6 @@ def solve_sha1(params: Dict[str, Any]) -> str:
     return hashlib.sha1(txt.encode("utf-8")).hexdigest()
 
 
-
 def _sanitize_board(board: str | None) -> str:
     if not board:
         return ""

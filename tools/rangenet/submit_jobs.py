@@ -7,13 +7,9 @@ sys.path.append(str(ROOT_DIR))
 from ml.utils.config import load_model_config
 
 def main():
-    import argparse
-    import time
-    import json
-    import os
+    import argparse, time, json, os
     import pandas as pd
-    import boto3
-    import botocore
+    import boto3, botocore
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default="data/artifacts/rangenet_postflop_flop_manifest.parquet")
@@ -21,15 +17,19 @@ def main():
     ap.add_argument("--batch", type=int, default=10, help="SQS batch size (≤10)")
     ap.add_argument("--limit", type=int, default=None, help="Only send first N jobs")
     ap.add_argument("--dry-run", action="store_true", help="Don’t send, just show counts")
-    ap.add_argument("--config", default="rangenet/postflop",
-                    help="Path to model config (YAML) with worker settings")
+    ap.add_argument("--config", default=None, help="Optional YAML to fill *missing* non-critical fields")
     args = ap.parse_args()
 
-    # --- load worker config ---
-    cfg = load_model_config(args.config)
-    solver_cfg = cfg.get("worker", {}) or {}
+    # Optional config (only for filler defaults, never to override manifest)
+    solver_cfg = {}
+    if args.config:
+        try:
+            cfg = load_model_config(args.config) or {}
+            solver_cfg = (cfg.get("solver") or cfg.get("worker") or {}) or {}
+        except Exception:
+            solver_cfg = {}
 
-    if args.batch < 1 or args.batch > 10:
+    if not (1 <= args.batch <= 10):
         raise SystemExit("--batch must be between 1 and 10 (SQS limit)")
 
     df = pd.read_parquet(args.manifest)
@@ -37,57 +37,53 @@ def main():
         df = df.head(int(args.limit))
 
     ENVELOPE_KEYS = ["sha1", "s3_key"]
-
-    PARAM_WHITELIST = [
-        "street", "pot_bb", "effective_stack_bb", "positions", "bet_sizing_id",
-        "range_ip", "range_oop",
-        "accuracy", "max_iter", "allin_threshold",
-        "node_key", "solver_version",
-        "board", "board_cluster_id",
-        "parent_sha1", "parent_node_key", "line_key",
-        "street_root_state", "turn_card", "river_card",
-    ]
-
     missing_env = [k for k in ENVELOPE_KEYS if k not in df.columns]
     if missing_env:
         raise SystemExit(f"Manifest missing required columns: {missing_env}")
 
+    # Safe defaults for missing lightweight fields
     if "street" not in df.columns:
         df = df.assign(street=1)
     if "node_key" not in df.columns:
         df = df.assign(node_key="root")
     if "solver_version" not in df.columns:
         df = df.assign(solver_version=solver_cfg.get("version", "v1"))
+    # If threads is desired and not present in manifest, attach as column
+    if "threads" not in df.columns and "threads" in solver_cfg:
+        df = df.assign(threads=int(solver_cfg["threads"]))
+
+    # Only copy what the worker understands; do NOT override manifest values
+    PARAM_WHITELIST = [
+        "street", "pot_bb", "effective_stack_bb", "positions", "bet_sizing_id",
+        "range_ip", "range_oop",
+        "accuracy", "max_iter", "allin_threshold",
+        "node_key", "solver_version", "threads",
+        "board", "board_cluster_id",
+        "parent_sha1", "parent_node_key", "line_key",
+        "street_root_state", "turn_card", "river_card",
+    ]
+
+    def _coerce_param(k, v):
+        if v is None: return None
+        if k in ("street", "max_iter", "board_cluster_id"):
+            try: return int(v)
+            except: return None
+        if k in ("pot_bb", "effective_stack_bb", "accuracy", "allin_threshold"):
+            try: return float(v)
+            except: return None
+        # keep simple scalars/strings
+        return v if isinstance(v, (int, float, str)) else str(v)
 
     def to_msg(row):
         params = {}
-        # copy whitelisted columns from the manifest
         for k in PARAM_WHITELIST:
             if k in row and pd.notna(row[k]):
-                v = row[k]
-                if k in ("street", "max_iter", "board_cluster_id"):
-                    try: v = int(v)
-                    except: continue
-                elif k in ("pot_bb", "effective_stack_bb", "accuracy", "allin_threshold"):
-                    try: v = float(v)
-                    except: continue
-                elif not isinstance(v, (int, float, str)):
-                    v = str(v)
-                params[k] = v
+                v = _coerce_param(k, row[k])
+                if v is not None:
+                    params[k] = v
 
-        # ---- FORCE override from config for worker knobs ----
-        # normalize keys from YAML: accept either max_iter or max_iterations
-        acc = solver_cfg.get("accuracy", params.get("accuracy"))
-        mi  = solver_cfg.get("max_iter", solver_cfg.get("max_iterations", params.get("max_iter")))
-        ath = solver_cfg.get("allin_threshold", params.get("allin_threshold"))
-
-        if acc is not None: params["accuracy"] = float(acc)
-        if mi  is not None: params["max_iter"] = int(mi)
-        if ath is not None: params["allin_threshold"] = float(ath)
-
-        # optional: also pin worker version here
-        if "version" in solver_cfg:
-            params["solver_version"] = solver_cfg["version"]
+        # Never overwrite accuracy/max_iter/allin_threshold here.
+        # (solver_cfg is only used above to fill missing benign fields)
 
         msg = {
             "sha1": str(row["sha1"]),
@@ -108,24 +104,15 @@ def main():
         region_name=os.getenv("AWS_REGION"),
     )
 
-    n = len(df)
-    i = 0
-    sent = 0
-    retries = 0
-
+    n, i, sent, retries = len(df), 0, 0, 0
     while i < n:
         chunk = df.iloc[i:i + args.batch]
         entries = [to_msg(r) for _, r in chunk.iterrows()]
-
-        # always define resp2 so we can sum safely
         resp2 = {"Successful": []}
-
         try:
             resp = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=entries)
             failed = resp.get("Failed", []) or []
-
             if failed:
-                # retry once only failed entries
                 fail_ids = {f["Id"] for f in failed}
                 retry_entries = [e for e in entries if e["Id"] in fail_ids]
                 if retry_entries:
@@ -134,13 +121,9 @@ def main():
                     resp2 = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=retry_entries)
                     failed2 = resp2.get("Failed", []) or []
                     if failed2:
-                        # still failed after retry — log a short preview and continue
                         print(f"⚠️  batch @ {i}: {len(failed2)} entries failed after retry "
                               f"(e.g. {failed2[0] if failed2 else ''})")
-
-            ok_count = len(resp.get("Successful", [])) + len(resp2.get("Successful", []))
-            sent += ok_count
-
+            sent += len(resp.get("Successful", [])) + len(resp2.get("Successful", []))
         except botocore.exceptions.BotoCoreError as e:
             print(f"⚠️  SQS error at batch starting {i}: {e}")
         except Exception as e:
