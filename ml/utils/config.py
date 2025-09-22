@@ -16,8 +16,6 @@ try:
 except Exception:
     pass
 
-CONFIG_ROOT = Path("ml/config")  # keep your existing value
-
 def _resolve_paths(
     model: Optional[str],
     variant: Optional[str],
