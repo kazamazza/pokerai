@@ -99,8 +99,49 @@ cd pokerai
 
 python3.11 -m venv env || { log "venv failed"; exit 1; }
 source env/bin/activate
-pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
-pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
+
+# Upgrade build tooling first (helps resolve wheels cleanly)
+python -m pip install --upgrade pip setuptools wheel || { log "pip upgrade failed"; exit 1; }
+
+# Your app deps
+python -m pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
+
+# --- Ensure a Parquet engine is present ---
+ARCH="$(uname -m)"
+# Pick a spec with widely available wheels per arch
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+  PYARROW_SPEC='pyarrow>=14,<19'
+else
+  PYARROW_SPEC='pyarrow>=16,<19'
+fi
+
+# Prefer pyarrow; if it fails, fall back to fastparquet and set default engine accordingly
+if python -m pip install --no-cache-dir "$PYARROW_SPEC"; then
+  export PANDAS_PARQUET_ENGINE=pyarrow
+  log "pyarrow installed; using pyarrow as pandas parquet engine"
+else
+  log "pyarrow install failed; falling back to fastparquet"
+  python -m pip install --no-cache-dir "fastparquet>=2024.5.0" || { log "fastparquet install failed"; exit 1; }
+  export PANDAS_PARQUET_ENGINE=fastparquet
+  log "fastparquet installed; using fastparquet as pandas parquet engine"
+fi
+
+# Optional: convenient direct s3:// read/write via fsspec
+python -m pip install --no-cache-dir "s3fs>=2024.3.1" || log "s3fs install warning (non-fatal)"
+
+# Quick sanity print to cloud-init logs
+python - <<'PY'
+import os, pandas as pd
+print("pandas:", pd.__version__)
+print("PANDAS_PARQUET_ENGINE:", os.environ.get("PANDAS_PARQUET_ENGINE"))
+for mod in ("pyarrow","fastparquet"):
+    try:
+        m = __import__(mod)
+        print(mod, ":", getattr(m, "__version__", "<ok>"))
+    except Exception as e:
+        print(mod, "not available:", e)
+PY
+# --- Parquet engine setup done ---
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
