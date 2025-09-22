@@ -96,53 +96,10 @@ if ! git clone "$REPO_URL"; then
 fi
 cd pokerai
 
-# --- Python venv + deps (install everything as *root* consistently) ---
 python3.11 -m venv env || { log "venv failed"; exit 1; }
 source env/bin/activate
-
-python -m pip install --upgrade pip setuptools wheel || { log "pip upgrade failed"; exit 1; }
-# Use --no-cache-dir to avoid partial wheels if the instance loses network briefly
-python -m pip install --no-cache-dir -r requirements.txt || { log "requirements install failed"; exit 1; }
-
-# Sanity: ensure at least one parquet engine is actually importable in THIS venv
-python - <<'PY'
-import sys
-ok = False
-try:
-    import pyarrow as pa
-    print("pyarrow:", pa.__version__)
-    ok = True
-except Exception as e:
-    print("pyarrow not available:", e)
-try:
-    import fastparquet as fp
-    print("fastparquet:", fp.__version__)
-    ok = True or ok
-except Exception as e:
-    print("fastparquet not available:", e)
-import pandas as pd
-print("pandas:", pd.__version__)
-sys.exit(0 if ok else 1)
-PY
-if [ $? -ne 0 ]; then
-  # Fallback attempt: install pyarrow (wheels) or fastparquet if pyarrow fails
-  ARCH="$(uname -m)"
-  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    PYARROW_SPEC='pyarrow>=14,<19'
-  else
-    PYARROW_SPEC='pyarrow>=16,<19'
-  fi
-  if ! python -m pip install --no-cache-dir "$PYARROW_SPEC"; then
-    python -m pip install --no-cache-dir "fastparquet>=2024.5.0" || { log "parquet engine install failed"; exit 1; }
-  fi
-fi
-
-# Persist engine hint for pandas (optional; pandas will auto-detect anyway)
-if python -c "import pyarrow" >/dev/null 2>&1; then
-  echo "PANDAS_PARQUET_ENGINE=pyarrow" | sudo tee -a /etc/environment >/dev/null
-else
-  echo "PANDAS_PARQUET_ENGINE=fastparquet" | sudo tee -a /etc/environment >/dev/null
-fi
+pip install --upgrade pip || { log "pip upgrade failed"; exit 1; }
+pip install -r requirements.txt || { log "requirements install failed"; exit 1; }
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment

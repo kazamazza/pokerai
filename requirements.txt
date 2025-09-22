@@ -1,5 +1,8 @@
 omegaconf
-pytorch-lightning
+pytorch-lightning>=2.2,<3
+PyYAML>=6.0.1
+pyarrow>=16
+fastparquet>=2024.5.0
 annotated-types==0.7.0
 anyio==4.9.0
 boto3==1.39.16
@@ -8,7 +11,6 @@ certifi==2025.8.3
 charset-normalizer==3.4.2
 eval7==0.1.10
 fastapi==0.116.1
-fastparquet>=2024.5.0    # optional; one engine is enough
 filelock==3.18.0
 fsspec==2025.7.0
 future==1.0.0
@@ -22,7 +24,6 @@ networkx==3.5
 numpy==2.3.2
 pandas==2.3.1
 pillow==11.3.0
-pyarrow>=16
 pydantic==2.11.7
 pydantic_core==2.33.2
 pyparsing==3.2.3
@@ -30,7 +31,6 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 pytz==2025.2
 requests==2.32.4
-s3fs>=2024.3.1           # optional; handy if you ever use pandas read_parquet("s3://...")
 s3transfer==0.13.1
 scikit-learn==1.7.1
 scipy==1.16.1
