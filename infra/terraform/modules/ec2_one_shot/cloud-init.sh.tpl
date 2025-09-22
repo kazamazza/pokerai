@@ -11,7 +11,6 @@ access_key_id="${aws_access_key_id}"
 secret_access_key="${aws_secret_access_key}"
 script_to_run="${script_to_run}"
 worker_name="${worker_name}"
-worker_threads="${worker_threads}"
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
@@ -87,77 +86,63 @@ if ! grep -q '/opt/texas-solver' /etc/environment; then
 fi
 export SOLVER_BIN="$SOLVER_DIR/console_solver"
 
-# --- Clone repo as ubuntu (not root) ---
-REPO_URL="https://x-access-token:${github_token}@github.com/kazamazza/pokerai.git"
-log "Cloning repo as ubuntu…"
-sudo -u ubuntu -H bash -lc "
-  set -euo pipefail
-  cd /home/ubuntu
-  if [ -d pokerai/.git ]; then
-    echo '[clone] repo already present, pulling…'
-    cd pokerai && git pull --ff-only
-  else
-    git clone '$REPO_URL'
-  fi
-"
-# --- Python setup, deps, parquet engine — all as ubuntu ---
-APP_DIR="/home/ubuntu/pokerai"
-PYBIN="python3.11"
-VENV_DIR="$APP_DIR/env"
+REPO_URL="https://x-access-token:$github_token@github.com/kazamazza/pokerai.git"
+log "Cloning from: $(echo "$REPO_URL" | cut -c1-50)..."
 
-sudo -u ubuntu -H bash -lc "
-  set -euo pipefail
-  echo '[python] creating venv…'
-  cd '$APP_DIR'
-  $PYBIN -m venv '$VENV_DIR'
-  source '$VENV_DIR/bin/activate'
+cd /home/ubuntu || exit 1
+if ! git clone "$REPO_URL"; then
+  log "[ERROR] Git clone failed."
+  exit 1
+fi
+cd pokerai
 
-  echo '[python] upgrading build tools…'
-  python -m pip install --upgrade pip setuptools wheel
+# --- Python venv + deps (install everything as *root* consistently) ---
+python3.11 -m venv env || { log "venv failed"; exit 1; }
+source env/bin/activate
 
-  echo '[python] installing app requirements…'
-  python -m pip install -r requirements.txt
+python -m pip install --upgrade pip setuptools wheel || { log "pip upgrade failed"; exit 1; }
+# Use --no-cache-dir to avoid partial wheels if the instance loses network briefly
+python -m pip install --no-cache-dir -r requirements.txt || { log "requirements install failed"; exit 1; }
 
-  echo '[python] installing parquet engine…'
-  ARCH=\$(uname -m)
-  if [ \"\$ARCH\" = \"aarch64\" ] || [ \"\$ARCH\" = \"arm64\" ]; then
+# Sanity: ensure at least one parquet engine is actually importable in THIS venv
+python - <<'PY'
+import sys
+ok = False
+try:
+    import pyarrow as pa
+    print("pyarrow:", pa.__version__)
+    ok = True
+except Exception as e:
+    print("pyarrow not available:", e)
+try:
+    import fastparquet as fp
+    print("fastparquet:", fp.__version__)
+    ok = True or ok
+except Exception as e:
+    print("fastparquet not available:", e)
+import pandas as pd
+print("pandas:", pd.__version__)
+sys.exit(0 if ok else 1)
+PY
+if [ $? -ne 0 ]; then
+  # Fallback attempt: install pyarrow (wheels) or fastparquet if pyarrow fails
+  ARCH="$(uname -m)"
+  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
     PYARROW_SPEC='pyarrow>=14,<19'
   else
     PYARROW_SPEC='pyarrow>=16,<19'
   fi
-  ENGINE=pyarrow
-  if ! python -m pip install --no-cache-dir \"\$PYARROW_SPEC\"; then
-    echo '[python] pyarrow failed; falling back to fastparquet'
-    python -m pip install --no-cache-dir 'fastparquet>=2024.5.0'
-    ENGINE=fastparquet
+  if ! python -m pip install --no-cache-dir "$PYARROW_SPEC"; then
+    python -m pip install --no-cache-dir "fastparquet>=2024.5.0" || { log "parquet engine install failed"; exit 1; }
   fi
-
-  echo '[python] (optional) s3fs for s3:// IO'
-  python -m pip install --no-cache-dir 's3fs>=2024.3.1' || true
-
-  echo \$ENGINE > '$APP_DIR/.parquet_engine_choice'
-
-  echo '[python] sanity:'
-  python - <<'PY'
-import importlib, pandas as pd
-print('pandas:', pd.__version__)
-for m in ('pyarrow','fastparquet'):
-    try:
-        mod = importlib.import_module(m)
-        print(m, 'OK', getattr(mod, '__version__', ''))
-    except Exception as e:
-        print(m, 'missing:', e)
-PY
-"
-
-# --- Persist parquet engine for all processes ---
-ENGINE_CHOICE="$(cat /home/ubuntu/pokerai/.parquet_engine_choice 2>/dev/null || echo pyarrow)"
-if grep -q '^PANDAS_PARQUET_ENGINE=' /etc/environment; then
-  sed -i "s|^PANDAS_PARQUET_ENGINE=.*|PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE}|" /etc/environment
-else
-  echo "PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE}" >> /etc/environment
 fi
-log "PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE} persisted"
+
+# Persist engine hint for pandas (optional; pandas will auto-detect anyway)
+if python -c "import pyarrow" >/dev/null 2>&1; then
+  echo "PANDAS_PARQUET_ENGINE=pyarrow" | sudo tee -a /etc/environment >/dev/null
+else
+  echo "PANDAS_PARQUET_ENGINE=fastparquet" | sudo tee -a /etc/environment >/dev/null
+fi
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
