@@ -144,15 +144,24 @@ def pick_root(js: dict, node_key: str = "root") -> dict:
             return v
     return js
 
-# --------- core builder ----------
+# --------- core builder (sharded, streaming-to-parts) ----------
 def build_rangenet_postflop(
     manifest_path: Path,
-    out_parquet: Path,
+    out_parquet: Optional[Path],            # kept for compatibility; not used in sharded mode
     cfg: Mapping[str, Any],
     *,
-    checkpoint_every: Optional[int] = None,
-    checkpoint_s3_prefix: Optional[str] = None,
+    shard_index: Optional[int] = None,
+    shard_count: Optional[int] = None,
+    part_rows: int = 2000,                  # flush a parquet part every N rows
+    parts_local_dir: str = "data/datasets/postflop_parts",
+    parts_s3_prefix: Optional[str] = None,  # e.g. "datasets/rangenet_postflop/parts"
 ) -> None:
+    import hashlib
+
+    def _stable_shard(s3_key: str, node_key: str, m: int) -> int:
+        h = hashlib.sha1(f"{s3_key}|{node_key}".encode("utf-8")).hexdigest()
+        return int(h[:8], 16) % m
+
     df = pd.read_parquet(manifest_path)
 
     use_clusters = bool(_get(cfg, "worker.use_board_clusters", True))
@@ -168,16 +177,51 @@ def build_rangenet_postflop(
     if m_before != m_after:
         print(f"⚠️ manifest deduped: {m_before} → {m_after}")
 
-    s3c = S3Client()
+    # Optional sharding
+    if shard_count is not None and shard_index is not None:
+        if not (0 <= shard_index < shard_count):
+            raise ValueError("--shard-index must be in [0, shard_count)")
+        if "node_key" not in df.columns:
+            df = df.assign(node_key="root")
+        mask = df.apply(lambda r: _stable_shard(str(r["s3_key"]), str(r["node_key"]), shard_count) == shard_index, axis=1)
+        df = df.loc[mask].reset_index(drop=True)
+        print(f"🧩 shard {shard_index}/{shard_count}: {len(df)} rows")
 
-    rows: List[Dict[str, Any]] = []
+    s3c = S3Client()
+    local_parts_dir = Path(parts_local_dir)
+    local_parts_dir.mkdir(parents=True, exist_ok=True)
+
+    rows_buffer: List[Dict[str, Any]] = []
+    parts_written = 0
     skipped_empty = 0
     skipped_no_children = 0
     cache_hits = 0
     fetched = 0
 
+    # deterministic part prefix per shard
+    shard_tag = (f"s{shard_index:02d}" if shard_index is not None else "s00")
+
+    def flush_part():
+        nonlocal rows_buffer, parts_written
+        if not rows_buffer:
+            return
+        part_df = pd.DataFrame(rows_buffer)
+        y_cols = [c for c in part_df.columns if c.startswith("y_")]
+        if y_cols:
+            part_df[y_cols] = part_df[y_cols].fillna(0.0)
+
+        part_name = f"part-{shard_tag}-{parts_written:05d}.parquet"
+        part_path = local_parts_dir / part_name
+        part_df.to_parquet(part_path, index=False)
+        print(f"💾 wrote {part_path}  (rows={len(part_df)})")
+        if parts_s3_prefix:
+            s3_key_ck = f"{parts_s3_prefix}/{part_name}"
+            _retry(lambda: s3c.upload_file(part_path, s3_key_ck), tries=4, base_sleep=0.6, jitter=0.2)
+        parts_written += 1
+        rows_buffer = []  # clear
+
     total = len(df)
-    for idx, (_, r) in enumerate(tqdm(df.iterrows(), total=total, desc="Building postflop dataset")):
+    for idx, (_, r) in enumerate(tqdm(df.iterrows(), total=total, desc="Building postflop (sharded→parts)")):
         s3_key  = str(r["s3_key"])
         node_key = str(r.get("node_key") or "root")
 
@@ -238,82 +282,73 @@ def build_rangenet_postflop(
             else:
                 row["board"] = str(board_key)
 
-            for i, v in enumerate(vec.tolist()):
+            # y_0..y_168
+            yv = vec.tolist()
+            for i, v in enumerate(yv):
                 row[f"y_{i}"] = float(v)
 
-            rows.append(row)
+            rows_buffer.append(row)
 
-        # optional checkpointing
-        if checkpoint_every and len(rows) and (idx + 1) % checkpoint_every == 0:
-            ck = pd.DataFrame(rows)
-            y_cols = [c for c in ck.columns if c.startswith("y_")]
-            ck[y_cols] = ck[y_cols].fillna(0.0)
-            ck_path = out_parquet.with_suffix(f".part_{idx+1}.parquet")
-            ck.to_parquet(ck_path, index=False)
-            if checkpoint_s3_prefix:
-                s3_key_ck = f"{checkpoint_s3_prefix}/{ck_path.name}"
-                _retry(lambda: S3Client().upload_file(ck_path, s3_key_ck), tries=4, base_sleep=0.6, jitter=0.2)
+            # rolling flush to keep memory flat
+            if len(rows_buffer) >= part_rows:
+                flush_part()
 
-    out = pd.DataFrame(rows)
-    if len(out):
-        y_cols = [c for c in out.columns if c.startswith("y_")]
-        out[y_cols] = out[y_cols].fillna(0.0)
-
-    out_parquet.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(out_parquet, index=False)
-
-    # Optional S3 upload of the final parquet
-    s3_out_key = _get(cfg, "outputs.s3_key")
-    if s3_out_key:
-        _retry(lambda: s3c.upload_file(out_parquet, s3_out_key), tries=5, base_sleep=0.8, jitter=0.3)
+    # final flush
+    flush_part()
 
     print(
-        f"✅ wrote {out_parquet} with {len(out):,} rows"
-        f"{'' if not skipped_no_children else f'  (skipped no-children: {skipped_no_children})'}"
-        f"{'' if not skipped_empty else f'  (skipped empty actions: {skipped_empty})'}"
-        f"  [manifest {m_before}→{m_after}, cache_hits={cache_hits}, fetched={fetched}]"
+        f"✅ shard done: parts={parts_written}, "
+        f"skipped no-children={skipped_no_children}, skipped empty-actions={skipped_empty}, "
+        f"cache_hits={cache_hits}, fetched={fetched}"
     )
 
-def run_from_config(cfg: Mapping[str, Any], *, checkpoint_every: Optional[int], checkpoint_s3_prefix: Optional[str]) -> None:
-    # Hardcoded output locations
-    LOCAL_OUT = Path("data/datasets/rangenet_postflop.parquet")
-    S3_OUT_KEY = "datasets/rangenet_postflop.parquet"
-
-    # Manifest still comes from config (or default)
+# --------- runner ----------
+def run_from_config(
+    cfg: Mapping[str, Any],
+    *,
+    shard_index: Optional[int],
+    shard_count: Optional[int],
+    part_rows: int,
+    parts_local_dir: str,
+    parts_s3_prefix: Optional[str],
+) -> None:
     manifest = Path(_get(cfg, "inputs.manifest", "data/artifacts/rangenet_postflop_flop_manifest.dedup.parquet"))
     if not manifest.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest}")
 
-    # Build dataset (writes local parquet)
+    # We purposefully do NOT write a single monolithic parquet here.
+    # Each shard writes rolling parts to `parts_local_dir` (and optionally S3).
     build_rangenet_postflop(
         manifest_path=manifest,
-        out_parquet=LOCAL_OUT,
+        out_parquet=None,
         cfg=cfg,
-        checkpoint_every=checkpoint_every,
-        checkpoint_s3_prefix=checkpoint_s3_prefix,
+        shard_index=shard_index,
+        shard_count=shard_count,
+        part_rows=part_rows,
+        parts_local_dir=parts_local_dir,
+        parts_s3_prefix=parts_s3_prefix,
     )
 
-    # Upload final parquet to S3 (hardcoded key)
-    s3c = S3Client()
-    s3c.upload_file(LOCAL_OUT, S3_OUT_KEY)
-
-
+# --------- CLI ----------
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser("Build RangeNet Postflop parquet from solved charts (S3-resilient)")
-    ap.add_argument("--config", type=str, default="rangenet/postflop",
-                    help="Model name or YAML path")
-    ap.add_argument("--checkpoint-every", type=int, default=100,
-                    help="Write partial parquet every N manifest rows (and optionally upload)")
-    ap.add_argument("--checkpoint-s3-prefix", type=str, default=None,
-                    help="If set, upload each partial parquet to this S3 prefix")
+    ap = argparse.ArgumentParser("Build RangeNet Postflop (sharded, streaming parquet parts)")
+    ap.add_argument("--config", type=str, default="rangenet/postflop", help="Model name or YAML path")
+    ap.add_argument("--shard-index", type=int, default=None, help="This worker’s shard index (0-based)")
+    ap.add_argument("--shard-count", type=int, default=None, help="Total number of shards")
+    ap.add_argument("--part-rows", type=int, default=2000, help="Flush a parquet part every N rows")
+    ap.add_argument("--parts-local-dir", type=str, default="data/datasets/postflop_parts", help="Where to write local parts")
+    ap.add_argument("--parts-s3-prefix", type=str, default=None, help='If set, upload parts to this S3 prefix (e.g., "datasets/rangenet_postflop/parts")')
     args = ap.parse_args()
 
     cfg = load_model_config(args.config)
 
     run_from_config(
         cfg,
-        checkpoint_every=args.checkpoint_every,
-        checkpoint_s3_prefix=args.checkpoint_s3_prefix,
+        shard_index=args.shard_index,
+        shard_count=args.shard_count,
+        part_rows=args.part_rows,
+        parts_local_dir=args.parts_local_dir,
+        parts_s3_prefix=args.parts_s3_prefix,
     )
