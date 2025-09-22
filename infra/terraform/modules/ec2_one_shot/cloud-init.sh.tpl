@@ -153,11 +153,11 @@ PY
 # --- Persist parquet engine for all processes ---
 ENGINE_CHOICE="$(cat /home/ubuntu/pokerai/.parquet_engine_choice 2>/dev/null || echo pyarrow)"
 if grep -q '^PANDAS_PARQUET_ENGINE=' /etc/environment; then
-  sed -i "s|^PANDAS_PARQUET_ENGINE=.*|PANDAS_PARQUET_ENGINE=${ENGINE_CHOICE}|" /etc/environment
+  sed -i "s|^PANDAS_PARQUET_ENGINE=.*|PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE}|" /etc/environment
 else
-  echo "PANDAS_PARQUET_ENGINE=${ENGINE_CHOICE}" >> /etc/environment
+  echo "PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE}" >> /etc/environment
 fi
-log "PANDAS_PARQUET_ENGINE=${ENGINE_CHOICE} persisted"
+log "PANDAS_PARQUET_ENGINE=$${ENGINE_CHOICE} persisted"
 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
