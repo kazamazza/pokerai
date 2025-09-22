@@ -23,7 +23,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
     volume_size       = 300
     worker_name       = "postflop_dataset"
-    disabled          = true
+    disabled          =
   }
 
   postflop_heavy = {
