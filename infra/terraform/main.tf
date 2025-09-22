@@ -63,6 +63,8 @@ module "ephemeral_jobs" {
 
   aws_access_key_id     = var.aws_access_key_id
   aws_secret_access_key = var.aws_secret_access_key
+
+  worker_threads = try(each.value.worker_threads, 1)
 }
 
 output "ephemeral_job_names" {

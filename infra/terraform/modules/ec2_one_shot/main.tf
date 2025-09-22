@@ -16,6 +16,7 @@ user_data = templatefile("${path.module}/cloud-init.sh.tpl", {
   worker_name           = var.worker_name
   aws_access_key_id     = coalesce(var.aws_access_key_id, "")
   aws_secret_access_key = coalesce(var.aws_secret_access_key, "")
+  worker_threads        = var.worker_threads
 })
 
   root_block_device {

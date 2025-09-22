@@ -44,3 +44,9 @@ variable "volume_size" {
   type        = number
   default     = 100
 }
+
+variable "worker_threads" {
+  type        = number
+  default     = 1
+  description = "Number of worker threads the job should run with"
+}

@@ -49,6 +49,13 @@ variable "aws_secret_access_key" {
   sensitive   = true
 }
 
+
+variable "worker_threads" {
+  type        = number
+  default     = 1
+  description = "Number of worker threads the job should run with"
+}
+
 variable "worker_configs" {
   type = map(object({
     script_to_run         = string
@@ -71,5 +78,6 @@ variable "job_configs" {
     volume_size       = number
     worker_name       = optional(string, null)
     disabled          = optional(bool, false)
+    worker_threads    = optional(number, 1)
   }))
 }

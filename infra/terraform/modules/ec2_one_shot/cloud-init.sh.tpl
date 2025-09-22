@@ -11,6 +11,7 @@ access_key_id="${aws_access_key_id}"
 secret_access_key="${aws_secret_access_key}"
 script_to_run="${script_to_run}"
 worker_name="${worker_name}"
+worker_threads="${worker_threads}"
 
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
@@ -118,7 +119,7 @@ source /etc/environment || true
 set +o allexport
 
 # Decide process count
-N=6
+N=1
 echo "[init] Launching $N worker processes..."
 
 # Don’t let native libs oversubscribe threads
