@@ -29,3 +29,4 @@ dataset:
 
 outputs:
   parquet: data/datasets/rangenet_postflop.parquet
+  s3_key: datasets/rangenet_postflop.parquet

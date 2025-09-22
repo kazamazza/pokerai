@@ -1,6 +1,6 @@
 # PROD overrides: stricter filtering, bigger runs, separate outputs
 outputs:
-  parquet: data/datasets/rangenet_preflop_prod.parquet
+  parquet: data/datasets/rangenet_preflop_from_flop.parquet
 
 
 train:

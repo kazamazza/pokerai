@@ -72,7 +72,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_6"
-    disabled          = false
+    disabled          = true
   }
 
    postflop_heavy_7 = {

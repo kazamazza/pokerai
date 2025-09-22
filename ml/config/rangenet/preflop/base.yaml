@@ -21,8 +21,10 @@ manifest_build:
   min_files_per_cell: 1
   alpha: 0.0
   ctx_backoff:
+    VS_4BET: VS_3BET     # try true 4-bet first, then 3-bet, then SRP via next line
     VS_3BET: SRP
-    VS_4BET: SRP
+    BLIND_VS_STEAL: SRP  # many vendors store this under SRP
+    LIMPED_MULTI: LIMPED_SINGLE  # SPH often has single-limp only
 
   # Scenarios: (ctx, opener_action, opener_pos, hero_pos)
   scenarios:
