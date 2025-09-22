@@ -16,15 +16,65 @@ security_group_ids = [
 
 job_configs = {
 
-  postflop_dataset = {
-    script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
-    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
-    instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
-    volume_size       = 300
-    worker_name       = "postflop_dataset"
-    disabled          = true
-  }
+postflop_dataset_shard_0 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 0"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"  # 64 GiB RAM
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_0"
+  disabled          = true
+}
+
+postflop_dataset_shard_1 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 1"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_1"
+  disabled          = true
+}
+
+postflop_dataset_shard_2 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 2"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_2"
+  disabled          = true
+}
+
+postflop_dataset_shard_3 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 3"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_3"
+  disabled          = true
+}
+
+postflop_dataset_shard_4 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 4"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_4"
+  disabled          = true
+}
+
+postflop_dataset_shard_5 = {
+  script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 5"
+  aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
+  aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+  instance_type     = "r6i.2xlarge"
+  volume_size       = 300
+  worker_name       = "postflop_dataset_shard_5"
+  disabled          = true
+}
 
   postflop_heavy = {
     script_to_run     = "tools/rangenet/worker_flop.py"

@@ -144,8 +144,8 @@ for i in $(seq 1 "$N"); do
     CPUFLAG="taskset -c $CPU"
   fi
 
-  nohup bash -lc "exec nice -n 5 $CPUFLAG /home/ubuntu/pokerai/env/bin/python -u \"$script_to_run\"" \
-    > "$LOG" 2>&1 &
+  nohup bash -lc "cd /home/ubuntu/pokerai && exec nice -n 5 $CPUFLAG ./env/bin/python -u $script_to_run" \
+  > "$LOG" 2>&1 &
 
   PID=$!
   echo "$PID" >> "$PIDS_FILE"
