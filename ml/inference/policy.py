@@ -1,66 +1,127 @@
-from typing import Optional, Dict, Any
+from __future__ import annotations
 
+import numpy as np
+import torch
+from torch.utils.data import DataLoader
+
+from ml.datasets.postflop_rangenet import PostflopPolicyDatasetParquet, postflop_policy_collate_fn
 from ml.features.boards import BoardClusterer
 from ml.inference.equity import EquityNetInfer
 from ml.inference.exploit import ExploitNetInfer
 from ml.inference.population import PopulationNetInfer
-from ml.inference.rangenet import RangeNetInfer
+from ml.inference.postflop import PostflopPolicyInfer
+from ml.inference.preflop import RangeNetPreflopInfer
+from ml.models.postflop_policy_net import VOCAB_SIZE
 from ml.policy.utils import tilt_toward_raise, renormalize_and_mask, hand_to_id, hand_to_169, summarize_169
+from typing import Any, Dict, Mapping, Sequence
+from dataclasses import dataclass
+
+import math
+
+
+@dataclass
+class PolicyInferDeps:
+    # optional
+    pop: PopulationNetInfer | None = None
+    # required
+    exploit: ExploitNetInfer | None = None
+    equity: EquityNetInfer | None = None
+    # rangenets
+    range_pre: RangeNetPreflopInfer | None = None
+    # postflop policy
+    policy_post: PostflopPolicyInfer | None = None
+    # utils
+    clusterer: BoardClusterer | None = None
+    params: Dict[str, Any] | None = None
 
 
 class PolicyInfer:
-    def __init__(
-        self,
-        pop_infer: PopulationNetInfer,   # optional
-        exploit_infer: ExploitNetInfer,           # required
-        range_infer: RangeNetInfer,             # required
-        equity_infer: EquityNetInfer,             # required (unified pre+post)
-        board_clusterer: BoardClusterer,          # your clusterer type
-        params: Dict[str, Any],                     # knobs for blending/guardrails
-    ):
-        if exploit_infer is None:
-            raise ValueError("exploit_infer is required")
-        if range_infer is None:
-            raise ValueError("range_infer is required")
-        if equity_infer is None:
-            raise ValueError("equity_infer is required")
+    """
+    Routes to:
+      - Preflop:   RangeNetPreflop + Equity + Exploit/Pop blend -> {FOLD,CALL,RAISE} (coarse)
+      - Postflop:  PostflopPolicyInfer (ACTION_VOCAB) (+ guardrails via equity/exploit if desired)
+    """
 
-        # Keep explicit attribute types so IDE/static analysis know predict() exists
-        self.pop: PopulationNetInfer = pop_infer
-        self.expl: ExploitNetInfer = exploit_infer
-        self.rng: RangeNetInfer = range_infer
-        self.eq: EquityNetInfer = equity_infer
-        self.clusterer: BoardClusterer = board_clusterer
-        self.p: Dict[str, Any] = params or {}
+    def __init__(self, deps: PolicyInferDeps):
+        p = deps.params or {}
+        # required checks
+        if deps.exploit is None:
+            raise ValueError("exploit infer is required")
+        if deps.equity is None:
+            raise ValueError("equity infer is required")
+        if deps.range_pre is None:
+            raise ValueError("range_pre (RangeNetPreflopInfer) is required")
+        if deps.policy_post is None:
+            raise ValueError("policy_post (PostflopPolicyInfer) is required")
 
+        self.pop   = deps.pop
+        self.expl  = deps.exploit
+        self.eq    = deps.equity
+        self.rng_pre  = deps.range_pre
+        self.pol_post = deps.policy_post
+        self.clusterer = deps.clusterer
+        self.p = p
+
+    # ---------- public ----------
     def predict(self, req: Dict[str, Any]) -> Dict[str, Any]:
         street = int(req["street"])
+        if street == 0:
+            return self._predict_preflop(req)
+        else:
+            return self._predict_postflop(req)
 
-        # --- range ---
-        rng_feats = self._range_features(req)
+    @torch.no_grad()
+    def predict_proba(self, rows: Sequence[Mapping[str, Any]]) -> np.ndarray:
+        """
+        rows: list of dicts matching dataset schema
+        returns: np.ndarray [B,V] with probs over ACTION_VOCAB
+        """
+        ds = PostflopPolicyDatasetParquet.from_rows(
+            rows,  # you'd need a small `from_rows` helper to bypass parquet file
+            device=self.device
+        )
+        dl = DataLoader(ds, batch_size=len(rows), collate_fn=postflop_policy_collate_fn)
+        for x_cat, x_cont, *_ in dl:
+            li, lo = self.model(x_cat, x_cont)  # logits_ip, logits_oop
+            logits = li + lo  # simple merge if you want, or pick by actor
+            probs = torch.softmax(logits, dim=-1)
+            return probs.cpu().numpy()
+        return np.empty((0, VOCAB_SIZE))
 
-        # --- equity ---
-        eq = self._equity(req, rng_feats)
+    # ---------- preflop ----------
+    def _predict_preflop(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        # Range (169)
+        feats = {
+            "stack_bb": req["stack_bb"],
+            "hero_pos": str(req["hero_pos"]),
+            "opener_pos": str(req.get("opener_pos", "")),
+            "ctx": str(req.get("ctx", "")),
+            "opener_action": str(req.get("opener_action", "")),
+        }
+        y169 = self.rng_pre.predict([feats])[0]           # List[float] length 169
+        summaries = summarize_169(y169)
 
-        # --- exploit ---
+        # Equity
+        eq = self._equity(req)
+
+        # Exploit/Population
         ex = self._exploit(req)
-
-        # --- population (optional) ---
         pop = self._population(req)
 
-        # --- blend ---
-        logits = self._blend_to_logits(eq, rng_feats, ex, pop, req)
+        # Blend to coarse logits {FOLD,CALL,RAISE}
+        logits = self._blend_to_logits(eq, {"y169": y169, "summaries": summaries}, ex, pop, req)
         actions, probs = self._postprocess_logits(logits, req)
 
-        # --- guardrails ---
-        actions, probs, notes = self._guardrails(actions, probs, req, eq, rng_feats)
+        # Guardrails
+        actions, probs, notes = self._guardrails(actions, probs, req, eq, {"y169": y169, "summaries": summaries})
 
         return {
             "actions": actions,
             "probs": probs,
             "debug": {
+                "street": 0,
                 "equity": eq,
-                "range": rng_feats.get("summaries", {}),
+                "range": summaries,
                 "exploit": ex,
                 "population": pop,
                 "blend": {
@@ -72,115 +133,121 @@ class PolicyInfer:
             },
         }
 
-    # ---- helpers ----
-    def _range_features(self, req):
-        """
-        Build the single-row feature dict expected by RangeNetInfer and get a (169,) prob vector.
-        Preflop uses opener_* fields; postflop uses villain_pos + board_cluster_id.
-        """
-        street = int(req["street"])
-        feats = {
-            "stack_bb": req["stack_bb"],
-            "hero_pos": str(req["hero_pos"]),
-            "street": street,
+    def _predict_postflop(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        # Build row and call PostflopPolicyInfer
+        row = self._postflop_policy_row(req)
+        p_vec = self.pol_post.predict_proba([row])[0]  # [V] probs over ACTION_VOCAB
+        actions, probs = self._postflop_policy_to_actions(p_vec)
+
+        # Equity + exploit guardrails (optional)
+        eq = self._equity(req)
+        ex = self._exploit(req)
+        pop = self._population(req)
+        actions, probs, notes = self._guardrails(actions, probs, req, eq, {})
+
+        return {
+            "actions": actions,
+            "probs": probs,
+            "debug": {
+                "street": req["street"],
+                "equity": eq,
+                "exploit": ex,
+                "population": pop,
+                "guardrails": notes,
+            },
         }
 
-        if street == 0:
-            # Preflop
-            feats.update({
-                "opener_pos": str(req.get("opener_pos", "")),
-                "opener_action": str(req.get("opener_action", "")),
-            })
-        else:
-            # Postflop
-            board = req.get("board", "")
-            if board:
-                cluster_id = int(self.clusterer.predict([board])[0])
-            else:
-                # allow caller to pass precomputed id
-                cluster_id = int(req.get("board_cluster_id", -1))
-            feats.update({
-                "villain_pos": str(req["villain_pos"]),
-                "board_cluster_id": cluster_id,
-                # allow optional node_key for deeper tree extraction; default root
-                "node_key": str(req.get("node_key", "root")),
-            })
-
-        # One-row inference → (169,) np.ndarray
-        y169 = self.rng.predict_one(feats)
-
-        # Optional summaries for blending/diagnostics
-        summaries = summarize_169(y169.tolist())
-        return {"y169": y169, "summaries": summaries}
-
-    def _equity(self, req, _rng_feats):
+    # ---------- helpers ----------
+    def _postflop_policy_row(self, req: Mapping[str, Any]) -> Dict[str, Any]:
         """
-        Unified equity call using a single EquityNetInfer (`self.eq`) for all streets.
-        Expects:
-          - street: int (0=preflop, >0 postflop)
-          - stack_bb, hero_pos, opener_action (always)
-          - hero_hand (always; converted to 169 code preflop, to id postflop)
-          - board (postflop) or board_cluster_id (optional; derived if missing and clusterer available)
+        Build the single-row dict expected by PostflopPolicyInfer.
+        Required (categoricals must match sidecar feature_order):
+          hero_pos, ip_pos, oop_pos, ctx, street
+        Continuous:
+          pot_bb, eff_stack_bb (or stack_bb), optional board_mask_52
+        Also pass 'actor' ("ip"|"oop") to select the correct head.
         """
-        if not hasattr(self, "eq") or self.eq is None:
-            raise RuntimeError("Equity infer (`self.eq`) is not initialized on PolicyInfer.")
+        row = {
+            "hero_pos": str(req["hero_pos"]),
+            "ip_pos":   str(req.get("ip_pos", req.get("hero_pos"))),
+            "oop_pos":  str(req.get("oop_pos", req.get("villain_pos", "BB"))),
+            "ctx":      str(req.get("ctx", "")),
+            "street":   int(req["street"]),
+            "pot_bb":   float(req.get("pot_bb", 0.0)),
+            "eff_stack_bb": float(req.get("eff_stack_bb", req.get("stack_bb", 0.0))),
+            "actor":    str(req.get("actor", "ip")).lower(),  # default to IP if not provided
+        }
+        # Optional board mask
+        if "board_mask_52" in req:
+            row["board_mask_52"] = req["board_mask_52"]
+        return row
 
+    def _postflop_range_feats(self, req: Mapping[str, Any]) -> Dict[str, Any]:
+        # Minimal set if you trained a postflop range model
+        return {
+            "stack_bb": float(req.get("stack_bb", 0.0)),
+            "villain_pos": str(req.get("villain_pos", "")),
+            "board_cluster_id": self._maybe_cluster(req.get("board")) if "board_cluster_id" not in req else int(req["board_cluster_id"]),
+            "ctx": str(req.get("ctx", "")),
+            "street": int(req["street"]),
+        }
+
+    def _maybe_cluster(self, board_str: str | None) -> int | None:
+        if not board_str:
+            return None
+        if self.clusterer is None:
+            return None
+        return int(self.clusterer.predict([board_str])[0])
+
+    # ---- equity/exploit/pop (same spirit as your previous code) ----
+    def _equity(self, req: Mapping[str, Any]) -> Dict[str, float]:
         street = int(req["street"])
         hero_hand = req.get("hero_hand", "")
-        opener_action = req.get("opener_action", "")
-
         if not hero_hand:
-            raise ValueError("`hero_hand` is required for equity computation (e.g., 'AsKd').")
-
-        # derive board_cluster_id if needed (postflop)
+            raise ValueError("`hero_hand` is required for equity.")
         board_cluster_id = req.get("board_cluster_id", None)
         if street > 0 and board_cluster_id is None:
             board = req.get("board", "")
-            if board and getattr(self, "clusterer", None) is not None:
-                board_cluster_id = int(self.clusterer.predict([board])[0])
-            # else: leave as None if not available; Equity wrapper should handle/validate
-
-        # hand representation per street
+            if board:
+                board_cluster_id = self._maybe_cluster(board)
         hand_code = hand_to_169(hero_hand) if street == 0 else None
-        hand_id = None if street == 0 else hand_to_id(hero_hand)
-
+        hand_id   = None if street == 0 else hand_to_id(hero_hand)
         p_win, p_tie, p_lose = self.eq.predict(
             street=street,
             stack_bb=req["stack_bb"],
             hero_pos=req["hero_pos"],
-            opener_action=opener_action,
-            board_cluster_id=board_cluster_id,  # None for preflop
-            hand_code=hand_code,  # used preflop
-            hand_id=hand_id,  # used postflop
+            opener_action=req.get("opener_action", ""),
+            board_cluster_id=board_cluster_id,
+            hand_code=hand_code,
+            hand_id=hand_id,
         )
         return {"p_win": p_win, "p_tie": p_tie, "p_lose": p_lose}
 
-    def _exploit(self, req):
-        # Either use provided rolling stats or have ExploitInfer compute them
+    def _exploit(self, req: Mapping[str, Any]) -> Dict[str, float]:
         ef = req.get("exploit_features")
         p_fold, p_call, p_raise, weight = self.expl.predict(ef, context=req)
         return {"p_fold": p_fold, "p_call": p_call, "p_raise": p_raise, "weight": weight}
 
-    def _population(self, req):
+    def _population(self, req: Mapping[str, Any]) -> Dict[str, float] | None:
         if not self.pop:
             return None
-        y = self.pop.predict(stakes_id=req["stakes_id"],
-                             street=req["street"],
-                             ctx_id=req.get("ctx_id", 10),
-                             hero_pos=req["hero_pos"],
-                             villain_pos=req["villain_pos"])
+        y = self.pop.predict(
+            stakes_id=req["stakes_id"],
+            street=req["street"],
+            ctx_id=req.get("ctx_id", 10),
+            hero_pos=req["hero_pos"],
+            villain_pos=req["villain_pos"],
+        )
         return {"p_fold": y[0], "p_call": y[1], "p_raise": y[2]}
 
+    # ---- coarse blend (preflop) ----
     def _blend_to_logits(self, eq, rng, ex, pop, req):
-        # Example: combine as weighted log-space mixture + equity adjustment
-        alpha = self.p.get("alpha", 0.35)  # exploit weight
-        beta  = self.p.get("beta",  0.35)  # population weight
-        gamma = self.p.get("gamma", 0.30)  # equity-derived delta
+        alpha = self.p.get("alpha", 0.35)
+        beta  = self.p.get("beta",  0.35)
+        gamma = self.p.get("gamma", 0.30)
 
-        # Base priors
         base = pop or {"p_fold": 1/3, "p_call": 1/3, "p_raise": 1/3}
 
-        # Exploit smoothing by sample size
         w = min(1.0, (ex["weight"] or 0) / self.p.get("exploit_full_weight", 200))
         ex_mix = {
             "p_fold": (1-w)*base["p_fold"] + w*ex["p_fold"],
@@ -188,13 +255,9 @@ class PolicyInfer:
             "p_raise":(1-w)*base["p_raise"]+ w*ex["p_raise"],
         }
 
-        # Equity → simple bias: higher equity pushes away from FOLD, toward CALL/RAISE
         e = eq["p_win"] + 0.5*eq["p_tie"]
-        bias_fold = max(0.0, 0.5 - e)      # prefer folding with low equity
-        bias_agg  = max(0.0, e - 0.5)      # prefer aggression with high equity
+        bias_agg  = max(0.0, e - 0.5)
 
-        # Logits
-        import math
         def safe_log(p): return math.log(max(p, 1e-9))
         log_fold = alpha*safe_log(ex_mix["p_fold"]) + beta*safe_log(base["p_fold"]) - gamma*bias_agg
         log_call = alpha*safe_log(ex_mix["p_call"]) + beta*safe_log(base["p_call"])
@@ -203,21 +266,27 @@ class PolicyInfer:
         return {"FOLD": log_fold, "CALL": log_call, "RAISE": log_raise}
 
     def _postprocess_logits(self, logits, req):
-        # If you have raise size buckets, split "RAISE" into [RAISE_50, RAISE_75, ALLIN] here
-        import math
         keys = ["FOLD","CALL","RAISE"]
         xs = [logits[k] for k in keys]
-        m = max(xs); exps = [math.exp(x-m) for x in xs]
-        s = sum(exps); probs = [x/s for x in exps]
+        m = max(xs)
+        exps = [math.exp(x-m) for x in xs]
+        s = sum(exps)
+        probs = [x/s for x in exps]
         return keys, probs
+
+    def _postflop_policy_to_actions(self, p_vec: Sequence[float]) -> tuple[list[str], list[float]]:
+        # Trust the policy head ordering (ACTION_VOCAB inside the policy module)
+        from ml.models.postflop_policy_net import ACTION_VOCAB
+        return list(ACTION_VOCAB), list(p_vec)
 
     def _guardrails(self, actions, probs, req, eq, rng):
         notes = []
-        # Example: if SPR < 1.5 and equity high → shift mass from CALL to RAISE/ALLIN
-        spr = req["stack_bb"] / max(1e-6, req["pot_bb"])
-        if spr < self.p.get("spr_shove_threshold", 1.5) and eq["p_win"] > 0.55:
+        # Example: equity + low SPR → nudge mass toward aggression
+        spr = float(req.get("stack_bb", 0.0)) / max(1e-6, float(req.get("pot_bb", 1.0)))
+        if spr < self.p.get("spr_shove_threshold", 1.5) and eq.get("p_win", 0.0) > 0.55:
             actions, probs = tilt_toward_raise(actions, probs, amount=0.15)
             notes.append("spr_low_push_aggression")
-        # Remove illegal actions by street/game rules if needed
+
+        # Mask illegal actions (if you have a legality mask—placeholder)
         actions, probs = renormalize_and_mask(actions, probs, mask=set())
         return actions, probs, notes

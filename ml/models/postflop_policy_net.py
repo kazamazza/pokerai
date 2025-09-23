@@ -4,18 +4,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-# ---- Fixed action vocab at the root (mask what isn’t legal per row) ----
-# You can extend this later (e.g., BET_75, RAISE_100) and the model remains compatible.
 ACTION_VOCAB = [
-    "CHECK",
-    "BET_33",
-    "BET_66",
-    "BET_100",
-    "DONK_33",      # only used when OOP can donk; mask elsewhere
-    "RAISE_66",     # optional; usually masked at root unless your trees have raises
-    "RAISE_100",
+    "FOLD","CHECK","CALL",
+    "BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
+    "DONK_33",
+    "RAISE_150","RAISE_200","RAISE_300",
+    "ALLIN",
 ]
-VOCAB_INDEX = {a:i for i,a in enumerate(ACTION_VOCAB)}
+VOCAB_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}
 VOCAB_SIZE = len(ACTION_VOCAB)
 
 def soft_kl(y_true: torch.Tensor, log_probs: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -40,7 +36,6 @@ class CatEmbedBlock(nn.Module):
         self.embs = nn.ModuleDict()
         for name in self.feature_order:
             c = int(cards[name])
-            # rule of thumb for dim
             d = min(64, max(8, int(round(min(32.0, (c ** 0.5) * 4)))))
             self.embs[name] = nn.Embedding(c, d)
         self.out_dim = sum(e.embedding_dim for e in self.embs.values())
@@ -53,27 +48,25 @@ class CatEmbedBlock(nn.Module):
 
 class BoardBlock(nn.Module):
     """
-    Encode flop board as a 52-bit mask + rank histogram.
-    Input:
+    Encode board as a 52-bit mask + rank histogram.
+    Inputs:
       - board_mask_52: FloatTensor [B, 52] in {0,1}
-      - pot_bb, eff_stack_bb: FloatTensor [B, 1]
+      - pot_bb, stack_bb: FloatTensor [B, 1]
     """
     def __init__(self, hidden: int = 64):
         super().__init__()
-        self.fc1 = nn.Linear(52 + 2 + 13, hidden)  # board mask + pot + eff_stack + rank hist
+        self.fc1 = nn.Linear(52 + 2 + 13, hidden)  # 52 + (pot, stack) + 13-rank hist
         self.fc2 = nn.Linear(hidden, hidden)
         self.out_dim = hidden
 
     @staticmethod
     def rank_histogram(board_mask_52: torch.Tensor) -> torch.Tensor:
-        # 52 = 13 ranks × 4 suits. Sum by rank.
         B = board_mask_52.size(0)
-        x = board_mask_52.view(B, 13, 4).sum(dim=2)  # [B, 13] counts per rank (0..4)
-        return x
+        return board_mask_52.view(B, 13, 4).sum(dim=2)  # [B,13]
 
-    def forward(self, board_mask_52: torch.Tensor, pot_bb: torch.Tensor, eff_stack_bb: torch.Tensor) -> torch.Tensor:
+    def forward(self, board_mask_52: torch.Tensor, pot_bb: torch.Tensor, stack_bb: torch.Tensor) -> torch.Tensor:
         rank_hist = self.rank_histogram(board_mask_52)
-        h = torch.cat([board_mask_52, pot_bb, eff_stack_bb, rank_hist], dim=-1)
+        h = torch.cat([board_mask_52, pot_bb, stack_bb, rank_hist], dim=-1)
         h = F.relu(self.fc1(h))
         h = F.relu(self.fc2(h))
         return h
@@ -140,20 +133,21 @@ class PostflopPolicyNetLit(pl.LightningModule):
         return F.log_softmax(masked, dim=-1)
 
     def _loss_side(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        # normalize target within legal actions only
-        t = target * mask
+        t = (target * mask)
         t = t / (t.sum(dim=-1, keepdim=True) + 1e-8)
         log_p = self._masked_softmax(logits, mask)
-        kl = soft_kl(t, log_p)  # [B]
-        return kl.mean()
+        return soft_kl(t, log_p)  # [B]
 
     def training_step(self, batch, _):
         x_cat, x_cont, y_ip, y_oop, m_ip, m_oop, w = batch
         li, lo = self.model(x_cat, x_cont)
-        loss_ip  = self._loss_side(li, y_ip, m_ip)
-        loss_oop = self._loss_side(lo, y_oop, m_oop)
-        loss = (loss_ip + loss_oop) * w.mean()  # simple weighting hook
-        self.log_dict({"train_loss": loss, "train_ip": loss_ip, "train_oop": loss_oop}, prog_bar=True)
+        kl_ip = self._loss_side(li, y_ip, m_ip)  # [B]
+        kl_oop = self._loss_side(lo, y_oop, m_oop)  # [B]
+        kl = kl_ip + kl_oop  # [B]
+        # weighted mean
+        loss = (kl * w).sum() / (w.sum() + 1e-8)
+        self.log_dict({"train_loss": loss, "train_ip": (kl_ip * w).sum() / (w.sum() + 1e-8),
+                       "train_oop": (kl_oop * w).sum() / (w.sum() + 1e-8)}, prog_bar=True)
         return loss
 
     def validation_step(self, batch, _):

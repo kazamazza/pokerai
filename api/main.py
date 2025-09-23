@@ -3,7 +3,6 @@ from fastapi import FastAPI
 from api.schemas import PolicyRequest
 from ml.inference.equity import EquityNetInfer
 from ml.inference.policy import PolicyInfer
-from ml.inference.rangenet import RangeNetInfer
 from ml.inference.exploit import ExploitNetInfer
 from ml.inference.population import PopulationNetInfer
 from ml.features.boards import load_board_clusterer

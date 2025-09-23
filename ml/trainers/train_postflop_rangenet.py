@@ -16,7 +16,6 @@ from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPo
 from ml.models.postflop_policy_net import PostflopPolicyNetLit
 from ml.utils.config import load_model_config
 
-
 # ----------------- small helpers -----------------
 def _get(cfg: Mapping[str, Any], path: str, default=None):
     cur = cfg
@@ -50,10 +49,11 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
         strict_canon=bool(_get(cfg, "dataset.strict_canon", True)),
     )
 
-    cards = ds.cards_info.cards
-    feature_order = list(ds.feature_order)
+    # categorical vocab sizes (used for embeddings)
+    cards = ds.id_maps()  # maps cat feature -> vocab size
+    feature_order = list(ds.cat_features)
 
-    # -------- Split (stratify by street & positions for stability) --------
+    # -------- Split --------
     stratify_keys = _get(cfg, "dataset.stratify_keys", ["street", "ip_pos", "oop_pos"])
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
     if stratify_keys:
@@ -96,7 +96,7 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     )
 
     # -------- Callbacks / Logger --------
-    ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/rangenet_postflop"))
+    ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/postflop_policy"))
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     monitor  = _get(cfg, "train.monitor", "val_loss")
     mode     = _get(cfg, "train.mode", "min")
@@ -105,12 +105,12 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     logger_name = _get(cfg, "logging.logger", "tensorboard")
     logger = TensorBoardLogger(
         save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
-        name="rangenet_postflop"
+        name="postflop_policy"
     ) if logger_name == "tensorboard" else False
 
     ckpt_cb = pl.callbacks.ModelCheckpoint(
         dirpath=str(ckpt_dir),
-        filename="rangenet_postflop-{epoch:02d}-{" + monitor + ":.4f}",
+        filename="postflop_policy-{epoch:02d}-{" + monitor + ":.4f}",
         monitor=monitor, mode=mode,
         save_last=True, save_top_k=1,
         auto_insert_metric_name=False,
@@ -140,14 +140,14 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
     _save_sidecar(ckpt_dir, feature_order=feature_order, id_maps=ds.id_maps(), cards=cards)
 
-    # Train (resume optional)
+    # Train
     resume_from = _get(cfg, "train.resume_from", None)
     if resume_from:
         trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from))
     else:
         trainer.fit(model, train_dl, val_dl)
 
-    print(f"✅ postflop training complete. Best checkpoint: {ckpt_cb.best_model_path}")
+    print(f"✅ postflop policy training complete. Best checkpoint: {ckpt_cb.best_model_path}")
     return ckpt_cb.best_model_path or str(ckpt_dir / "last.ckpt")
 
 
