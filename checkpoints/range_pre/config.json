@@ -1,0 +1,438 @@
+{
+  "inputs": {
+    "manifest_monker": "data/artifacts/monker_manifest.parquet",
+    "manifest_sph": "data/artifacts/sph_manifest.parquet",
+    "parquet": "data/datasets/rangenet_preflop_from_flop.parquet"
+  },
+  "outputs": {
+    "parquet": "data/datasets/rangenet_preflop_from_flop.parquet"
+  },
+  "vendor": {
+    "cache_dir": "data/vendor_cache",
+    "allow_pair_subs": true,
+    "max_stack_delta": 300
+  },
+  "manifest_build": {
+    "stacks_bb": [
+      25,
+      60,
+      100,
+      150
+    ],
+    "min_files_per_cell": 1,
+    "alpha": 0.0,
+    "ctx_backoff": {
+      "VS_4BET": "VS_3BET",
+      "VS_3BET": "SRP",
+      "BLIND_VS_STEAL": "SRP",
+      "LIMPED_MULTI": "LIMPED_SINGLE"
+    },
+    "scenarios": [
+      {
+        "name": "SRP_IP",
+        "ctx": "SRP",
+        "opener_action": "RAISE",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "UTG",
+            "BB"
+          ],
+          [
+            "HJ",
+            "BB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ]
+        ]
+      },
+      {
+        "name": "SRP_OOP",
+        "ctx": "SRP",
+        "opener_action": "RAISE",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "SB",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ]
+        ]
+      },
+      {
+        "name": "BLIND_VS_STEAL",
+        "ctx": "SRP",
+        "opener_action": "RAISE",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ]
+        ]
+      },
+      {
+        "name": "VS_3BET_IP",
+        "ctx": "VS_3BET",
+        "opener_action": "3BET",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BB",
+            "BTN"
+          ],
+          [
+            "SB",
+            "BTN"
+          ]
+        ]
+      },
+      {
+        "name": "VS_3BET_OOP",
+        "ctx": "VS_3BET",
+        "opener_action": "3BET",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ]
+        ]
+      },
+      {
+        "name": "VS_4BET",
+        "ctx": "VS_4BET",
+        "opener_action": "4BET",
+        "stacks_bb": [
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BB",
+            "BTN"
+          ],
+          [
+            "BTN",
+            "BB"
+          ]
+        ]
+      },
+      {
+        "name": "LIMPED_SINGLE",
+        "ctx": "LIMPED_SINGLE",
+        "opener_action": "LIMP",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "SB",
+            "BB"
+          ],
+          [
+            "SB",
+            "BTN"
+          ],
+          [
+            "BB",
+            "BTN"
+          ]
+        ]
+      },
+      {
+        "name": "LIMPED_MULTI",
+        "ctx": "LIMPED_MULTI",
+        "opener_action": "LIMP",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "SB",
+            "BB"
+          ],
+          [
+            "SB",
+            "BTN"
+          ],
+          [
+            "BB",
+            "BTN"
+          ]
+        ]
+      }
+    ]
+  },
+  "dataset": {
+    "x_cols": [
+      "stack_bb",
+      "hero_pos",
+      "opener_pos",
+      "opener_action",
+      "ctx"
+    ],
+    "y_cols": [
+      "y_0",
+      "y_1",
+      "y_2",
+      "y_3",
+      "y_4",
+      "y_5",
+      "y_6",
+      "y_7",
+      "y_8",
+      "y_9",
+      "y_10",
+      "y_11",
+      "y_12",
+      "y_13",
+      "y_14",
+      "y_15",
+      "y_16",
+      "y_17",
+      "y_18",
+      "y_19",
+      "y_20",
+      "y_21",
+      "y_22",
+      "y_23",
+      "y_24",
+      "y_25",
+      "y_26",
+      "y_27",
+      "y_28",
+      "y_29",
+      "y_30",
+      "y_31",
+      "y_32",
+      "y_33",
+      "y_34",
+      "y_35",
+      "y_36",
+      "y_37",
+      "y_38",
+      "y_39",
+      "y_40",
+      "y_41",
+      "y_42",
+      "y_43",
+      "y_44",
+      "y_45",
+      "y_46",
+      "y_47",
+      "y_48",
+      "y_49",
+      "y_50",
+      "y_51",
+      "y_52",
+      "y_53",
+      "y_54",
+      "y_55",
+      "y_56",
+      "y_57",
+      "y_58",
+      "y_59",
+      "y_60",
+      "y_61",
+      "y_62",
+      "y_63",
+      "y_64",
+      "y_65",
+      "y_66",
+      "y_67",
+      "y_68",
+      "y_69",
+      "y_70",
+      "y_71",
+      "y_72",
+      "y_73",
+      "y_74",
+      "y_75",
+      "y_76",
+      "y_77",
+      "y_78",
+      "y_79",
+      "y_80",
+      "y_81",
+      "y_82",
+      "y_83",
+      "y_84",
+      "y_85",
+      "y_86",
+      "y_87",
+      "y_88",
+      "y_89",
+      "y_90",
+      "y_91",
+      "y_92",
+      "y_93",
+      "y_94",
+      "y_95",
+      "y_96",
+      "y_97",
+      "y_98",
+      "y_99",
+      "y_100",
+      "y_101",
+      "y_102",
+      "y_103",
+      "y_104",
+      "y_105",
+      "y_106",
+      "y_107",
+      "y_108",
+      "y_109",
+      "y_110",
+      "y_111",
+      "y_112",
+      "y_113",
+      "y_114",
+      "y_115",
+      "y_116",
+      "y_117",
+      "y_118",
+      "y_119",
+      "y_120",
+      "y_121",
+      "y_122",
+      "y_123",
+      "y_124",
+      "y_125",
+      "y_126",
+      "y_127",
+      "y_128",
+      "y_129",
+      "y_130",
+      "y_131",
+      "y_132",
+      "y_133",
+      "y_134",
+      "y_135",
+      "y_136",
+      "y_137",
+      "y_138",
+      "y_139",
+      "y_140",
+      "y_141",
+      "y_142",
+      "y_143",
+      "y_144",
+      "y_145",
+      "y_146",
+      "y_147",
+      "y_148",
+      "y_149",
+      "y_150",
+      "y_151",
+      "y_152",
+      "y_153",
+      "y_154",
+      "y_155",
+      "y_156",
+      "y_157",
+      "y_158",
+      "y_159",
+      "y_160",
+      "y_161",
+      "y_162",
+      "y_163",
+      "y_164",
+      "y_165",
+      "y_166",
+      "y_167",
+      "y_168"
+    ],
+    "weight_col": "weight",
+    "min_weight": 1,
+    "stratify_by": [
+      "stack_bb",
+      "hero_pos",
+      "opener_pos",
+      "opener_action"
+    ]
+  },
+  "model": {
+    "hidden_dims": [
+      256,
+      256
+    ],
+    "dropout": 0.05,
+    "lr": 0.00075,
+    "weight_decay": 5e-05,
+    "label_smoothing": 0.02
+  },
+  "train": {
+    "batch_size": 2048,
+    "max_epochs": 120,
+    "patience": 10,
+    "num_workers": 0,
+    "pin_memory": true,
+    "accelerator": "auto",
+    "devices": "auto",
+    "precision": "16-mixed",
+    "seed": 42,
+    "monitor": "val_loss",
+    "mode": "min",
+    "train_frac": 0.85,
+    "checkpoints_dir": "checkpoints/range_pre"
+  },
+  "eval": {
+    "use_best_ckpt": true,
+    "output_dir": "reports/eval/rangenet_preflop"
+  },
+  "logging": {
+    "logger": "tensorboard",
+    "tb_log_dir": "logs/tb/range_pre_prod",
+    "csv_log_dir": "logs/csv/range_pre_prod"
+  }
+}

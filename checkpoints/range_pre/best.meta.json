@@ -1,0 +1,6 @@
+{
+  "chosen": "rangenet-preflop-94-0.2974.ckpt",
+  "filename_val": 0.2974,
+  "parquet": "data/datasets/rangenet_preflop_from_flop.parquet",
+  "sidecar": "checkpoints/range_pre/best.ckpt.sidecar.json"
+}

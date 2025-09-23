@@ -1,7 +1,4 @@
-# models/postflop_policy_net.py
-
 from typing import Dict, Sequence, List, Optional, Tuple
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

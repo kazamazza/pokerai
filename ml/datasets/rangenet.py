@@ -1,8 +1,7 @@
-# ml/datasets/rangenet_dataset.py
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -25,6 +24,24 @@ def canon_pos(p: Any) -> Optional[str]:
     p = p.strip().upper()
     p = _POS_ALIAS.get(p, p)
     return p if p in _POS_CANON else None
+
+# Mapping of raw street labels to normalized IDs
+# Convention: FLOP=1, TURN=2, RIVER=3
+_STREET_MAP = {
+    1: 1, "1": 1, "FLOP": 1, "flop": 1,
+    2: 2, "2": 2, "TURN": 2, "turn": 2,
+    3: 3, "3": 3, "RIVER": 3, "river": 3,
+}
+
+def canon_street(x: Union[int, str]) -> Optional[int]:
+    """
+    Normalize street indicator into {1,2,3}.
+      - FLOP → 1
+      - TURN → 2
+      - RIVER → 3
+    Returns None if the value cannot be mapped.
+    """
+    return _STREET_MAP.get(x, None)
 
 # Preflop action canon (keep small and practical)
 _ACTION_CANON = {
@@ -147,10 +164,3 @@ class RangeNetDatasetParquet(Dataset):
 
     def id_maps(self) -> Dict[str, Dict[Any, int]]:
         return {k: dict(v) for k, v in self._encoders.items()}
-
-def rangenet_collate_fn(batch):
-    keys = batch[0][0].keys()
-    x = {k: torch.stack([b[0][k] for b in batch], dim=0) for k in keys}
-    y = torch.stack([b[1] for b in batch], dim=0)
-    w = torch.stack([b[2] for b in batch], dim=0)
-    return x, y, w

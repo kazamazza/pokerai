@@ -2,14 +2,32 @@
 outputs:
   parquet: data/datasets/rangenet_preflop_from_flop.parquet
 
+model:
+  hidden_dims: [256, 256]   # enough capacity, not huge
+  dropout: 0.05              # a bit less regularization
+  lr: 7.5e-4                 # gentler than 1e-3
+  weight_decay: 5e-5         # a bit lower
+  label_smoothing: 0.02      # helps stability on soft targets
 
 train:
-  batch_size: 4096
-  max_epochs: 25
-  patience: 6
-  checkpoints_dir: checkpoints/range_pre/prod
+  batch_size: 2048           # 4096 can hurt signal; 1024–2048 is a sweet spot
+  max_epochs: 120
+  patience: 10               # let it plateau properly
+  precision: "16-mixed"
+  num_workers: 0
+  pin_memory: true
+  train_frac: 0.85           # a bit more train data
+  seed: 42
+  monitor: val_loss
+  mode: min
+
 
 logging:
+  logger: tensorboard
   tb_log_dir: logs/tb/range_pre_prod
   csv_log_dir: logs/csv/range_pre_prod
+
+eval:
+  use_best_ckpt: true
+  output_dir: reports/eval/rangenet_preflop
 

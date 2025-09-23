@@ -1,32 +1,33 @@
 inputs:
+  # used by the *builder*; trainer reads the parts produced by the builder
   monker_manifest: data/artifacts/monker_manifest.parquet
-  sph_manifest: data/artifacts/sph_manifest.parquet
+  sph_manifest:    data/artifacts/sph_manifest.parquet
   vendor_s3_prefix: data/vendor
 
+  # for the TRAINER: point to the policy parts (directory or explicit part parquet)
+  policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke
+
 dataset:
+  # categorical + numeric inputs
   x_cols: [
-    "stack_bb",
-    "pot_bb",
-    "ip_pos",
-    "oop_pos",
-    "hero_pos",
-    "street",
-    "ctx",
-    "board_cluster",
-    "bet_sizing_id"
-  ]
-  y_cols: [
-    "fold",
-    "check",
-    "call",
-    "bet_33",
-    "bet_66",
-    "allin",
-    "raise_33",
-    "raise_66",
-    "raise_allin"
+    "stack_bb", "pot_bb",
+    "ip_pos", "oop_pos", "hero_pos",
+    "street", "ctx",
+    "board_cluster",        # or "board" if not bucketing boards
+    "bet_sizing_id"         # optional but good for masks/menus
   ]
 
+  # SOFT LABEL COLUMNS (one per action bucket) — must match ACTION_VOCAB
+  y_cols: [
+    "FOLD", "CHECK", "CALL",
+    "BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100",
+    "DONK_33",
+    "RAISE_150", "RAISE_200", "RAISE_300", "ALLIN"
+  ]
+
+  weight_col: "weight"     # optional; default 1.0 if absent
+
 outputs:
+  # for the builder stage if you still emit a merged parquet; otherwise you can drop these
   parquet: data/datasets/rangenet_postflop.parquet
-  s3_key: datasets/rangenet_postflop.parquet
+  s3_key:  datasets/rangenet_postflop.parquet

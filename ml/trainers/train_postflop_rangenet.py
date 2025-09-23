@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import sys
 from pathlib import Path
@@ -12,10 +11,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.datasets.postflop_rangenet import PostflopRangeDatasetParquet
-from ml.models.preflop_rangenet import RangeNetLit
+from ml.datasets.utils_dataset import stratified_indices
+from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPolicyDatasetParquet
+from ml.models.postflop_policy_net import PostflopPolicyNetLit
 from ml.utils.config import load_model_config
-from ml.datasets.rangenet import rangenet_collate_fn
 
 
 # ----------------- small helpers -----------------
@@ -34,49 +33,19 @@ def _save_sidecar(ckpt_dir: Path, *, feature_order: Sequence[str],
     (ckpt_dir / "id_maps.json").write_text(json.dumps(id_maps, indent=2))
     (ckpt_dir / "cards.json").write_text(json.dumps(cards, indent=2))
 
-def stratified_indices(df, keys: Sequence[str], train_frac: float, seed: int) -> Tuple[List[int], List[int]]:
-    import numpy as np
-    rng = np.random.default_rng(seed)
-    idx = list(range(len(df)))
-    tmp = df.copy()
-    tmp["__idx__"] = idx
-
-    train_idx, val_idx = [], []
-    for _, g in tmp.groupby(list(keys), dropna=False):
-        ids = g["__idx__"].to_numpy()
-        rng.shuffle(ids)
-        cut = int(round(len(ids) * float(train_frac)))
-        train_idx.extend(ids[:cut].tolist())
-        val_idx.extend(ids[cut:].tolist())
-    return train_idx, val_idx
-
-# ----------------- Trainer -----------------
-def run_train(cfg: Mapping[str, Any]) -> str:
+def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
     seed = int(_get(cfg, "train.seed", 42))
     pl.seed_everything(seed)
 
     # -------- Dataset --------
-    parquet_path = _get(cfg, "outputs.parquet") or _get(cfg, "dataset.parquet")
+    parquet_path = _get(cfg, "inputs.parquet") or _get(cfg, "dataset.parquet")
     if not parquet_path:
         raise ValueError("Missing inputs.parquet (or dataset.parquet) in config")
 
-    # By default we expect the builder’s schema:
-    #   stack_bb, pot_bb, hero_pos, ip_pos, oop_pos, street, ctx, board_cluster, y_0..y_168, weight
-    x_cols = _get(cfg, "dataset.x_cols")
-    if not x_cols:
-        x_cols = [
-            "stack_bb", "pot_bb",
-            "hero_pos", "ip_pos", "oop_pos",
-            "street", "ctx",
-            "board_cluster",    # if you turned clusters off in builder, set dataset.x_cols in cfg
-        ]
-
-    ds = PostflopRangeDatasetParquet(
+    ds = PostflopPolicyDatasetParquet(
         parquet_path=parquet_path,
-        x_cols=x_cols,
         weight_col=_get(cfg, "dataset.weight_col", "weight"),
-        min_weight=_get(cfg, "dataset.min_weight", None),
         device=torch.device("cpu"),
         strict_canon=bool(_get(cfg, "dataset.strict_canon", True)),
     )
@@ -103,7 +72,7 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         shuffle=True,
         num_workers=int(_get(cfg, "train.num_workers", 0)),
         pin_memory=bool(_get(cfg, "train.pin_memory", True)),
-        collate_fn=rangenet_collate_fn,
+        collate_fn=postflop_policy_collate_fn,
     )
     val_dl = DataLoader(
         val_ds,
@@ -111,18 +80,19 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         shuffle=False,
         num_workers=int(_get(cfg, "train.num_workers", 0)),
         pin_memory=bool(_get(cfg, "train.pin_memory", True)),
-        collate_fn=rangenet_collate_fn,
+        collate_fn=postflop_policy_collate_fn,
     )
 
     # -------- Model --------
-    model = RangeNetLit(
-        cards=cards,
-        feature_order=feature_order,
-        hidden_dims=_get(cfg, "model.hidden_dims", [256, 256]),
-        dropout=float(_get(cfg, "model.dropout", 0.10)),
+    model = PostflopPolicyNetLit(
+        card_sizes=cards,
+        cat_feature_order=feature_order,
         lr=float(_get(cfg, "model.lr", 1e-3)),
         weight_decay=float(_get(cfg, "model.weight_decay", 1e-4)),
         label_smoothing=float(_get(cfg, "model.label_smoothing", 0.0)),
+        board_hidden=int(_get(cfg, "model.board_hidden", 64)),
+        mlp_hidden=_get(cfg, "model.hidden_dims", [128, 128]),
+        dropout=float(_get(cfg, "model.dropout", 0.10)),
     )
 
     # -------- Callbacks / Logger --------
@@ -133,8 +103,10 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     patience = int(_get(cfg, "train.patience", 3))
 
     logger_name = _get(cfg, "logging.logger", "tensorboard")
-    logger = TensorBoardLogger(save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
-                               name="rangenet_postflop") if logger_name == "tensorboard" else False
+    logger = TensorBoardLogger(
+        save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
+        name="rangenet_postflop"
+    ) if logger_name == "tensorboard" else False
 
     ckpt_cb = pl.callbacks.ModelCheckpoint(
         dirpath=str(ckpt_dir),
@@ -159,7 +131,7 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         gradient_clip_val=float(_get(cfg, "train.grad_clip", 1.0)),
     )
 
-    # Save config snapshot & sidecar for inference-time decoding
+    # Save config snapshot & sidecar
     try:
         from omegaconf import OmegaConf
         cfg_ser = OmegaConf.to_container(cfg, resolve=True)
@@ -179,11 +151,10 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     return ckpt_cb.best_model_path or str(ckpt_dir / "last.ckpt")
 
 
-# ----------------- CLI -----------------
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="rangenet/postflop/dev",
+    ap.add_argument("--config", type=str, default="rangenet/postflop",
                     help="Model name or YAML path (resolved by load_model_config)")
     ap.add_argument("--batch_size", type=int)
     ap.add_argument("--max_epochs", type=int)
@@ -191,10 +162,9 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     cfg = load_model_config(args.config)
-
     train_cfg = cfg.setdefault("train", {})
     if args.batch_size is not None: train_cfg["batch_size"] = int(args.batch_size)
     if args.max_epochs is not None: train_cfg["max_epochs"] = int(args.max_epochs)
     if args.patience is not None:   train_cfg["patience"]   = int(args.patience)
 
-    run_train(cfg)
+    run_train_postflop(cfg)

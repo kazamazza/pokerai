@@ -21,8 +21,6 @@ from ml.datasets.population import PopulationDatasetParquet, population_collate_
 from ml.datasets.utils_dataset import categorical_cardinalities, stratified_indices
 from ml.models.population_net import PopulationNetLit
 
-
-
 def make_collate_fn(feature_order):
     """
     Batch of (X, Y, W) -> (x_dict, y, w) that PopulationNetLit expects.

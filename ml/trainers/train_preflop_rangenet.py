@@ -1,4 +1,3 @@
-# ml/train/train_preflop_rangenet.py
 from __future__ import annotations
 
 import sys
@@ -13,8 +12,7 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet
 from ml.datasets.utils_dataset import stratified_indices
-from ml.models.preflop_rangenet import RangeNetLit                  # logits + KL version
-from ml.datasets.rangenet import rangenet_collate_fn
+from ml.models.preflop_rangenet import RangeNetLit, rangenet_preflop_collate_fn  # logits + KL version
 from ml.utils.config import load_model_config               # your helper
 
 def _get(cfg: Mapping[str, Any], path: str, default=None):
@@ -90,15 +88,14 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     train_dl = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=pin_memory,
-        collate_fn=rangenet_collate_fn,
+        collate_fn=rangenet_preflop_collate_fn,
     )
     val_dl = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
-        collate_fn=rangenet_collate_fn,
+        collate_fn=rangenet_preflop_collate_fn,
     )
 
-    # -------- Model --------
     model = RangeNetLit(
         cards=cards,
         feature_order=feature_order,
@@ -112,8 +109,6 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     # -------- Callbacks / Logger --------
     ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/rangenet_preflop"))
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    monitor = _get(cfg, "train.monitor", "val_loss")
-    mode = _get(cfg, "train.mode", "min")
     patience = int(_get(cfg, "train.patience", 3))
 
     logger_name = _get(cfg, "logging.logger", "tensorboard")
@@ -125,9 +120,12 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
             name="rangenet_preflop"
         )
 
+    monitor = "val_kl"
+    mode = "min"
+
     ckpt_cb = pl.callbacks.ModelCheckpoint(
         dirpath=str(ckpt_dir),
-        filename="rangenet-preflop-{epoch:02d}-{" + monitor + ":.4f}",
+        filename="rangenet-preflop-{epoch:02d}-{val_kl:.4f}",  # will now match sweep
         monitor=monitor, mode=mode,
         save_last=True, save_top_k=1,
         auto_insert_metric_name=False,
@@ -175,7 +173,7 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="rangenet/preflop/dev",
+    ap.add_argument("--config", type=str, default="rangenet/preflop",
                     help="Model name or YAML path resolved by load_model_config")
     ap.add_argument("--batch_size", type=int)
     ap.add_argument("--max_epochs", type=int)

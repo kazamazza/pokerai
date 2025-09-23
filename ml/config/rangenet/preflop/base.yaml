@@ -4,6 +4,7 @@
 inputs:
   manifest_monker: data/artifacts/monker_manifest.parquet
   manifest_sph:    data/artifacts/sph_manifest.parquet   # optional but recommended
+  parquet: data/datasets/rangenet_preflop_from_flop.parquet
 
 # What we produce
 outputs:

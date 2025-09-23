@@ -108,17 +108,20 @@ solver:
 
 train:
   seed: 42
-  batch_size: 1024
-  max_epochs: 12
-  patience: 3
-  accelerator: auto
+  max_epochs: 15
+  patience: 4
+  batch_size: 2048
   devices: auto
+  accelerator: auto
   precision: 16-mixed
-  checkpoints_dir: checkpoints/rangenet_postflop
+  grad_clip: 1.0
+  monitor: val_loss
+  mode: min
+  pin_memory: true
 
 model:
-  hidden_dims: [256, 256]
-  dropout: 0.10
-  lr: 1.0e-3
-  weight_decay: 1.0e-4
-  label_smoothing: 0.0
+  hidden_dims: [512, 512, 256]   # deeper/wider, postflop is richer
+  dropout: 0.15                  # a touch more regularization
+  lr: 3e-4                       # slightly lower than preflop
+  weight_decay: 1e-4
+  label_smoothing: 0.05          # softens overfitting
