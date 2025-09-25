@@ -172,6 +172,7 @@ class PreflopRangeLookup:
         allow_pair_subs: bool = False,
         max_stack_delta: Optional[int] = None,
     ):
+        print("monker_manifest_parquet", monker_manifest_parquet)
         # ---- Load & normalize manifest (new/old schema tolerant) ----
         df = pd.read_parquet(str(monker_manifest_parquet)).copy()
 

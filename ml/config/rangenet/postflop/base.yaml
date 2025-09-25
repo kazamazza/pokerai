@@ -7,27 +7,137 @@ inputs:
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke
 
-dataset:
-  # categorical + numeric inputs
-  x_cols: [
-    "stack_bb", "pot_bb",
-    "ip_pos", "oop_pos", "hero_pos",
-    "street", "ctx",
-    "board_cluster",        # or "board" if not bucketing boards
-    "bet_sizing_id"         # optional but good for masks/menus
-  ]
-
-  # SOFT LABEL COLUMNS (one per action bucket) — must match ACTION_VOCAB
-  y_cols: [
-    "FOLD", "CHECK", "CALL",
-    "BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100",
-    "DONK_33",
-    "RAISE_150", "RAISE_200", "RAISE_300", "ALLIN"
-  ]
-
-  weight_col: "weight"     # optional; default 1.0 if absent
 
 outputs:
   # for the builder stage if you still emit a merged parquet; otherwise you can drop these
   parquet: data/datasets/rangenet_postflop.parquet
   s3_key:  datasets/rangenet_postflop.parquet
+
+
+board_clustering:
+  type: kmeans
+  artifact: data/artifacts/board_clusters_kmeans_128.json
+  n_clusters: 128
+
+manifest_build:
+  include_missing: false
+  allow_pair_subs: true
+  lookup_max_stack_delta: 200
+
+  board_clusters_limit: 128
+  boards_per_cluster: 2
+  sample_pool: 50000
+  seed: 42
+
+  scenarios:
+    # --- Single-raised pots (vs-open) ---
+    - name: SRP_IP
+      ctx: VS_OPEN
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "UTG", "BB" ]
+        - [ "HJ",  "BB" ]
+        - [ "CO",  "BB" ]
+        - [ "BTN", "BB" ]
+      pots_bb: [18, 28, 40]
+      bet_menus: [ "srp_ip" ]
+
+    - name: SRP_OOP
+      ctx: VS_OPEN
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        # SB opened / BB called → (IP,OOP)=("BB","SB")
+        - [ "BB",  "SB" ]
+        # BTN opened / SB called → (IP,OOP)=("BTN","SB")
+        - [ "BTN", "SB" ]
+      pots_bb: [18, 28, 40]
+      bet_menus: [ "srp_oop" ]
+
+    # --- Blind vs steal (treated like SRP) ---
+    - name: BLIND_VS_STEAL
+      ctx: BLIND_VS_STEAL
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+      pots_bb: [18, 28, 40]
+      bet_menus: [ "bvs" ]
+
+    # --- 3-bet pots (lean) ---
+    - name: VS_3BET_IP
+      ctx: VS_3BET
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+      pots_bb: [20, 24, 28]
+      bet_menus: [ "3bet_ip" ]
+
+    - name: VS_3BET_OOP
+      ctx: VS_3BET
+      stacks_bb: [25, 60, 100, 150]
+      position_pairs:
+        - [ "BB",  "BTN" ]
+        - [ "SB",  "BTN" ]
+      pots_bb: [20, 24, 28]
+      bet_menus: [ "3bet_oop" ]
+
+    # --- 4-bet pots (very lean) ---
+    - name: VS_4BET
+      ctx: VS_4BET
+      stacks_bb: [60, 100, 150]
+      position_pairs:
+        - [ "BTN", "BB" ]
+        - [ "BB",  "BTN" ]
+      pots_bb: [38, 48, 60]
+      bet_menus: [ "4bet" ]
+
+    # --- Limped pots ---
+    - name: LIMPED_SINGLE
+      ctx: LIMPED_SINGLE
+      stacks_bb: [ 25, 60, 100, 150 ]
+      position_pairs:
+        - [ "BB","SB" ]
+        - [ "BTN","SB" ]
+        - [ "BTN","BB" ]
+      pots_bb: [ 3, 4 ]
+      bet_menus: [ "limp" ]
+
+    - name: LIMPED_MULTI
+      ctx: LIMPED_MULTI
+      stacks_bb: [ 25, 60, 100, 150 ]
+      position_pairs:
+        - [ "BB","SB" ]
+        - [ "BTN","SB" ]
+        - [ "BTN","BB" ]
+      pots_bb: [ 3, 4 ]
+      bet_menus: [ "limp" ]
+
+solver:
+  # Quality-friendly defaults (adjust if you need more throughput)
+  accuracy: 0.01
+  max_iterations: 15000
+  threads: 1
+  allin_threshold: 0.67
+  s3_prefix: solver/outputs/v1
+  local_cache_dir: data/solver_cache
+
+train:
+  seed: 42
+  max_epochs: 15
+  patience: 4
+  batch_size: 2048
+  devices: auto
+  accelerator: auto
+  precision: 16-mixed
+  grad_clip: 1.0
+  monitor: val_loss
+  mode: min
+  pin_memory: true
+
+model:
+  hidden_dims: [512, 512, 256]   # deeper/wider, postflop is richer
+  dropout: 0.15                  # a touch more regularization
+  lr: 3e-4                       # slightly lower than preflop
+  weight_decay: 1e-4
+  label_smoothing: 0.05          # softens overfitting

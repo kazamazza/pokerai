@@ -384,13 +384,34 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
+    # --- DEDUPE on job identity ---
+    before = len(df)
+    # sha1 is derived from params (board, positions, ctx, stack, menu, etc.)
+    if "sha1" in df.columns:
+        df = df.drop_duplicates(subset=["sha1"]).reset_index(drop=True)
+    else:
+        # very defensive fallback: dedupe on a minimal identifying subset
+        key_cols = [
+            "street", "ctx", "topology",
+            "ip_actor_flop", "oop_actor_flop",
+            "effective_stack_bb", "pot_bb",
+            "bet_sizing_id", "board", "board_cluster_id",
+            "range_ip", "range_oop"
+        ]
+        key_cols = [c for c in key_cols if c in df.columns]
+        df = df.drop_duplicates(subset=key_cols).reset_index(drop=True)
+    removed = before - len(df)
+
     # summary
-    print(f"[dbg] scenarios={len(scenarios)} → jobs={total_jobs:,} (kept={kept:,}, missing_rows={missing_rows:,}, skipped={skipped:,})")
+    print(f"[dbg] scenarios={len(scenarios)} → jobs={total_jobs:,} "
+          f"(kept={kept:,}, missing_rows={missing_rows:,}, skipped={skipped:,})")
+    print(f"      deduped: removed {removed:,} duplicate jobs; final={len(df):,}")
     if per_scenario_counts:
         print("   per-scenario:")
         for name in sorted(per_scenario_counts.keys()):
             c = per_scenario_counts[name]
-            print(f"     - {name}: jobs={c['jobs']:,} kept={c['kept']:,} missing={c['missing']:,} skipped={c['skipped']:,}")
+            print(f"     - {name}: jobs={c['jobs']:,} kept={c['kept']:,} "
+                  f"missing={c['missing']:,} skipped={c['skipped']:,}")
 
     # quick peek
     if not df.empty:
