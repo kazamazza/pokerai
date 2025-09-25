@@ -5,6 +5,10 @@ from typing import Dict, List, Literal, Optional
 Street = Literal["flop","turn","river"]
 Role   = Literal["ip","oop"]
 
+def _fmt_num(x: float) -> str:
+    s = f"{float(x):.6f}"
+    return s.rstrip("0").rstrip(".") if "." in s else s
+
 def build_command_text(
     *,
     pot_bb: float,
@@ -26,8 +30,8 @@ def build_command_text(
     lines: List[str] = []
 
     # Required state
-    lines.append(f"set_pot {int(pot_bb)}")
-    lines.append(f"set_effective_stack {int(effective_stack_bb)}")
+    lines.append(f"set_pot {_fmt_num(pot_bb)}")
+    lines.append(f"set_effective_stack {_fmt_num(effective_stack_bb)}")
 
     # BOARD: comma-separated tokens (e.g. "Qs,Jh,2h")
     board_csv = ",".join([board[i:i+2] for i in range(0, len(board), 2)])

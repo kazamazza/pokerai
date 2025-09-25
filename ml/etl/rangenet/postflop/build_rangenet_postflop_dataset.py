@@ -1,13 +1,14 @@
 from __future__ import annotations
-
 import os
 import re
 import sys
 from pathlib import Path
-
 import boto3
 import dotenv
 import requests
+
+from ml.range.solvers.utils.solver_parse import actions_and_mix, get_children, extract_oop_facing_bet, \
+    extract_ip_root_decision, root_node
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
@@ -16,7 +17,6 @@ from infra.storage.s3_client import S3Client
 import io, gzip, json, random, time, hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Mapping, Tuple
-from tqdm import tqdm
 from botocore.exceptions import BotoCoreError, ClientError
 
 dotenv.load_dotenv()
@@ -71,50 +71,39 @@ def shutdown_ec2_instance(mode: str = "stop", wait_seconds: int = 5) -> None:
     except Exception as e:
         print(f"❌ Failed to {mode} instance: {e}")
 
-def _extract_pct(label: str) -> Optional[float]:
-    """Extract a percentage from 'BET 33', 'BET 66%', etc."""
-    m = re.search(r"(\d+)", label)
+def parse_amount_from_label(up: str) -> float | None:
+    # works for "BET 5.000000", "RAISE 25.000000" etc.
+    m = re.search(r"([-+]?\d+(?:\.\d+)?)", up)
     return float(m.group(1)) if m else None
 
-def _extract_raise_x(label: str) -> Optional[float]:
-    """Extract raise multiple from 'RAISE 2.5x', 'RAISE 3', etc."""
-    m = re.search(r"([\d\.]+)", label)
-    return float(m.group(1)) if m else None
-
-def bucket_bet_pct(p: Optional[float]) -> str:
-    if p is None: return "BET_33"  # safe fallback
-    if p < 30:  return "BET_25"
-    if p < 42:  return "BET_33"
-    if p < 58:  return "BET_50"
-    if p < 71:  return "BET_66"
-    if p < 90:  return "BET_75"
+def bucket_bet_pct(pct: float | None) -> str:
+    if pct is None: return "BET_33"
+    if pct < 30:  return "BET_25"
+    if pct < 42:  return "BET_33"
+    if pct < 58:  return "BET_50"
+    if pct < 71:  return "BET_66"
+    if pct < 90:  return "BET_75"
     return "BET_100"
 
-def bucket_raise_x(x: Optional[float]) -> str:
+def bucket_raise_x(x: float | None) -> str:
     if x is None: return "RAISE_200"
     if x < 1.75: return "RAISE_150"
     if x < 2.5:  return "RAISE_200"
     return "RAISE_300"
 
-# -------------------- unified mapper --------------------
-def map_child_to_bucket(label: str, actor: str) -> str:
-    up = str(label).upper().strip()
+def bucket_bet_label(up: str, pot_bb: float, actor: str) -> str:
+    # OOP betting into a check → treat as DONK family; we only keep one bucket
+    if actor == "oop":
+        return "DONK_33"
+    amt = parse_amount_from_label(up) or 0.0
+    pct = 100.0 * amt / max(pot_bb, 1e-9)
+    return bucket_bet_pct(pct)
 
-    if up.startswith("CHECK"): return "CHECK"
-    if up.startswith("CALL"):  return "CALL"
-    if up.startswith("FOLD"):  return "FOLD"
-    if up.startswith("ALL"):   return "ALLIN"
-    if up.startswith("DONK"):  return "DONK_33"
-
-    if up.startswith("BET"):
-        pct = _extract_pct(up)
-        return bucket_bet_pct(pct)
-
-    if up.startswith("RAISE"):
-        x = _extract_raise_x(up)
-        return bucket_raise_x(x)
-
-    return "CHECK"  # ultimate fallback
+def bucket_raise_label(up: str, current_bet_bb: float) -> str:
+    # map "RAISE A" using A / current_bet_bb → {150,200,300}
+    amt = parse_amount_from_label(up) or 0.0
+    x = amt / max(current_bet_bb, 1e-9)
+    return bucket_raise_x(x)
 
 # -------------------- helpers --------------------
 def _get(cfg: Mapping[str, any], path: str, default=None):
@@ -163,14 +152,51 @@ def _load_solver_json_local_or_s3(cfg: Mapping[str, Any], s3c: S3Client, s3_key:
         _retry(lambda: s3c.download_file_if_missing(s3_key, local_path))
     return _read_json_file_allow_gz(local_path)
 
+def _is_action_node(n: dict) -> bool:
+    """Ignore chance/terminal nodes."""
+    t = str(n.get("node_type", "")).lower()
+    if t in {"chance_node", "terminal", "showdown"}:
+        return False
+    if "dealcards" in n and t == "chance_node":
+        return False
+    return True
 
-def _split_positions(positions: str) -> Tuple[str, str]:
-    s = str(positions).upper()
-    if "V" in s:
-        a, b = s.split("V", 1)
-        return a, b
-    return ("IP","OOP")
 
+def _split_positions(positions: str) -> tuple[str, str]:
+    """
+    Split a positions string into (ip_pos, oop_pos).
+    Supports formats like:
+      - "BTN_vs_BB"
+      - "SB_vs_BB"
+      - "srp_hu.PFR_IP" (falls back gracefully)
+
+    Returns
+    -------
+    (ip_pos, oop_pos) : tuple of str
+    """
+    if not positions:
+        return "IP", "OOP"
+
+    txt = str(positions).strip().upper()
+
+    # Common "X_vs_Y" pattern
+    if "_VS_" in txt:
+        left, right = txt.split("_VS_", 1)
+        return left, right
+
+    # Sometimes encoded as dot + role
+    if "." in txt:
+        # e.g. "srp_hu.PFR_IP"
+        base, role = txt.split(".", 1)
+        role = role.upper()
+        if role.endswith("_IP"):
+            return role.replace("_IP", ""), "OOP"
+        elif role.endswith("_OOP"):
+            return "IP", role.replace("_OOP", "")
+        return role, "OOP"
+
+    # Default fallback
+    return "IP", "OOP"
 
 def build_postflop_policy(
     manifest_path: Path,
@@ -179,165 +205,322 @@ def build_postflop_policy(
     part_rows: int = 2000,
     parts_local_dir: str = "data/datasets/postflop_policy_parts",
     parts_s3_prefix: Optional[str] = None,
+    shard_label: Optional[str] = None,
+    strict_mode: str = "fail",                 # 'fail' | 'emit_sentinel' | 'skip'
+    debug_dump: Optional[str] = None,          # path to .jsonl for problematic rows
 ) -> None:
     """
-    Build postflop *policy* parquet parts by aggregating root child probabilities
-    over ACTION_VOCAB. We compute child mass from the node's strategy map, not
-    from child["weight"] (which is usually absent/non-probabilistic).
+    Universal postflop-policy builder (refactored to use shared utils).
+    Captures IP (CHECK/BET%) and OOP (FOLD/CALL/RAISE*/ALLIN or CHECK/DONK).
+    Robust to label variants.
     """
-    import pandas as pd
+    import json, re, gzip, io
     import numpy as np
+    import pandas as pd
+    from tqdm import tqdm
 
+    # ------- tiny helpers -------
+    NUM = re.compile(r"([-+]?\d+(?:\.\d+)?)")
+
+    def _extract_last_number(s: str) -> float | None:
+        m = NUM.findall(str(s))
+        if not m: return None
+        try: return float(m[-1])
+        except Exception: return None
+
+    def _verb(s: str) -> str:
+        u = str(s).strip().upper()
+        return u.split()[0] if u else u
+
+    def _norm(s: str) -> tuple[str, float | None]:
+        u = str(s).strip().upper()
+        return _verb(u), _extract_last_number(u)
+
+    def _resolve_child(children: Mapping[str, Any], action_label: str, eps: float = 1e-3) -> Mapping[str, Any]:
+        """Find child by verb + numeric (last number). Accepts minor formatting variants."""
+        if not children: return {}
+        if action_label in children:  # exact fast path
+            v = children[action_label]
+            return v if isinstance(v, dict) else {}
+        verb_t, val_t = _norm(action_label)
+        for k, v in children.items():
+            if not isinstance(v, dict):
+                continue
+            vk, vv = _norm(k)
+            if vk != verb_t:
+                continue
+            if val_t is None and vv is None:
+                return v
+            if (val_t is not None) and (vv is not None) and abs(val_t - vv) <= eps:
+                return v
+        return {}
+
+    def _is_action_node(n: Mapping[str, Any]) -> bool:
+        t = str(n.get("node_type", "")).lower()
+        if t in {"chance_node", "terminal", "showdown"}: return False
+        return True
+
+    # ------- IO -------
     df = pd.read_parquet(manifest_path)
     s3c = S3Client()
-
     use_clusters = bool(_get(cfg, "worker.use_board_clusters", True))
 
-    local_parts_dir = Path(parts_local_dir)
-    local_parts_dir.mkdir(parents=True, exist_ok=True)
-
-    rows_buffer: List[Dict[str, Any]] = []
+    out_dir = Path(parts_local_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    rows_buffer: list[dict] = []
     parts_written = 0
-    skipped_no_children = 0
-    skipped_zero_mass = 0
+
+    # diagnostics
+    diag = {
+        "ok": 0,
+        "sentinel": 0,
+        "zero_mass_root": 0,
+        "no_children": 0,
+        "child_resolve_fail": 0,
+        "child_not_action": 0,
+        "zero_mass_child": 0,
+    }
+    counters = {
+        "root_has_any_bet": 0,
+        "oop_facing_bet_nodes": 0,
+        "oop_raises_present_in_actions": 0,
+        "oop_raises_present_in_strat": 0,
+        "rows_with_nonzero_raise_mass": 0,
+    }
+    dump_fh = open(debug_dump, "a", encoding="utf-8") if debug_dump else None
+
+    def _emit_or_handle_sentinel(base_row: dict, reason_key: str, extra: dict):
+        diag[reason_key] = diag.get(reason_key, 0) + 1
+        if dump_fh:
+            dump_fh.write(json.dumps({"reason": reason_key, **extra}) + "\n")
+        if strict_mode == "fail":
+            raise RuntimeError(f"{reason_key}: {extra.get('s3_key','?')}")
+        elif strict_mode == "emit_sentinel":
+            row = {**base_row, "valid": 0, "weight": 0.0, "action": "CHECK"}
+            for a in ACTION_VOCAB: row[a] = 0.0
+            rows_buffer.append(row); diag["sentinel"] += 1
+        # 'skip' does nothing
+
+    def part_name(i: int) -> str:
+        pref = f"shard-{shard_label}-" if shard_label else ""
+        return f"{pref}part-{i:05d}.parquet"
 
     def flush_part():
         nonlocal rows_buffer, parts_written
-        if not rows_buffer:
-            return
+        if not rows_buffer: return
         part_df = pd.DataFrame(rows_buffer)
-
-        # Ensure every ACTION_VOCAB column exists
         for a in ACTION_VOCAB:
-            if a not in part_df.columns:
-                part_df[a] = 0.0
-
-        part_name = f"part-{parts_written:05d}.parquet"
-        part_path = local_parts_dir / part_name
-        part_df.to_parquet(part_path, index=False)
-        print(f"💾 wrote {part_path} (rows={len(part_df)})")
+            if a not in part_df.columns: part_df[a] = 0.0
+        path = out_dir / part_name(parts_written)
+        part_df.to_parquet(path, index=False)
+        print(f"💾 wrote {path} (rows={len(part_df)})")
         if parts_s3_prefix:
-            s3_key = f"{parts_s3_prefix}/{part_name}"
-            _retry(lambda: s3c.upload_file(part_path, s3_key))
+            _retry(lambda: s3c.upload_file(path, f"{parts_s3_prefix}/{path.name}"))
         parts_written += 1
         rows_buffer = []
 
+    def _load_solver_json_local_or_s3(cfg: Mapping[str, Any], s3c, s3_key: str) -> dict:
+        local_path = _cache_path_for_key(cfg, s3_key)
+        if not local_path.is_file():
+            _retry(lambda: s3c.download_file_if_missing(s3_key, local_path))
+        b = local_path.read_bytes()
+        if local_path.suffix == ".gz" or (len(b) >= 2 and b[:2] == b"\x1f\x8b"):
+            with gzip.GzipFile(fileobj=io.BytesIO(b)) as gz:
+                text = gz.read().decode("utf-8")
+            return json.loads(text)
+        return json.loads(b.decode("utf-8"))
+
+    # ------- main loop -------
     for _, r in tqdm(df.iterrows(), total=len(df), desc="Building postflop policy"):
-        # --- feature fields needed to infer 'actor' & write row ---
-        ip_pos, oop_pos = _split_positions(str(r["positions"]))
-        menu_id = str(r.get("bet_sizing_id", "") or "")
-        role = _role_from_menu(menu_id).upper()  # e.g., "SRP_HU.PFR_IP" -> "PFR_IP"
-        actor = ("ip" if role.endswith("_IP") else
-                 "oop" if role.endswith("_OOP") else "ip")  # default to IP if unknown
-        hero_pos = ip_pos if actor == "ip" else oop_pos
+        try:
+            s3_key = str(r["s3_key"])
+            node_key = str(r.get("node_key", "root"))
 
-        stack_bb = int(round(float(r["effective_stack_bb"])))
-        pot_bb   = float(r["pot_bb"])
-        street   = int(r["street"])
-        ctx      = str(r["ctx"])
+            ip_pos, oop_pos = _split_positions(str(r.get("positions", "")))
+            menu_id = str(r.get("bet_sizing_id", "") or "")
+            role = _role_from_menu(menu_id).upper()
+            actor = "ip" if role.endswith("_IP") else ("oop" if role.endswith("_OOP") else "ip")
+            hero_pos = ip_pos if actor == "ip" else oop_pos
 
-        board_cluster: Optional[int] = None
-        board: Optional[str] = None
-        if use_clusters and "board_cluster_id" in r:
-            board_cluster = int(r["board_cluster_id"])
-        elif not use_clusters and "board" in r:
-            board = str(r["board"])
+            stack_bb = int(round(float(r["effective_stack_bb"])))
+            pot_bb   = float(r["pot_bb"])
+            street   = int(r["street"])
+            ctx      = str(r["ctx"])
 
-        # --- fetch JSON once per manifest row & pick root node ---
-        js = _load_solver_json_local_or_s3(cfg, s3c, str(r["s3_key"]))
-        root = js.get("root") or js
+            board_cluster = None
+            if use_clusters and "board_cluster_id" in r:
+                board_cluster = int(r["board_cluster_id"])
 
-        childrens = root.get("childrens") or {}
-        if not childrens:
-            skipped_no_children += 1
-            continue
-        child_labels = list(childrens.keys())
+            js = _load_solver_json_local_or_s3(cfg, s3c, s3_key)
+            root = root_node(js)
 
-        # --- pull strategy map and accumulate per-child mass over hands ---
-        strat_map = (root.get("strategy") or {}).get("strategy") or {}
-        if not strat_map:
-            skipped_zero_mass += 1
-            continue
+            base_row = {
+                "s3_key": s3_key, "node_key": node_key,
+                "stack_bb": stack_bb, "pot_bb": pot_bb,
+                "hero_pos": hero_pos, "ip_pos": ip_pos, "oop_pos": oop_pos,
+                "street": street, "ctx": ctx, "actor": actor,
+                "bet_sizing_id": menu_id, "valid": 1,
+            }
+            if board_cluster is not None:
+                base_row["board_cluster"] = board_cluster
 
-        # child_mass[i] = total (or average) probability for child i across hands
-        child_mass = np.zeros(len(child_labels), dtype=np.float64)
-        num_hands = 0
+            vec = np.zeros(len(ACTION_VOCAB), dtype=np.float32)
 
-        for probs in strat_map.values():
-            # probs should be an iterable of per-child probabilities
-            try:
-                L = len(probs)
-            except Exception:
-                L = 0
-            if L == 0:
+            # Root sanity & quick stats
+            root_actions, root_mix = actions_and_mix(root)
+            if (not root_actions) or (not root_mix) or float(sum(root_mix)) <= 0:
+                _emit_or_handle_sentinel(base_row, "zero_mass_root", {"s3_key": s3_key})
                 continue
-            take = min(L, len(child_labels))
-            # accumulate only non-negative probabilities
-            for i in range(take):
-                try:
-                    p = float(probs[i])
-                except Exception:
-                    p = 0.0
-                if p > 0.0:
-                    child_mass[i] += p
-            num_hands += 1
+            if any(str(a).upper().startswith("BET") and root_mix[i] > 0 for i, a in enumerate(root_actions)):
+                counters["root_has_any_bet"] += 1
 
-        if num_hands == 0:
-            skipped_zero_mass += 1
-            continue
+            # --------- IP at root (aggressor) ----------
+            if role.startswith("PFR") or "AGGRESSOR" in role:
+                acts, mix = extract_ip_root_decision(js)
+                if (not acts) or (not mix):
+                    _emit_or_handle_sentinel(base_row, "zero_mass_root", {"s3_key": s3_key})
+                    continue
+                # Map CHECK/BET_xx to vocab
+                for i, lab in enumerate(acts):
+                    w = float(mix[i]);
+                    if w <= 0:
+                        continue
+                    up = str(lab).upper()
+                    if up.startswith("CHECK"):
+                        vec[VOCAB_INDEX["CHECK"]] += w
+                    elif up.startswith("BET"):
+                        b = bucket_bet_label(up, pot_bb=pot_bb, actor="ip")
+                        vec[VOCAB_INDEX[b]] += w
 
-        # Average across hands (you can also keep sum; we'll normalize later anyway)
-        child_mass /= float(num_hands)
+            # --------- OOP parsing (facing bet or after IP checks) ----------
+            else:
+                ch_map = get_children(root)
+                if not ch_map:
+                    _emit_or_handle_sentinel(base_row, "no_children", {"s3_key": s3_key})
+                    continue
 
-        # --- map child labels -> ACTION_VOCAB buckets & aggregate ---
-        action_probs = np.zeros(VOCAB_SIZE, dtype=np.float32)
-        for i, lab in enumerate(child_labels):
-            bucket = map_child_to_bucket(lab, actor)  # uses actor for DONK vs BET, etc.
-            idx = VOCAB_INDEX[bucket]
-            action_probs[idx] += float(child_mass[i])
+                # (A) OOP vs BET at root: aggregate all bet children with their root weights
+                labels_bet, mix_bet = extract_oop_facing_bet(js)
+                any_raise_mass = False
 
-        total = float(action_probs.sum())
-        if total <= 0.0:
-            skipped_zero_mass += 1
-            continue
-        action_probs /= total  # normalize to sum≈1
+                # Apply facing-bet mass into vocab
+                if labels_bet and mix_bet:
+                    counters["oop_facing_bet_nodes"] += 1
+                    for i, lab in enumerate(labels_bet):
+                        w = float(mix_bet[i])
+                        if w <= 0:
+                            continue
+                        up = str(lab).upper()
+                        if up.startswith("CALL"):
+                            vec[VOCAB_INDEX["CALL"]] += w
+                        elif up.startswith("FOLD"):
+                            vec[VOCAB_INDEX["FOLD"]] += w
+                        elif up.startswith("ALLIN") or up.startswith("RAISE") or "RE-RAISE" in up:
+                            # We need the current bet size to bucket raises.
+                            # Best-effort: find the *largest* BET at root (by label), or any numeric.
+                            curr = 0.0
+                            for a in root_actions:
+                                ua = str(a).upper()
+                                if ua.startswith("BET"):
+                                    v = _extract_last_number(ua)
+                                    if v is not None:
+                                        curr = max(curr, float(v))
+                            rb = bucket_raise_label(up, current_bet_bb=(curr or 1.0))
+                            if rb in VOCAB_INDEX:
+                                vec[VOCAB_INDEX[rb]] += w
+                                any_raise_mass = True
 
-        # easy-to-read argmax (sanity/debug)
-        argmax_idx = int(action_probs.argmax())
-        argmax_action = ACTION_VOCAB[argmax_idx]
+                # (B) OOP after IP CHECK: lookup the CHECK child and collect CHECK/DONK
+                #     (We intentionally do this *in addition* to facing-bet handling.)
+                for i, lab in enumerate(root_actions):
+                    if float(root_mix[i]) <= 0:
+                        continue
+                    if str(lab).upper().startswith("CHECK"):
+                        node = _resolve_child(ch_map, lab)
+                        if not node or not _is_action_node(node):
+                            continue
+                        n_acts, n_mix = actions_and_mix(node)
+                        if not n_acts or not n_mix:
+                            continue
+                        for j, a_lab in enumerate(n_acts):
+                            mass = float(root_mix[i] * n_mix[j])
+                            if mass <= 0:
+                                continue
+                            aup = str(a_lab).upper()
+                            if aup.startswith("CHECK"):
+                                vec[VOCAB_INDEX["CHECK"]] += mass
+                            elif aup.startswith("BET"):
+                                b = bucket_bet_label(aup, pot_bb=pot_bb, actor="oop")
+                                vec[VOCAB_INDEX[b]] += mass
 
-        row: Dict[str, Any] = {
-            "stack_bb": stack_bb,
-            "pot_bb": pot_bb,
-            "hero_pos": hero_pos,
-            "ip_pos": ip_pos,
-            "oop_pos": oop_pos,
-            "street": street,
-            "ctx": ctx,
-            "actor": actor,
-            "action": argmax_action,     # stored for quick checks; training uses prob cols
-            "bet_size_pct": np.nan,      # N/A at root aggregation level
-            "weight": 1.0,
-            "bet_sizing_id": menu_id,
-        }
-        if board_cluster is not None:
-            row["board_cluster"] = int(board_cluster)
-        if board is not None:
-            row["board"] = board
+                if any_raise_mass:
+                    counters["rows_with_nonzero_raise_mass"] += 1
 
-        # add probability columns
-        for a, prob in zip(ACTION_VOCAB, action_probs.tolist()):
-            row[a] = float(prob)
+            # ---- finalize row ----
+            s = float(vec.sum())
+            if s <= 0:
+                _emit_or_handle_sentinel(base_row, "zero_mass_child", {"s3_key": s3_key})
+                continue
 
-        rows_buffer.append(row)
-        if len(rows_buffer) >= part_rows:
-            flush_part()
+            vec /= s
+            argmax_action = ACTION_VOCAB[int(vec.argmax())]
+            out_row = {
+                **base_row,
+                "action": argmax_action,
+                "bet_size_pct": np.nan,
+                "weight": 1.0,
+            }
+            for a, p in zip(ACTION_VOCAB, vec.tolist()):
+                out_row[a] = float(p)
+
+            rows_buffer.append(out_row)
+            diag["ok"] += 1
+            if len(rows_buffer) >= part_rows:
+                flush_part()
+
+        except Exception as e:
+            if strict_mode == "fail":
+                raise
+            elif strict_mode == "emit_sentinel":
+                # minimal sentinel if we had a hard error
+                row = {
+                    "s3_key": str(r.get("s3_key","?")),
+                    "node_key": str(r.get("node_key","root")),
+                    "stack_bb": int(round(float(r.get("effective_stack_bb", 0)))),
+                    "pot_bb": float(r.get("pot_bb", 0.0)),
+                    "hero_pos": "",
+                    "ip_pos": "", "oop_pos": "",
+                    "street": int(r.get("street", 1)),
+                    "ctx": str(r.get("ctx","")),
+                    "actor": "",
+                    "bet_sizing_id": str(r.get("bet_sizing_id","")),
+                    "valid": 0,
+                    "weight": 0.0,
+                    "action": "CHECK",
+                }
+                for a in ACTION_VOCAB: row[a] = 0.0
+                rows_buffer.append(row); diag["sentinel"] += 1
+            # 'skip' → ignore
 
     flush_part()
-    print(
-        f"✅ done. parts={parts_written} "
-        f"(skipped: no_children={skipped_no_children}, zero_mass={skipped_zero_mass})"
-    )
+    if dump_fh: dump_fh.close()
+
+    print("✅ done.",
+          f"parts={parts_written}",
+          f"ok={diag['ok']}",
+          f"sentinel={diag['sentinel']}",
+          f"zero_mass_root={diag['zero_mass_root']}",
+          f"no_children={diag['no_children']}",
+          f"child_resolve_fail={diag['child_resolve_fail']}",
+          f"child_not_action={diag['child_not_action']}",
+          f"zero_mass_child={diag['zero_mass_child']}",
+          sep="  ")
+    print("RAISE visibility:",
+          f"root_has_any_bet={counters['root_has_any_bet']}",
+          f"oop_facing_bet_nodes={counters['oop_facing_bet_nodes']}",
+          f"raises_in_actions={counters['oop_raises_present_in_actions']}",
+          f"raises_in_strat={counters['oop_raises_present_in_strat']}",
+          f"rows_with_nonzero_raise_mass={counters['rows_with_nonzero_raise_mass']}",
+          )
 
 def _role_from_menu(menu_id: str) -> str:
     """
@@ -403,9 +586,6 @@ def run_from_config(
             df = df.head(sample_n).reset_index(drop=True)
         print(f"🔎 sample mode: using {len(df)} row(s)")
 
-    # Hand the filtered frame to your builder (no re-read inside)
-    # Your build_postflop_policy should accept either a path or a DataFrame;
-    # if it only accepts a path, we’ll write a temp parquet.
     tmp_manifest = manifest.with_suffix(f".shard.tmp.parquet")
     df.to_parquet(tmp_manifest, index=False)
 
@@ -437,7 +617,8 @@ if __name__ == "__main__":
                     help="Where to write local parts")
     ap.add_argument("--parts-s3-prefix", type=str, default=None,
                     help='If set, upload parts to this S3 prefix (e.g., "datasets/rangenet_postflop/policy_parts")')
-
+    ap.add_argument("--shard-label", type=str, default=None,
+                    help="String tag to prefix part filenames, e.g. 'test10' or shard index")
     # sampling / smoke test
     ap.add_argument("--sample-n", type=int, default=None,
                     help="If set, build only this many rows (after sharding).")

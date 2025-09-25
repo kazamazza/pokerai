@@ -157,16 +157,11 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     eff_bb  = float(params["effective_stack_bb"])
     board   = str(params["board"])
 
-    pre_ip_nnz,  pre_ip_sum  = _nnz_stats_from_payload(params["range_ip"])
-    pre_oop_nnz, pre_oop_sum = _nnz_stats_from_payload(params["range_oop"])
-    print(f"[range-stats:pre] IP nnz={pre_ip_nnz} sum={pre_ip_sum:.2f} | OOP nnz={pre_oop_nnz} sum={pre_oop_sum:.2f}")
-
     range_ip  = to_monker(params["range_ip"])
     range_oop = to_monker(params["range_oop"])
 
     post_ip_nnz,  post_ip_sum  = _nnz_and_sum_from_monker(range_ip)
     post_oop_nnz, post_oop_sum = _nnz_and_sum_from_monker(range_oop)
-    print(f"[range-stats:post] IP nnz={post_ip_nnz} sum={post_ip_sum:.2f} | OOP nnz={post_oop_nnz} sum={post_oop_sum:.2f}")
 
     menu_id = str(params.get("bet_sizing_id", "") or "")
     ctx = _ctx_from_menu(menu_id)

@@ -1,8 +1,7 @@
-# --- FLOP-ONLY MENUS FOR ML (lean, multi-action, bounded tree) ---
+from typing import Dict, List, Tuple, Optional, Literal
 
-from typing import Optional, Dict, List, Tuple
-
-# Aggressors get two bet sizes; caller OOP may donk one size.
+# -------- Betting menus (unchanged bets; adjusted raises) --------
+# Aggressors get two bet sizes; OOP caller may donk one size.
 BET_SIZE_MENUS: Dict[str, List[float]] = {
     # SRP
     "srp_hu.PFR_IP":      [0.33, 0.66],
@@ -27,14 +26,18 @@ BET_SIZE_MENUS: Dict[str, List[float]] = {
     "limped_multi.Any":    [0.33],       # symmetric, no donk key
 }
 
-DEFAULT_MENU = [0.33]  # fallback
+DEFAULT_MENU = [0.33]
 
-# Single flop raise ladder to allow a raise branch without explosion
-RAISE_FLOP = [66]      # % pot
-# Turn/River disabled (keeps solve small & fast)
-TURN_RIVER_DISABLED = {"ip": {"bet": []}, "oop": {"bet": []}}
+# -------- Critical: legal flop raise ladder --------
+# Interpret as *raise-to multipliers of the current bet* in percent.
+# 150 = 1.5x bet, 200 = 2.0x bet, 300 = 3.0x bet — aligns with training buckets.
+RAISE_FLOP_MULT = [150, 200, 300]
 
-def _pct_list(xs):  # 0.33 -> 33
+# Allow all-in branches on flop to prevent solver pruning away raises when stacks are shallow.
+ENABLE_FLOP_ALLIN = True
+
+def _pct_list(xs: List[float]) -> List[int]:
+    """e.g. 0.33 -> 33"""
     return sorted({int(round(x * 100)) for x in xs})
 
 def _parse_menu_id(menu_id: str) -> Tuple[str, str]:
@@ -51,25 +54,23 @@ def _is_oop(role: str) -> bool:
     return role.endswith("_OOP") or role == "OOP"
 
 def _make_flop_side(role: str, sizes_pct: List[int], *, allow_donk_for_oop_caller: bool) -> dict:
-    side = {"raise": RAISE_FLOP, "allin": False}   # one raise; no allin for flop-only v1
+    """
+    Why: ensure raises are present and legal on flop for both roles.
+    - 'raise' uses 150/200/300 (bet-relative).
+    - enable 'allin' on flop to keep branch viable at short stacks.
+    """
+    side: Dict[str, object] = {"raise": RAISE_FLOP_MULT, "allin": ENABLE_FLOP_ALLIN}
     if (not _is_aggressor(role)) and _is_oop(role) and allow_donk_for_oop_caller:
-        side["donk"] = sizes_pct                    # OOP caller may donk
+        side["donk"] = sizes_pct                      # OOP caller may donk after IP check
     else:
-        side["bet"] = sizes_pct                     # default bet family
+        side["bet"] = sizes_pct                       # default bet family
     return side
 
 def build_contextual_bet_sizes(menu_id: Optional[str]) -> dict:
     """
-    Flop-only tree. Turn/river intentionally empty to avoid deeper streets.
-    Returns:
-      {
-        "flop": {
-          "ip":  {"bet":[..] or "donk":[..], "raise":[66], "allin":False},
-          "oop": {...}
-        },
-        "turn":  {"ip":{"bet":[]}, "oop":{"bet":[]}},
-        "river": {"ip":{"bet":[]}, "oop":{"bet":[]}},
-      }
+    Flop-only tree with legal raise ladder and flop all-in enabled.
+    Turn/river remain disabled to keep solves lean.
+    Returned structure matches build_command_text() expectations.
     """
     key = (menu_id or "").strip()
     group, role = _parse_menu_id(key)
@@ -77,20 +78,22 @@ def build_contextual_bet_sizes(menu_id: Optional[str]) -> dict:
     sizes_pct = _pct_list(BET_SIZE_MENUS.get(key, DEFAULT_MENU))
     allow_donk = role.endswith("Caller_OOP") or role == "Caller_OOP"
 
-    flop = {
+    flop_cfg = {
         "ip":  _make_flop_side(role if role.endswith("_IP")  else "Neutral_IP",
                                sizes_pct, allow_donk_for_oop_caller=allow_donk),
         "oop": _make_flop_side(role if role.endswith("_OOP") else "Neutral_OOP",
                                sizes_pct, allow_donk_for_oop_caller=allow_donk),
     }
 
-    # Limped multi: forbid 'donk' explicitly; symmetric 'bet' only
+    # Limped multi: symmetric 'bet'; no donk key.
     if group.startswith("limped_multi"):
-        flop["oop"].pop("donk", None)
-        flop["oop"].setdefault("bet", sizes_pct)
+        flop_cfg["oop"].pop("donk", None)
+        flop_cfg["oop"].setdefault("bet", sizes_pct)
+
+    TURN_RIVER_DISABLED = {"ip": {"bet": []}, "oop": {"bet": []}}  # keep small trees
 
     return {
-        "flop": flop,
+        "flop": flop_cfg,
         "turn":  TURN_RIVER_DISABLED,
         "river": TURN_RIVER_DISABLED,
     }

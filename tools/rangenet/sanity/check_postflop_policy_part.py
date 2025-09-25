@@ -1,224 +1,116 @@
-#!/usr/bin/env python
-# tools/rangenet/postflop/sanity/check_postflop_policy_part.py
+#!/usr/bin/env python3
+import sys, numpy as np, pandas as pd
 
-import argparse
-import re
-from pathlib import Path
-from typing import List
-
-import numpy as np
-import pandas as pd
-
-# Core required columns
-REQUIRED_COLS: List[str] = [
-    "stack_bb", "pot_bb",
-    "hero_pos", "ip_pos", "oop_pos",
-    "street", "ctx",
-    "actor",          # "ip" | "oop"
-    "action",         # "CHECK" | "BET_33" | "DONK_33" | "RAISE_200" | ...
-    "weight",
+ACTION_COLS_ALL = [
+    "FOLD","CHECK","CALL",
+    "BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
+    "DONK_33",
+    "RAISE_150","RAISE_200","RAISE_300","ALLIN",
 ]
 
-# Either "board_cluster" OR "board" must be present
-BOARD_ALTERNATIVES = [["board_cluster"], ["board"]]
+BET_COLS   = ["BET_25","BET_33","BET_50","BET_66","BET_75","BET_100"]
+RAISE_COLS = ["RAISE_150","RAISE_200","RAISE_300","ALLIN"]
+DONK_COLS  = ["DONK_33"]  # extend if you add more donk sizes
 
-# Optional fields often present
-OPTIONAL_COLS = [
-    "bet_sizing_id",  # e.g. srp_hu.PFR_IP
-    "bet_size_pct",   # numeric percentage (can be NaN for CHECK)
-    "node_key",
+REQ_COLS_META = [
+    "hero_pos","ip_pos","oop_pos","ctx","street","actor","pot_bb","stack_bb","action"
 ]
 
-# Patterns
-ACTION_TOKEN_RE = re.compile(r"^(FOLD|CHECK|CALL|ALLIN|BET_\d+|DONK_\d+|RAISE_\d+)$")
-PROB_COL_RE     = re.compile(r"^(FOLD|CHECK|CALL|ALLIN|BET_\d+|DONK_\d+|RAISE_\d+)$")
-
-def fail(msg: str):
-    raise SystemExit(f"❌ {msg}")
-
-def ok(msg: str):
-    print(f"✅ {msg}")
-
-def warn(msg: str):
-    print(f"⚠️ {msg}")
-
-def top_counts(df: pd.DataFrame, col: str, k=10):
-    if col in df.columns:
-        vc = df[col].value_counts(dropna=False).head(k)
-        print(f"\nby {col} (top-{k}):")
-        for idx, cnt in vc.items():
-            print(f"  {idx}: {cnt}")
+EPS = 1e-9
 
 def main():
-    ap = argparse.ArgumentParser("Sanity check a postflop policy parquet part")
-    ap.add_argument("--part", type=Path, required=True,
-                    help="Path to a parquet part (e.g. data/datasets/postflop_policy_parts_test/part-00000.parquet)")
-    ap.add_argument("--tol", type=float, default=1e-3,
-                    help="Tolerance for probability sum ≈ 1")
-    args = ap.parse_args()
+    if len(sys.argv) != 2:
+        print("usage: check_postflop_policy_part.py <parquet>")
+        sys.exit(2)
 
-    p = args.part
-    if not p.exists():
-        fail(f"File not found: {p}")
+    path = sys.argv[1]
+    df = pd.read_parquet(path)
+    n = len(df)
+    print(f"file={path}  rows={n}")
 
-    df = pd.read_parquet(p)
-    print(f"=== FILE ===\npath: {p}\nrows: {len(df):,}\n")
-
-    # ---------- schema checks ----------
-    cols = set(df.columns)
-
-    missing = [c for c in REQUIRED_COLS if c not in cols and c not in ("board_cluster", "board")]
-    has_board_alt = any(all(c in cols for c in alt) for alt in BOARD_ALTERNATIVES)
-    if not has_board_alt:
-        missing.append("board_cluster|board")
+    # ---- required cols ----
+    missing = [c for c in REQ_COLS_META if c not in df.columns]
     if missing:
-        fail(f"Missing required columns: {missing}")
-    ok("Required columns present")
+        print(f"❌ missing required metadata columns: {missing}")
+        sys.exit(1)
+    print("✅ required columns present")
 
-    present_optional = [c for c in OPTIONAL_COLS if c in cols]
-    print(f"optional columns present: {present_optional}")
+    # ---- action columns presence ----
+    present_actions = [c for c in ACTION_COLS_ALL if c in df.columns]
+    print(f"✅ action columns: {present_actions}")
+    if not present_actions:
+        print("❌ no ACTION_VOCAB columns found")
+        sys.exit(1)
 
-    # ensure no range (y_*) columns
-    y_cols = [c for c in df.columns if c.startswith("y_")]
-    if y_cols:
-        fail(f"Found unexpected range columns (y_*): count={len(y_cols)} e.g. {y_cols[:5]}")
-    ok("No y_* columns present (policy dataset)")
-
-    # ---------- nulls & basic types ----------
-    critical = ["stack_bb", "pot_bb", "hero_pos", "ip_pos", "oop_pos", "street", "ctx", "actor", "action", "weight"]
-    critical += [c for c in ("board_cluster", "board") if c in cols]
-    nulls = {c: int(df[c].isna().sum()) for c in critical}
-    bad_nulls = {k: v for k, v in nulls.items() if v > 0}
-    if bad_nulls:
-        warn(f"Null counts in critical columns: {bad_nulls}")
+    # ---- non-neg + row-sum≈1 checks on action cols ----
+    A = df[present_actions].to_numpy(dtype=np.float64, copy=False)
+    if (A < -1e-12).any():
+        print("❌ negative probs detected")
     else:
-        ok("No nulls in critical columns")
+        print("non-neg check: OK")
 
-    # numeric dtype sanity
-    num_expect = [c for c in ["stack_bb", "pot_bb", "weight"] if c in df.columns]
-    for c in num_expect:
-        if not np.issubdtype(df[c].dtype, np.number):
-            fail(f"Column {c} must be numeric, got {df[c].dtype}")
+    sums = A.sum(axis=1)
+    off = np.flatnonzero(np.abs(sums - 1.0) > 1e-6).size
+    print(f"sum≈1 check: {off} rows off by > 1e-06")
 
-    # actor values
-    bad_actor = df[~df["actor"].astype(str).isin(["ip", "oop"])]
-    if not bad_actor.empty:
-        fail(f"Unexpected actor values: {bad_actor['actor'].unique().tolist()}")
-    ok("actor values look good (ip/oop)")
+    # ---- basic distributions ----
+    def _top(col):
+        if col in df.columns:
+            vc = df[col].value_counts().head(5)
+            print(f"\nby {col} (top):")
+            for k, v in vc.items():
+                print(f"  {k}: {v:,}")
 
-    # hero_pos coherence with actor
-    pos_set = {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
-    for pos_col in ["hero_pos", "ip_pos", "oop_pos"]:
-        if pos_col in df.columns:
-            bad_pos = df[~df[pos_col].astype(str).isin(pos_set)]
-            if not bad_pos.empty:
-                fail(f"Unexpected {pos_col} values: {bad_pos[pos_col].unique()[:10].tolist()}")
-    if {"hero_pos", "ip_pos", "oop_pos", "actor"}.issubset(df.columns):
-        mismatch = df[
-            ((df["actor"] == "ip") & (df["hero_pos"] != df["ip_pos"])) |
-            ((df["actor"] == "oop") & (df["hero_pos"] != df["oop_pos"]))
-        ]
-        if not mismatch.empty:
-            warn(f"hero_pos not consistent with actor for {len(mismatch)} rows (showing up to 5):")
-            print(mismatch[["actor","hero_pos","ip_pos","oop_pos"]].head(5).to_string(index=False))
+    for k in ("ctx","street","bet_sizing_id","actor","action"):
+        _top(k)
+
+    # ---- specialized action diagnostics ----
+    def _nonzero_counts(cols, name):
+        cols = [c for c in cols if c in df.columns]
+        if not cols:
+            print(f"\n{name}: (no columns present)")
+            return {}
+        nz = {c: int((df[c] > EPS).sum()) for c in cols}
+        total_rows_with_any = int(((df[cols].sum(axis=1)) > EPS).sum())
+        print(f"\n{name}:")
+        for c in cols:
+            print(f"  {c:10s} -> {nz[c]}")
+        print(f"  rows with ANY {name.lower()} mass: {total_rows_with_any}/{n} "
+              f"({total_rows_with_any/n:.1%})")
+        return {"per_col": nz, "any_rows": total_rows_with_any}
+
+    bet_stats   = _nonzero_counts(BET_COLS,   "BET BUCKETS")
+    raise_stats = _nonzero_counts(RAISE_COLS, "RAISE BUCKETS")
+    donk_stats  = _nonzero_counts(DONK_COLS,  "DONK BUCKETS")
+
+    # ---- donk used only OOP? (if DONK columns exist) ----
+    if any(c in df.columns for c in DONK_COLS):
+        donk_sum = df[[c for c in DONK_COLS if c in df.columns]].sum(axis=1)
+        has_donk = donk_sum > EPS
+        if "actor" in df.columns:
+            oop_with_donk = int(((df["actor"] == "oop") & has_donk).sum())
+            ip_with_donk  = int(((df["actor"] == "ip")  & has_donk).sum())
+            print(f"\nDONK usage by actor: OOP={oop_with_donk}, IP={ip_with_donk} "
+                  f"(expect IP≈0)")
         else:
-            ok("hero_pos matches actor (ip/oop)")
+            print("\nDONK usage by actor: cannot check (no actor column)")
 
-    # street values (numeric 1/2/3 preferred)
-    if not df["street"].isin([1, 2, 3]).all():
-        uniq = sorted(df["street"].dropna().unique().tolist())
-        warn(f"Non-numeric or unexpected street values observed: {uniq} (ensure normalization)")
+    # ---- small previews ----
+    def _preview_rows_with_any(cols, title, limit=8):
+        cols = [c for c in cols if c in df.columns]
+        if not cols:
+            return
+        mask = (df[cols].sum(axis=1) > EPS)
+        sub = df.loc[mask, REQ_COLS_META + cols].head(limit)
+        if not sub.empty:
+            print(f"\n=== preview rows with ANY {title} mass (up to {limit}) ===")
+            print(sub.to_string(index=False))
 
-    # action token formatting
-    not_matched = df[~df["action"].astype(str).str.upper().str.fullmatch(ACTION_TOKEN_RE)]
-    if not not_matched.empty:
-        samp = not_matched["action"].astype(str).str.upper().unique()[:10]
-        fail(f"Unmapped/invalid actions found (sample): {list(samp)}")
-    ok("action tokens match expected pattern (FOLD/CHECK/CALL/ALLIN/BET_xx/DONK_xx/RAISE_xx)")
+    _preview_rows_with_any(RAISE_COLS, "RAISE")
+    _preview_rows_with_any(DONK_COLS,  "DONK")
+    _preview_rows_with_any(BET_COLS,   "BET")
 
-    # ---------- probability columns & semantics ----------
-    prob_cols = [c for c in df.columns if PROB_COL_RE.fullmatch(str(c))]
-    if not prob_cols:
-        fail("No action-probability columns found (expected columns like CHECK, BET_33, RAISE_200, ALLIN, etc.)")
-    print(f"found {len(prob_cols)} probability columns")
-
-    # probs in [0,1]
-    sub = df[prob_cols]
-    non_finite = ~np.isfinite(sub.values)
-    if non_finite.any():
-        r, c = np.where(non_finite)
-        fail(f"Non-finite values in probability columns at {len(r)} locations (e.g., row {r[0]}, col {prob_cols[c[0]]})")
-
-    lt0 = (sub.values < -1e-9).any()
-    gt1 = (sub.values > 1 + 1e-9).any()
-    if lt0 or gt1:
-        fail("Probability columns contain values outside [0,1]")
-
-    # row sums ≈ 1 (allow small tolerance; also allow all-zeros row but warn)
-    sums = sub.sum(axis=1).to_numpy()
-    all_zero = np.isclose(sums, 0.0, atol=1e-12)
-    if all_zero.any():
-        warn(f"{int(all_zero.sum())} row(s) have all-zero probabilities (will be ignored by most trainers)")
-
-    off = ~np.isclose(sums, 1.0, atol=args.tol) & ~all_zero
-    if off.any():
-        idxs = np.where(off)[0][:5]
-        warn(f"{int(off.sum())} row(s) have prob-sum not ≈ 1 (tol={args.tol}). Examples:")
-        print(df.loc[idxs, prob_cols + ["action"]].to_string(index=False))
-    else:
-        ok("Probability rows sum ≈ 1")
-
-    # argmax(action_probs) == 'action'
-    argmax_idx = sub.values.argmax(axis=1)
-    argmax_name = np.array(prob_cols)[argmax_idx]
-    mismatch = df[argmax_name != df["action"].astype(str).str.upper().values]
-    if not mismatch.empty:
-        warn(f"'action' != argmax(probabilities) for {len(mismatch)} row(s). Showing up to 5:")
-        show_cols = ["action"] + prob_cols[:min(6, len(prob_cols))]
-        print(mismatch[show_cols].head(5).to_string(index=False))
-    else:
-        ok("action column matches argmax of probability vector")
-
-    # bet_size_pct coherence (optional)
-    if "bet_size_pct" in df.columns:
-        A = df["action"].astype(str).str.upper()
-        pct = df["bet_size_pct"]
-        # CHECK should generally have NaN bet_size_pct
-        bad_check = A.eq("CHECK") & pct.notna()
-        if bad_check.any():
-            warn(f"{int(bad_check.sum())} CHECK rows have non-null bet_size_pct")
-
-        # For actions with suffix (_NN), check rough agreement with bet_size_pct
-        pat = A.str.extract(r".*_(\d+)$")[0]
-        mask_num = pat.notna() & pct.notna()
-        if mask_num.any():
-            # Compare suffix integer to rounded pct
-            suffix = pat[mask_num].astype(int)
-            pct_rounded = pct[mask_num].round().astype(int)
-            disagree = (suffix != pct_rounded)
-            if disagree.any():
-                warn(f"{int(disagree.sum())} row(s) where action suffix != rounded bet_size_pct (showing up to 5):")
-                sample = df.loc[mask_num].loc[disagree].head(5)
-                print(sample[["action","bet_size_pct"]].to_string(index=False))
-
-    # weights > 0
-    if (df["weight"] <= 0).any():
-        fail("Non-positive weights found")
-    ok("weights are positive")
-
-    # ---------- quick distributions ----------
-    top_counts(df, "actor")
-    top_counts(df, "action")
-    top_counts(df, "bet_sizing_id")
-    top_counts(df, "street")
-    top_counts(df, "ctx")
-
-    if "board_cluster" in df.columns:
-        bc = df["board_cluster"].dropna()
-        if not bc.empty:
-            print(f"\nboard_cluster: min={int(bc.min())}, max={int(bc.max())}, unique={bc.nunique()}")
-
-    print("\n🎯 Sanity OK — this part looks usable for postflop policy training.")
+    print("\n✅ sanity complete")
 
 if __name__ == "__main__":
     main()

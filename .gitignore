@@ -8,7 +8,6 @@ __pycache__/
 /tmp/
 .cache/
 
-
 # Jupyter
 .ipynb_checkpoints/
 
@@ -30,5 +29,7 @@ data/population/
 data/preflop/
 data/rangenet/
 data/ranges/
+data/solver_cache
 postflop/strategy_templates/
 infra/terraform/terraform.tfvars
+debug_cmds
