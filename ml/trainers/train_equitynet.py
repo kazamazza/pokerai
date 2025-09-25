@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Dict, Optional
+from typing import Any, Mapping
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -51,7 +51,6 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     cards = ds.cards_info.cards
     feature_order = list(ds.feature_order)
 
-    # Optional stratified split (e.g. by street for postflop)
     stratify_keys = _get(cfg, "dataset.stratify_keys", None)
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
     if stratify_keys:
@@ -64,7 +63,6 @@ def run_train(cfg: Mapping[str, Any]) -> str:
 
     train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
 
-    # -------- DataLoaders --------
     batch_size = int(_get(cfg, "train.batch_size", 1024))
     num_workers = int(_get(cfg, "train.num_workers", 0))
     pin_memory = bool(_get(cfg, "train.pin_memory", True))
@@ -80,7 +78,6 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         collate_fn=equity_collate_fn,
     )
 
-    # -------- Model --------
     model = EquityNetLit(
         cards=cards,
         cat_order=feature_order,
@@ -155,7 +152,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="equitynet",
                     help="Model name or YAML path")
-    # quick CLI overrides
     ap.add_argument("--batch_size", type=int)
     ap.add_argument("--max_epochs", type=int)
     ap.add_argument("--patience", type=int)

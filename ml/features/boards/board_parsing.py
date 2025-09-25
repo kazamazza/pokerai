@@ -1,7 +1,5 @@
 from typing import Tuple, List
-
 from ml.config.types_hands import RANK_TO_I, RANKS
-
 
 def parse_card(card: str) -> Tuple[int, str]:
     """'Ac' -> (12, 'c')  (A=12, K=11, ..., 2=0)"""

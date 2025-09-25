@@ -2,7 +2,6 @@
 from enum import IntEnum
 from typing import Dict
 
-
 class Stakes(IntEnum):
     """Table stakes / blind levels (expandable)."""
     NL2 = 0

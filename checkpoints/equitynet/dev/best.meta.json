@@ -1,7 +1,0 @@
-{
-  "chosen": "equitynet-09-0.2587.ckpt",
-  "val_kl": 0.2587346210061748,
-  "val_soft_acc": 0.5721453287197232,
-  "parquet": "data/datasets/equitynet.parquet",
-  "sidecar": "checkpoints/equitynet/dev/best.ckpt.sidecar.json"
-}

@@ -1,7 +1,0 @@
-hidden_dims:
-- 256
-- 256
-dropout: 0.05
-lr: 0.00075
-weight_decay: 5.0e-05
-label_smoothing: 0.02

@@ -1,24 +1,25 @@
+# ml/infer/equity_infer.py
 from __future__ import annotations
-from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+
+from typing import Any, Dict, Mapping, Optional, Sequence, Union, List
 import torch
 import torch.nn.functional as F
-from ml.models.equity_net import EquityNetLit  # your LightningModule
-from ml.utils.device import DeviceLike, to_device
-from ml.utils.sidecar import load_sidecar
 
+from ml.models.equity_net import EquityNetLit
+
+try:
+    from ml.utils.device import to_device, DeviceLike  # your helper
+except Exception:
+    DeviceLike = Union[str, torch.device]
+    def to_device(wish: DeviceLike = "auto") -> torch.device:
+        if wish == "cpu":
+            return torch.device("cpu")
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+from ml.utils.sidecar import load_sidecar  # your existing helper
 
 class EquityNetInfer:
-    """
-    Inference wrapper for EquityNet (preflop OR postflop).
-
-    Sidecar JSON schema must include:
-      - feature_order: list[str]
-      - cards: dict[str,int]
-      - id_maps (preferred) or encoders: dict[str, dict[str,int]]
-    Model output: [p_win, p_tie, p_lose]
-    """
-
     def __init__(
         self,
         *,
@@ -38,15 +39,25 @@ class EquityNetInfer:
         }
         self.cards = {k: int(v) for k, v in (cards or {}).items()}
 
-        # device
         self.device = device or to_device("auto")
         self.model.to(self.device)
+
+        # Sanity: model has embeddings for the same categorical features we’ll feed.
+        emb_keys = set(getattr(self.model, "emb_layers", {}).keys())
+        want_keys = set(self.feature_order)
+        if emb_keys and emb_keys != want_keys:
+            missing = want_keys - emb_keys
+            extra   = emb_keys - want_keys
+            raise ValueError(
+                f"feature_order ↔ model.emb_layers mismatch. "
+                f"Missing in model: {sorted(missing)}  Extra in model: {sorted(extra)}"
+            )
 
     @classmethod
     def from_checkpoint(
         cls,
         checkpoint_path: Union[str, Path],
-        sidecar_path: str | Path,
+        sidecar_path: Union[str, Path],
         device: DeviceLike = "auto",
     ) -> "EquityNetInfer":
         dev = to_device(device)
@@ -57,12 +68,14 @@ class EquityNetInfer:
 
         # Accept both keys; prefer id_maps
         id_maps = sc.get("id_maps") or sc.get("encoders") or {}
+        feature_order = sc["feature_order"]
+        cards = sc["cards"]
 
         return cls(
             model=model,
-            feature_order=sc["feature_order"],
+            feature_order=feature_order,
             id_maps=id_maps,
-            cards=sc["cards"],
+            cards=cards,
             device=dev,
         )
 
@@ -70,14 +83,11 @@ class EquityNetInfer:
 
     def _unknown_idx(self, col: str) -> int:
         """Return a safe 'unknown' index for a column (last bucket)."""
-        C = int(self.cards.get(col, 0))
+        C = int(self.cards.get(col, 1))
         return max(C - 1, 0)
 
     def _x_num_placeholder(self, batch_size: int) -> torch.Tensor:
-        """
-        Build the numeric feature tensor to pass to the model.
-        If the model has num_in_dim==0, pass [B,0]; else zeros [B,num_in_dim].
-        """
+        """If the model expects numeric features, provide zeros; else [B,0]."""
         num_in_dim = 0
         try:
             num_in_dim = int(getattr(self.model.hparams, "num_in_dim", 0))
@@ -92,7 +102,7 @@ class EquityNetInfer:
     def _maybe_fill_defaults(self, row: Dict[str, Any]) -> Dict[str, Any]:
         """
         Fill unified-but-optional features if missing.
-        - board_cluster_id: map to UNK so preflop requests (street=0) work out-of-the-box.
+        - board_cluster_id: map to UNK so preflop requests (street=0) work.
         """
         out = dict(row)
         if "board_cluster_id" not in out:
@@ -143,3 +153,8 @@ class EquityNetInfer:
     @torch.no_grad()
     def predict(self, rows: Sequence[Mapping[str, Any]]) -> List[List[float]]:
         return self.predict_proba(rows).tolist()
+
+    @torch.no_grad()
+    def predict_one(self, row: Mapping[str, Any]) -> List[float]:
+        y = self.predict([row])
+        return y[0] if y else [0.0, 0.0, 1.0]

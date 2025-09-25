@@ -26,28 +26,20 @@ def main():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=str, required=True, help="artifact path (json)")
-    ap.add_argument("--n_clusters", type=int, default=246)
+    ap.add_argument("--n_clusters", type=int, default=256)
     ap.add_argument("--n_samples", type=int, default=22100)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    # 1) Sample boards
     boards = sample_flops(args.n_samples, args.seed)
 
-    # 2) Featurize to numeric vectors (NOT BoardFeatures objects)
-    #    featurize_board(...) should return a BoardFeatures with .to_vector()
     feats = []
     for b in boards:
         f = featurize_board(b)
-        # if featurize_board already returns a numpy array, this will still work
         v = f.to_vector() if hasattr(f, "to_vector") else np.asarray(f, dtype=np.float32)
         feats.append(np.asarray(v, dtype=np.float32))
     X = np.stack(feats, axis=0)  # shape [N, D], float32
-
-    # 3) Fit KMeans
     km = KMeans(n_clusters=args.n_clusters, random_state=args.seed, n_init="auto").fit(X)
-
-    # 4) Write JSON artifact with centroids
     art = {
         "kind": "kmeans",
         "n_clusters": int(args.n_clusters),

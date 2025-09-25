@@ -1,7 +1,7 @@
 cards:
   street: 4
   hand_id: 169
-  board_cluster_id: 257
+  board_cluster_id: 129
 cat_order:
 - street
 - hand_id

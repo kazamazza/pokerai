@@ -1,66 +1,139 @@
-# =========================
-# EquityNet (unified) — base
-# =========================
+# ======================================================================
+# EquityNet — BASE CONFIG
+# Keep this file tidy and environment-agnostic.
+# Override paths / sizes in dev/prod overlays.
+# ======================================================================
 
+# -----------------------------
+# DATASET (trainer I/O schema)
+# -----------------------------
 dataset:
   seed: 42
-  x_cols: [ "street", "hand_id", "board_cluster_id" ]   # minimal & sufficient
-  y_cols: [ "p_win", "p_tie", "p_lose" ]
+  # Feature columns consumed by EquityDatasetParquet
+  x_cols: ["street", "hand_id", "board_cluster_id"]
+  # Targets (triplet of probabilities)
+  y_cols: ["p_win", "p_tie", "p_lose"]
+  # Optional weighting (MC sims per row by default)
   weight_col: "weight"
+  # Optional: drop rows with tiny weight (None to disable)
+  min_weight: null
+  # Optional: stratified split keys (keeps per-key distribution stable across train/val)
+  stratify_keys: ["street", "board_cluster_id"]
 
+# -------------------------------------
+# BUILD (manifest generation controls)
+# -------------------------------------
 build:
   include:
-    preflop: true
+    preflop: true     # emit 169 preflop rows (street=0)
     postflop: true
 
-  # Streets to include for postflop equity
-  streets: [flop, turn, river]   # 1=flop,2=turn,3=river (street=0 is preflop)
+  # Streets included in the manifest for postflop
+  streets: [flop, turn, river]   # accepts ["flop","turn","river"] or [1,2,3]
 
-  # Board clustering/sampling plan (postflop)
+  # Number of clusters per street used to enumerate scenarios in the manifest
+  # (You’ll often override these in prod.)
   clusters:
-    flop: 256
+    flop: 128
     turn: 128
     river: 128
 
+  # Rows per (street × cluster × hand_id) — i.e., MC sims placeholder
+  # (Final sims per row can be bounded in compute.mc.{min,max}.)
   samples_per_cluster:
     flop: 32
-    turn: 64
-    river: 64
+    turn: 32
+    river: 32
 
-  # If you have a precomputed clustering, point to it; otherwise set method: none
-  board_sampling:
-    method: none             # none | kmeans | file
-    clusters_path: ""        # used only if method=file
-    seed: 42
+  # Optional when building representative board pools used by compute (sampler cap)
+  boards_per_cluster: 64
 
-  # Preflop equity doesn’t need boards; keep for schema consistency
-  preflop_samples: 0
+# --------------------------------------------------------
+# BOARD CLUSTERING (used by compute’s cluster-aware sampler)
+# --------------------------------------------------------
+# You can switch to "kmeans" and point to your JSON artifact in prod.
+board_clustering:
+  type: rule              # "rule" | "kmeans"
+  n_clusters: 128         # used by rule-based clustering; ignored if kmeans with artifact
+  artifact: ""            # e.g., data/artifacts/board_clusters_kmeans_512.json
 
+# ---------------------------------
+# COMPUTE (equity parquet producer)
+# ---------------------------------
 compute:
-  engine: eval7              # Monte Carlo exact/MC via eval7
-  # Global compute knobs
-  threads: auto              # auto | int
-  chunk_size: 8192           # rows per work chunk
-  log_every_n: 50000
-  # Monte Carlo sampling (postflop)
-  mc:
-    # If you ever want per-row custom samples, the manifest already carries "samples".
-    # This is a floor/override guard; leave at 0 to trust manifest.
-    min_samples: 0
-    max_samples: 0
-  # Safety & reproducibility
+  engine: eval7           # current implementation uses eval7
+  threads: auto           # "auto" or an integer
+  chunk_size: 4096        # rows per process batch submission
+  log_every_n: 20000
   seed: 42
 
+  # MC sim clamps applied to POSTFLOP rows (street > 0)
+  mc:
+    min_samples: 64       # raise too-small rows up to this
+    max_samples: 0        # 0 = no cap
+
+  # Sims for PREFLOP rows (street == 0)
+  preflop_samples: 20000
+
+# -----------------------
+# PATHS (single source)
+# -----------------------
 paths:
+  # Manifest produced by: tools/equity/build_equity_manifest.py --config <this or overlay>
   manifest_path: data/artifacts/equity_manifest.parquet
+  # Parquet produced by compute_equity_from_manifest.py
   parquet_path:  data/datasets/equitynet.parquet
+  # Temp directory (optional; some scripts may use it)
   tmp_dir:       data/tmp/equity
 
+# --------------------------------
+# INPUTS (trainer convenience alias)
+# --------------------------------
 inputs:
-  parquet: data/datasets/equitynet.parquet   # <- alias for the trainer
-  # If you ever want to condition on ranges later, you can wire those here.
+  parquet: ${paths.parquet_path}
 
-# Optional: light validation to skip impossible rows quickly
+# -------------------------
+# VALIDATION (light guards)
+# -------------------------
 validation:
-  # skip rows with unknown street or invalid cluster index
-  strict: true
+  strict: true   # skip rows with invalid street/cluster
+
+# ----------------------------
+# MODEL (EquityNet architecture)
+# ----------------------------
+model:
+  # Simple MLP depth/width; tune larger in prod
+  hidden_dims: [128, 128]
+  dropout: 0.10
+  lr: 0.001
+  weight_decay: 0.0001
+  output_mode: triplet  # "triplet" = p_win / p_tie / p_lose
+
+# ----------------------------
+# TRAIN (PyTorch Lightning)
+# ----------------------------
+train:
+  seed: 42
+  train_frac: 0.80
+
+  batch_size: 1024
+  num_workers: 0        # set >0 if your env benefits; parquet often CPU-bound already
+  pin_memory: true
+
+  max_epochs: 20
+  patience: 5
+  monitor: val_loss
+  mode: min
+
+  accelerator: auto
+  devices: auto
+  precision: 16-mixed
+
+  checkpoints_dir: checkpoints/equitynet
+  resume_from: null
+
+# --------------
+# LOGGING
+# --------------
+logging:
+  tb_log_dir: logs/tb

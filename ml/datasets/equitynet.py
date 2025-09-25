@@ -7,28 +7,11 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-
 @dataclass
 class CardsInfo:
-    """Cardinalities for each feature (after ID encoding)."""
     cards: Dict[str, int]
 
 class EquityDatasetParquet(Dataset):
-    """
-    Generic EquityNet dataset (works for preflop or postflop) from a Parquet.
-
-    Expects config to provide:
-      - x_cols:   list of feature column names (e.g. preflop:
-                   ["stack_bb","hero_pos","opener_action","hand_id"]
-                   postflop adds: "board_cluster_id")
-      - y_cols:   ["p_win","p_tie","p_lose"]
-      - weight_col: "weight"
-
-    Returns per item:
-      x_dict: {col_name: tensor[int]}   # integer IDs per feature
-      y:     tensor[3]                  # (p_win, p_tie, p_lose)
-      w:     tensor[]                   # scalar weight
-    """
 
     def __init__(
         self,
@@ -36,7 +19,6 @@ class EquityDatasetParquet(Dataset):
         x_cols: Sequence[str],
         y_cols: Sequence[str],
         weight_col: str,
-        # Optional row filters
         keep_values: Optional[Dict[str, Sequence[Any]]] = None,
         min_weight: Optional[float] = None,
         device: Optional[torch.device] = None,
@@ -50,13 +32,11 @@ class EquityDatasetParquet(Dataset):
 
         df = pd.read_parquet(self.parquet_path)
 
-        # --- schema checks ---
         need = set(self.x_cols) | set(self.y_cols) | {self.weight_col}
         miss = [c for c in need if c not in df.columns]
         if miss:
             raise ValueError(f"Parquet missing required columns: {miss}")
 
-        # --- optional filtering (pre-encoding) ---
         if keep_values:
             for k, vals in keep_values.items():
                 if k not in df.columns:  # silently skip unknown filter keys
@@ -68,15 +48,11 @@ class EquityDatasetParquet(Dataset):
 
         df = df.reset_index(drop=True)
 
-        # --- build per-column ID encoders for X ---
-        # We treat every X column as categorical; if it's already int-like,
-        # this still yields a dense 0..C-1 ID space for embeddings.
         self._encoders: Dict[str, Dict[Any, int]] = {}
         self._cards: Dict[str, int] = {}
 
         for col in self.x_cols:
             uniques = df[col].dropna().unique().tolist()
-            # stable order: sort stringy cols lexicographically; else numeric
             try:
                 uniques = sorted(uniques)
             except Exception:
@@ -112,6 +88,7 @@ class EquityDatasetParquet(Dataset):
 
         self.feature_order = list(self.x_cols)
         self.cards_info = CardsInfo(cards=dict(self._cards))
+        self.df = df.copy()
 
     def __len__(self) -> int:
         return self._X.shape[0]
@@ -135,12 +112,6 @@ class EquityDatasetParquet(Dataset):
         return {k: dict(v) for k, v in self._encoders.items()}
 
 def equity_collate_fn(batch):
-    """
-    Batch a list of (x_dict, y, w) into stacked tensors:
-      x_dict: {feature_name: LongTensor[B]}
-      y:      FloatTensor[B, 3]
-      w:      FloatTensor[B]
-    """
     # batch[i] = (x_dict, y, w)
     x_keys = batch[0][0].keys()
     x_dict = {k: torch.stack([item[0][k].long() for item in batch], dim=0) for k in x_keys}

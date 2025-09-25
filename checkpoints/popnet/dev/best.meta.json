@@ -1,7 +1,0 @@
-{
-  "chosen": "popnet-04-0.9146.ckpt",
-  "val_kl": 0.6429484831216759,
-  "val_soft_acc": 0.9393067766561742,
-  "parquet": "data/datasets/populationnet_nl10_dev.parquet",
-  "sidecar": "checkpoints/popnet/dev/best.ckpt.sidecar.json"
-}

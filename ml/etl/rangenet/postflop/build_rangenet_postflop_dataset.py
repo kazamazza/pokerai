@@ -554,7 +554,7 @@ def run_from_config(
     import pandas as pd
     import numpy as np
 
-    manifest = Path(_get(cfg, "inputs.manifest", "data/artifacts/rangenet_postflop_flop_manifest.dedup.parquet"))
+    manifest = Path(_get(cfg, "inputs.manifest", "data/artifacts/rangenet_postflop_flop_manifest.parquet"))
     if not manifest.exists():
         raise FileNotFoundError(f"Manifest not found: {manifest}")
 

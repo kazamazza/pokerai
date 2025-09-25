@@ -1,21 +1,14 @@
-#!/usr/bin/env python3
 from __future__ import annotations
-
-import argparse
-import sys
 from pathlib import Path
 from typing import List, Tuple
 import pandas as pd
-
-
+import sys
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
-
 from ml.utils.config import load_model_config
-HAND_COUNT = 169  # 13x13 preflop classes
-
+from ml.etl.utils.hand import HAND_COUNT
 
 def _street_name_to_id(name: str) -> int:
     name = name.strip().lower()
@@ -27,7 +20,6 @@ def _street_name_to_id(name: str) -> int:
         return 3
     raise ValueError(f"Unknown street: {name}")
 
-
 def _parse_streets(arg: str) -> List[int]:
     """
     Accepts comma-separated list like: 'flop,turn,river' or '1,2,3'
@@ -36,11 +28,19 @@ def _parse_streets(arg: str) -> List[int]:
     return [_street_name_to_id(p) for p in parts]
 
 
-def build_preflop_manifest() -> pd.DataFrame:
+def build_preflop_manifest(seed: int | None = None) -> pd.DataFrame:
     """
-    One row per hand_id (0..168). No ranges/positions — pure hand equity index.
+    One row per hand_id (0..168). Mark as street=0 and add sentinel columns
+    so downstream counting & joins work uniformly.
     """
-    return pd.DataFrame({"hand_id": list(range(HAND_COUNT))})
+    return pd.DataFrame({
+        "street": [0] * HAND_COUNT,
+        "board_cluster_id": [-1] * HAND_COUNT,  # sentinel
+        "hand_id": list(range(HAND_COUNT)),
+        "samples": [1] * HAND_COUNT,            # trivial
+        "seed": [int(seed) if seed is not None else -1] * HAND_COUNT,
+        "weight": [1.0] * HAND_COUNT,           # (optional) uniform
+    })
 
 
 def build_postflop_manifest(
@@ -50,16 +50,6 @@ def build_postflop_manifest(
     samples_per_cluster: int,
     seed: int | None = None,
 ) -> pd.DataFrame:
-    """
-    Cartesian product of (street, board_cluster_id, hand_id), plus samples hint.
-
-    Args:
-        streets: list of street identifiers (int 1/2/3 or str 'flop'/'turn'/'river')
-        board_clusters_limit: how many board clusters to index
-        samples_per_cluster: number of board/runout samples per scenario
-        seed: optional RNG seed for downstream sampling reproducibility
-    """
-    # normalize streets (accept ints or names)
     def _norm_street(s):
         if isinstance(s, str):
             s = s.lower()
@@ -96,49 +86,7 @@ def _street_key(s):
     if s in {"3","river"}: return "river"
     raise ValueError(f"Unknown street: {s}")
 
-def _plan_from_cfg(cfg, cli_streets, cli_clusters, cli_samples):
-    """
-    Build per-street plan from config with CLI fallback.
-    Expected cfg shape:
-      equity:
-        postflop:
-          streets: ["flop","turn","river"]
-          defaults:
-            clusters: 128
-            samples: 64
-            seed: 42
-          flop:  { clusters: 256, samples: 32, seed: 42 }
-          turn:  { clusters: 128, samples: 64, seed: 43 }
-          river: { clusters: 64,  samples: 128, seed: 44 }
-    """
-    eq = cfg.get("equity", {})
-    post = eq.get("postflop", {})
-    streets_cfg = post.get("streets", None)
-    if streets_cfg is None:
-        # fall back to CLI streets or default
-        streets = _coerce_list(cli_streets) or ["flop","turn","river"]
-    else:
-        streets = [_street_key(s) for s in _coerce_list(streets_cfg)]
-
-    defaults = post.get("defaults", {})
-    def_clusters = int(defaults.get("clusters", cli_clusters))
-    def_samples  = int(defaults.get("samples",  cli_samples))
-    def_seed     = int(defaults.get("seed",     42))
-
-    plan = []
-    for s in streets:
-        node = post.get(s, {})
-        clusters = int(node.get("clusters", def_clusters))
-        samples  = int(node.get("samples",  def_samples))
-        seed     = int(node.get("seed",     def_seed))
-        plan.append({"street": s, "clusters": clusters, "samples": samples, "seed": seed})
-    return plan
-
 def _plan_from_cfg(cfg, default_streets="flop,turn,river", default_clusters=128, default_samples=64):
-    """
-    Returns a list of dicts: [{street:int, clusters:int, samples:int, seed:int}, ...]
-    Uses cfg["build"] section from the unified equity YAML.
-    """
     name2street = {"flop": 1, "turn": 2, "river": 3}
     build = cfg.get("build", {})
     dataset = cfg.get("dataset", {})
@@ -167,18 +115,6 @@ def _plan_from_cfg(cfg, default_streets="flop,turn,river", default_clusters=128,
         seed     = base_seed + i  # simple per-street variation
         plan.append({"street": street_int, "clusters": clusters, "samples": samples, "seed": seed})
     return plan
-
-
-def build_preflop_manifest() -> pd.DataFrame:
-    """
-    Preflop equity rows: one per hand (no boards).
-    Columns: street, board_cluster_id, hand_id, samples
-    """
-    rows = []
-    for hand_id in range(HAND_COUNT):  # 169
-        rows.append((0, -1, hand_id, 0))  # street=0 (preflop), no clusters, no samples
-    return pd.DataFrame(rows, columns=["street", "board_cluster_id", "hand_id", "samples"])
-
 
 def main():
     import argparse

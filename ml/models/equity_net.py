@@ -10,20 +10,6 @@ def default_emb_dim(card: int) -> int:
     return int(min(32, max(4, round(1.6 * math.sqrt(card)))))
 
 class EquityNetLit(pl.LightningModule):
-    """
-    EquityNet: (categorical embeddings + numeric features) -> MLP -> equitynet prediction.
-
-    Output modes:
-      - scalar: predicts a single equitynet in [0,1] (uses BCEWithLogitsLoss)
-      - triplet: predicts logits for [win, tie, lose] (uses KLDiv with soft labels or CE with hard)
-
-    Expected batch (from DataLoader):
-      (x_cat: Dict[str, LongTensor[B]],
-       x_num: FloatTensor[B, D],
-       y:     FloatTensor[B] or FloatTensor[B,3] or LongTensor[B],  # depends on output_mode & label type
-       w:     FloatTensor[B])  # optional sample weights
-    """
-
     def __init__(
         self,
         # categorical feature setup
