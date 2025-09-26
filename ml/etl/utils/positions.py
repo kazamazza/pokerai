@@ -1,4 +1,4 @@
-from typing import Set, Tuple
+from typing import Set, Tuple, Optional
 
 Pair = Tuple[str, str]
 
@@ -70,4 +70,15 @@ VALID_LIMP_MULTI_PAIRS: Set[Pair] = {
     # Minimal heads-up extraction from multiway (optional)
     ("BB", "SB"), ("BTN", "SB"),
 }
+
+POS_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
+POS_SET = set(POS_ORDER)
+
+def canon_pos(p: str) -> Optional[str]:
+    if not isinstance(p, str):
+        return None
+    p = p.strip().upper()
+    alias = {"BU": "BTN", "MP": "HJ", "EP": "UTG", "LJ": "HJ"}
+    p = alias.get(p, p)
+    return p if p in POS_SET else None
 

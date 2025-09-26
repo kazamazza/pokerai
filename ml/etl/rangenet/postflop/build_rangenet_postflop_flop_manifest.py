@@ -7,6 +7,7 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
+from ml.etl.utils.positions import canon_pos
 from ml.config.solver_profiles import profile_for
 from typing import List, Dict, Optional, Tuple
 from ml.config.bet_menus import BET_SIZE_MENUS, DEFAULT_MENU
@@ -27,21 +28,9 @@ OPEN_X = {"UTG": 3.0, "HJ": 2.5, "CO": 2.5, "BTN": 2.5, "SB": 3.0}
 THREEBET_X = {"IP": 7.5, "OOP": 9.0}  # final 3bet size
 FOURBET_X = 24.0                      # final 4bet size
 
-POS_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
-POS_SET = set(POS_ORDER)
-
 # =========================
 # Helpers: ctx + topology
 # =========================
-def _canon_pos(p: str) -> Optional[str]:
-    if not isinstance(p, str):
-        return None
-    p = p.strip().upper()
-    alias = {"BU": "BTN", "MP": "HJ", "EP": "UTG", "LJ": "HJ"}
-    p = alias.get(p, p)
-    return p if p in POS_SET else None
-
-
 def _ctx_for_lookup(ctx: str) -> str:
     """
     Route SRP-like contexts to 'SRP' since your Monker index is SRP-centric.
@@ -64,7 +53,7 @@ def _infer_topology_and_roles(ctx: str, ip: str, oop: str) -> Tuple[str, Optiona
     This is for *manifest* construction only; training sees consistent menus and pots.
     """
     c = str(ctx).upper()
-    ip, oop = _canon_pos(ip), _canon_pos(oop)
+    ip, oop = canon_pos(ip), canon_pos(oop)
 
     if c in ("SRP", "VS_OPEN", "OPEN", "VS_OPEN_RFI", "BLIND_VS_STEAL"):
         topo = "srp_hu"
@@ -169,8 +158,8 @@ def _menu_for(
     # Ask the mapper
     menu_id = expected_menu_id(
         topo=topo,
-        ip=_canon_pos(ip),
-        oop=_canon_pos(oop),
+        ip=canon_pos(ip),
+        oop=canon_pos(oop),
         opener=opener or opener_h,
         three_bettor=three_bettor or three_h,
     )
@@ -263,7 +252,13 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
         # Stacks + Pairs
         stacks = [float(x) for x in sc.get("stacks_bb", [100])]
         raw_pairs: List[Tuple[str, str]] = [(str(a), str(b)) for (a, b) in sc.get("position_pairs", [("BTN", "BB")])]
-        pairs = sanitize_position_pairs(raw_pairs, ctx="SRP" if ctx in ("VS_OPEN", "OPEN", "VS_OPEN_RFI", "BLIND_VS_STEAL", "SRP") else ctx)
+        ctx_up = str(ctx).upper()
+        norm_ctx = {
+            "LIMPED_SINGLE": "LIMPED_SINGLE",
+            "LIMP_SINGLE": "LIMPED_SINGLE",
+        }.get(ctx_up, ctx_up)
+
+        pairs = sanitize_position_pairs(raw_pairs, ctx=norm_ctx)
         if not pairs:
             print(f"[warn] scenario {scenario_name} produced no legal (IP,OOP) pairs for ctx={ctx}")
             per_scenario_counts[scenario_name] = {"jobs": 0, "kept": 0, "missing": 0, "skipped": 0}
@@ -277,7 +272,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
         for stack in stacks:
             for (ip_pos, oop_pos) in pairs:
-                ip_pos = _canon_pos(ip_pos); oop_pos = _canon_pos(oop_pos)
+                ip_pos = canon_pos(ip_pos); oop_pos = canon_pos(oop_pos)
                 if not ip_pos or not oop_pos or ip_pos == oop_pos:
                     continue
 

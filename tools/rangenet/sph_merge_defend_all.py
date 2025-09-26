@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys, json, re
 from pathlib import Path
 from typing import List, Tuple

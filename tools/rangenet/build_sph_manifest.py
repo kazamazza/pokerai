@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-import argparse, json
-from pathlib import Path
-from typing import List, Dict
-import pandas as pd
-
-# tools/sph/build_sph_manifest.py
 import argparse, pandas as pd
 from pathlib import Path
 

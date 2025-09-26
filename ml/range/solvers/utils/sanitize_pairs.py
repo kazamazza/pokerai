@@ -1,5 +1,7 @@
 from typing import List, Set, Tuple, Sequence
 
+from ml.etl.utils.positions import canon_pos
+
 Pair = Tuple[str, str]
 POS_SET: Set[str] = {"UTG","HJ","CO","BTN","SB","BB"}
 
@@ -49,6 +51,43 @@ VALID_LIMP_MULTI_PAIRS: Set[Pair] = {
     ("BB","SB"), ("BTN","SB"),
 }
 
+# --- New helper ---
+def to_ip_oop_from_clockwise(ctx: str, a: str, b: str) -> tuple[str, str]:
+    """
+    Convert a human-friendly pair (a,b) to internal (IP,OOP) for the flop,
+    based on context. Accepts SB/BB order for limped pots and opener/defender
+    order for SRP/BvS/3bet/4bet.
+    """
+    A, B = canon_pos(a), canon_pos(b)
+    c = str(ctx).upper()
+
+    if c in ("LIMPED_SINGLE", "LIMP_SINGLE"):
+        # SB limps, BB checks → flop IP=BB, OOP=SB
+        return ("BB", "SB")  # regardless of input order
+
+    if c in ("LIMPED_MULTI", "LIMP_MULTI"):
+        # We only model HU at flop; when we do include it, use the HU heads (e.g., BTN limps, SB checks → IP=BTN or SB?)
+        # For now keep the pairs you approved, mapping intuitively:
+        if (A, B) == ("BB", "SB"):   return ("BB", "SB")
+        if (A, B) == ("BTN","SB"):   return ("BTN","SB")
+        # fallback – keep as-is but still canonicalized
+        return (A, B)
+
+    # SRP and relatives: treat input as (opener, defender) and derive IP/OOP:
+    # Late pos vs blinds → opener (BTN/CO) is IP on flop; SB vs BB SRP_OOP etc. handled by pairs list you supply.
+    late = {"BTN","CO"}; blinds = {"SB","BB"}
+    opener, defender = A, B
+    if opener in late and defender in blinds:
+        return (opener, defender)  # opener IP, blind OOP
+    # SB opened vs BB call (SRP_OOP): flop IP=BB, OOP=SB
+    if opener == "SB" and defender == "BB":
+        return ("BB", "SB")
+    # BTN opened vs SB call: flop IP=BTN, OOP=SB
+    if opener == "BTN" and defender == "SB":
+        return ("BTN", "SB")
+    # Defaults: assume first is IP
+    return (A, B)
+
 def valid_pairs_for_ctx(ctx: str) -> Set[Pair]:
     key = CTX_ALIASES.get(str(ctx).upper(), str(ctx).upper())
     if key == "SRP":           return VALID_SRP_PAIRS
@@ -60,18 +99,14 @@ def valid_pairs_for_ctx(ctx: str) -> Set[Pair]:
     # Unknown/unmodeled contexts → no legal pairs
     return set()
 
-def sanitize_position_pairs(pairs_in: Sequence[Pair], ctx: str) -> List[Pair]:
-    """Canonicalize, validate, and filter (IP,OOP) for a given ctx; dedupe."""
-    legal = valid_pairs_for_ctx(ctx)
-    seen: Set[Pair] = set()
-    out: List[Pair] = []
-    for ip, oop in pairs_in:
-        ip2, oop2 = canon_pair(ip, oop)
-        # basic seat validation + distinctness
+def sanitize_position_pairs(pairs_in: Sequence[Pair], ctx: str) -> list[Pair]:
+    legal = valid_pairs_for_ctx(ctx)     # still defined in INTERNAL (IP,OOP)
+    out, seen = [], set()
+    for a, b in pairs_in:
+        ip2, oop2 = to_ip_oop_from_clockwise(ctx, a, b)  # <-- normalize here
         if ip2 == oop2 or ip2 not in POS_SET or oop2 not in POS_SET:
             continue
-        # STRICT: if the legal set is empty or does not contain the pair, skip
-        if (ip2, oop2) not in legal:
+        if legal and (ip2, oop2) not in legal:
             continue
         if (ip2, oop2) not in seen:
             seen.add((ip2, oop2))

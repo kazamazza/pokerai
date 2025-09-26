@@ -33,63 +33,72 @@ manifest_build:
     # --- Single-raised pots (vs-open) ---
     - name: SRP_IP
       ctx: VS_OPEN
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "UTG", "BB" ]
         - [ "HJ",  "BB" ]
         - [ "CO",  "BB" ]
         - [ "BTN", "BB" ]
-      pots_bb: [18, 28, 40]
+      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "srp_ip" ]
 
     - name: SRP_OOP
       ctx: VS_OPEN
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        # SB opened / BB called → (IP,OOP)=("BB","SB")
-        - [ "BB",  "SB" ]
-        # BTN opened / SB called → (IP,OOP)=("BTN","SB")
-        - [ "BTN", "SB" ]
-      pots_bb: [18, 28, 40]
+        - [ "BB",  "SB" ]   # SB opened, BB called
+        - [ "BTN", "SB" ]   # BTN opened, SB called
+        - [ "UTG", "SB" ]   # NEW: UTG opened, SB called
+        - [ "HJ",  "SB" ]   # NEW
+        - [ "CO",  "SB" ]   # NEW
+      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "srp_oop" ]
 
     # --- Blind vs steal (treated like SRP) ---
     - name: BLIND_VS_STEAL
       ctx: BLIND_VS_STEAL
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
-      pots_bb: [18, 28, 40]
+        - [ "CO",  "BB" ]   # NEW
+        - [ "CO",  "SB" ]   # Optional if you have data/menus
+      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "bvs" ]
 
-    # --- 3-bet pots (lean) ---
+    # --- 3-bet pots ---
     - name: VS_3BET_IP
       ctx: VS_3BET
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
-      pots_bb: [20, 24, 28]
+        - [ "CO",  "BB" ]   # NEW
+        - [ "CO",  "SB" ]   # NEW
+      pots_bb: [ 20, 24, 28 ]
       bet_menus: [ "3bet_ip" ]
 
     - name: VS_3BET_OOP
       ctx: VS_3BET
-      stacks_bb: [25, 60, 100, 150]
+      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BB",  "BTN" ]
         - [ "SB",  "BTN" ]
-      pots_bb: [20, 24, 28]
+        - [ "BB",  "CO" ]   # NEW
+        - [ "SB",  "CO" ]   # NEW
+      pots_bb: [ 20, 24, 28 ]
       bet_menus: [ "3bet_oop" ]
 
-    # --- 4-bet pots (very lean) ---
+    # --- 4-bet pots (lean) ---
     - name: VS_4BET
       ctx: VS_4BET
-      stacks_bb: [60, 100, 150]
+      stacks_bb: [ 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BB",  "BTN" ]
-      pots_bb: [38, 48, 60]
+        - [ "BTN", "SB" ]   # NEW
+        - [ "SB",  "BTN" ]  # NEW
+      pots_bb: [ 38, 48, 60 ]
       bet_menus: [ "4bet" ]
 
     # --- Limped pots ---
@@ -97,9 +106,7 @@ manifest_build:
       ctx: LIMPED_SINGLE
       stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        - [ "BB","SB" ]
-        - [ "BTN","SB" ]
-        - [ "BTN","BB" ]
+        - [ "SB", "BB" ]    # single limp HU → (IP,OOP)=(SB,BB)
       pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
@@ -107,9 +114,9 @@ manifest_build:
       ctx: LIMPED_MULTI
       stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        - [ "BB","SB" ]
-        - [ "BTN","SB" ]
-        - [ "BTN","BB" ]
+        - [ "SB",  "BB" ]   # SB leads multiway; we model HU heads-up derived from it
+        - [ "BTN", "SB" ]
+        - [ "BTN", "BB" ]
       pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
