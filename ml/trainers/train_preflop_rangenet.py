@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Dict
+from typing import Any, Mapping, Sequence, Dict, Optional
 import json
+from warnings import warn
+
+import pandas as pd
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 
@@ -53,35 +56,146 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
         weight_col=weight_col,
         min_weight=min_weight,
         device=device,
-        strict_canon=True,
+        strict_canon=True,  # keep strict, the dataset will tell you if it needs relaxing
+        debug=True,
     )
+
+    n_total = len(ds)
+    if n_total == 0:
+        raise RuntimeError(
+            "Preflop dataset is empty after canonicalization/filters. "
+            "Try strict_canon=False once, or inspect the debug counts to align ctx/positions/actions."
+        )
+    print(f"[trainer] preflop rows after filters: {n_total}")
 
     cards = ds.cards_info.cards
     feature_order = list(ds.feature_order)
 
-    # -------- Split --------
-    stratify_keys = _get(cfg, "dataset.stratify_keys", None)
-    train_frac = float(_get(cfg, "train.train_frac", 0.8))
-    n = len(ds)
-    if n < 2:
-        raise ValueError(f"Dataset too small: {n} rows")
+    def _as_dataframe_for_stratify(ds) -> Optional[pd.DataFrame]:
+        """
+        Best-effort: get a pandas frame we can use for stratification.
+        Priority:
+          1) ds.dataframe() or ds.df if present (some of your datasets expose it)
+          2) rebuild a minimal frame from encoded X + encoders + feature_order
+        """
+        # 1) direct access
+        if hasattr(ds, "df"):
+            try:
+                df = getattr(ds, "df")
+                if isinstance(df, pd.DataFrame) and len(df) == len(ds):
+                    return df.copy()
+            except Exception:
+                pass
+        if hasattr(ds, "dataframe") and callable(getattr(ds, "dataframe")):
+            try:
+                df = ds.dataframe()
+                if isinstance(df, pd.DataFrame) and len(df) == len(ds):
+                    return df.copy()
+            except Exception:
+                pass
 
-    if stratify_keys:
-        train_idx, val_idx = stratified_indices(ds.df, stratify_keys, train_frac, seed)
-    else:
-        idx = list(range(n))
+        # 2) reconstruct minimally from encoders if available
+        try:
+            X = ds._X  # (N, F) int64
+            feats = list(ds.feature_order)  # names
+            id_maps = ds.id_maps()  # {feat: {raw->id}}
+            # Build reverse maps id->raw (string)
+            rev = {k: {int(v): str(k2) for k2, v in mapping.items()} for k, mapping in id_maps.items()}
+            N, F = X.shape
+            cols = {}
+            for j, feat in enumerate(feats):
+                card = int(ds.cards_info.cards.get(feat, 0))
+                # unknown bucket is last id; map to "__UNK__"
+                unk_id = max(card - 1, 0)
+                ids = X[:, j]
+                raw = [rev.get(feat, {}).get(int(i), "__UNK__") if int(i) != unk_id else "__UNK__" for i in ids]
+                cols[feat] = raw
+            # weight if available
+            w = getattr(ds, "_W", None)
+            if w is not None and len(w) == len(X):
+                cols["weight"] = w.tolist()
+            return pd.DataFrame(cols)
+        except Exception:
+            return None
+
+    def _robust_split(ds, *, stratify_keys, train_frac: float, seed: int):
+        n = len(ds)
+        idx = np.arange(n)
         rng = np.random.default_rng(seed)
         rng.shuffle(idx)
-        cut = max(1, int(n * train_frac))
-        train_idx, val_idx = idx[:cut], idx[cut:]
-        if len(val_idx) == 0:  # ensure at least one val sample
+
+        # If no stratify keys, do simple random split
+        if not stratify_keys:
+            cut = max(1, int(round(n * train_frac)))
+            train_idx = idx[:cut].tolist()
+            val_idx = idx[cut:].tolist()
+            if len(val_idx) == 0:  # guarantee at least 1 for val
+                val_idx = train_idx[-1:]
+                train_idx = train_idx[:-1]
+            return train_idx, val_idx, "random"
+
+        # Try stratification
+        df = _as_dataframe_for_stratify(ds)
+        if df is None:
+            warn("Stratification requested but no dataframe available; falling back to random split.")
+            return _robust_split(ds, stratify_keys=None, train_frac=train_frac, seed=seed)
+
+        # sanity: all keys present
+        miss = [k for k in stratify_keys if k not in df.columns]
+        if miss:
+            warn(f"Stratify keys {miss} not found in dataset; falling back to random split.")
+            return _robust_split(ds, stratify_keys=None, train_frac=train_frac, seed=seed)
+
+        # build strata labels
+        key = tuple(str(k) for k in stratify_keys)
+        strata = df[list(key)].astype(str).agg("||".join, axis=1).values
+
+        # Check bucket sizes
+        _, counts = np.unique(strata, return_counts=True)
+        if (counts < 2).any() or len(np.unique(strata)) > n * 0.8:
+            # Too many tiny buckets → unreliable. Fall back.
+            warn("Stratification would create tiny buckets; falling back to random split.")
+            return _robust_split(ds, stratify_keys=None, train_frac=train_frac, seed=seed)
+
+        # Per-stratum split
+        train_idx, val_idx = [], []
+        for s in np.unique(strata):
+            s_idx = np.where(strata == s)[0]
+            rng.shuffle(s_idx)
+            cut = max(1, int(round(len(s_idx) * train_frac)))
+            # also ensure we don't produce an empty val for this stratum
+            cut = min(cut, len(s_idx) - 1) if len(s_idx) > 1 else 1
+            train_idx.extend(s_idx[:cut].tolist())
+            val_idx.extend(s_idx[cut:].tolist())
+
+        if len(val_idx) == 0:  # global guard
             val_idx = train_idx[-1:]
             train_idx = train_idx[:-1]
+
+        return train_idx, val_idx, "stratified"
+
+    # -------- Split --------
+    stratify_keys = _get(cfg, "dataset.stratify_keys", None)
+    # Accept both 'stratify_by' and 'stratify_keys'
+    if not stratify_keys:
+        stratify_keys = _get(cfg, "dataset.stratify_by", None)
+    if isinstance(stratify_keys, (tuple, list)) and len(stratify_keys) == 0:
+        stratify_keys = None  # empty list → treat as no stratification
+
+    train_frac = float(_get(cfg, "train.train_frac", 0.8))
+    train_idx, val_idx, split_mode = _robust_split(ds, stratify_keys=stratify_keys, train_frac=train_frac, seed=seed)
+    print(f"[split] mode={split_mode}  train={len(train_idx)}  val={len(val_idx)}  total={len(ds)}")
 
     train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
 
     # -------- DataLoaders --------
     batch_size = int(_get(cfg, "train.batch_size", 1024))
+    # never let batch_size exceed the training set
+    if len(train_ds) > 0:
+        batch_size = max(1, min(batch_size, len(train_ds)))
+    else:
+        raise RuntimeError("Training set is empty after split; cannot proceed.")
+
     num_workers = int(_get(cfg, "train.num_workers", 0))
     pin_memory = bool(_get(cfg, "train.pin_memory", True))
 
@@ -91,7 +205,7 @@ def run_train_preflop(cfg: Mapping[str, Any]) -> str:
         collate_fn=rangenet_preflop_collate_fn,
     )
     val_dl = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
+        val_ds, batch_size=min(batch_size, max(1, len(val_ds))), shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
         collate_fn=rangenet_preflop_collate_fn,
     )

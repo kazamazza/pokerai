@@ -183,12 +183,7 @@
     ],
     "weight_col": "weight",
     "min_weight": 1,
-    "stratify_keys": [
-      "stack_bb",
-      "hero_pos",
-      "opener_pos",
-      "opener_action"
-    ]
+    "stratify_keys": []
   },
   "model": {
     "hidden_dims": [
