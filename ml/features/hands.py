@@ -3,13 +3,26 @@ from __future__ import annotations
 from typing import List, Tuple
 import eval7  # pip install eval7
 
-from ml.config.types_hands import ALL_HANDS, SUITS
+from ml.config.types_hands import ALL_HANDS, SUITS, RANKS
 
 # Reuse your existing canonical definitions (do NOT re-declare)
 
 
 # Public alias so other code can import the canonical grid name used in builders
 HANDS_169: List[str] = ALL_HANDS
+
+def hand_to_169_label(cards: str) -> str:
+    """Return canonical 169 label like 'AKs', 'QJo', '77'."""
+    s = cards.strip().upper()
+    if len(s) != 4:  # e.g. "AsKh"
+        return ""
+    r1, s1, r2, s2 = s[0], s[1], s[2], s[3]
+    if r1 == r2:
+        return r1 + r2
+    # order by rank (A high)
+    i1, i2 = RANKS.index(r1), RANKS.index(r2)
+    hi, lo, suited = (r1, r2, s1 == s2) if i1 < i2 else (r2, r1, s1 == s2)
+    return f"{hi}{lo}{'s' if suited else 'o'}"
 
 def hand_code_from_id(hid: int) -> str:
     """

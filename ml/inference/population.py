@@ -14,15 +14,6 @@ from ml.utils.sidecar import load_sidecar
 
 
 class PopulationNetInfer:
-    """
-    Lightweight inference wrapper for PopulationNet.
-
-    Expects sidecar with keys:
-      - feature_order: List[str]
-      - id_maps: Dict[str, Dict[str, int]]     # stringified tokens -> IDs
-      - cards: Dict[str, int]                  # embedding cardinalities per feature
-    """
-
     def __init__(
         self,
         *,

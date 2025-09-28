@@ -9,10 +9,7 @@ CAT_FEATURES_DEFAULT = ["hero_pos", "ip_pos", "oop_pos", "ctx", "street"]
 
 
 class PostflopPolicyDatasetParquet(Dataset):
-    # ----------------- Canonicalization helpers -----------------
-
-
-    SOFT_Y_COLS: List[str] = []          # will be filled from ACTION_VOCAB at init
+    SOFT_Y_COLS: List[str] = []
     CAT_FEATURES: List[str] = CAT_FEATURES_DEFAULT
 
     def __init__(
@@ -149,6 +146,19 @@ class PostflopPolicyDatasetParquet(Dataset):
 
         # Pre-calc a boolean for board mask presence
         self._has_board_mask = "board_mask_52" in self.df.columns
+
+    def cards(self) -> Dict[str, int]:
+        """
+        Return vocab sizes for categorical features (max id + 1). Works for both
+        factorized (self._id_maps) and already-integer-coded columns.
+        """
+        sizes = {}
+        for c in self.cat_features:
+            if c in self._id_maps:
+                sizes[c] = len(self._id_maps[c])
+            else:
+                sizes[c] = int(self.df[c].max()) + 1
+        return sizes
 
     # ---- public helpers ----
     def id_maps(self) -> Dict[str, Dict[str, int]]:

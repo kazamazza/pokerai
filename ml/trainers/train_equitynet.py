@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader, Subset
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
+from ml.models.equity_net import EquityNetLit
 from ml.utils.equity_sidecar import write_equity_sidecar
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
-from ml.models.equity_net import EquityNetLit
 from ml.utils.config import load_model_config
 
 

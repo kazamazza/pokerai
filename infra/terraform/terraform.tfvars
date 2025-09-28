@@ -20,7 +20,7 @@ job_configs = {
     script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 0 --parts-local-dir data/datasets/postflop_policy_parts --parts-s3-prefix datasets/postflop_policy/parts"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
     aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
-    instance_type     = "r6i.2xlarge"  # 64 GiB RAM
+    instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_0"
     disabled          = true
@@ -83,7 +83,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
     volume_size       = 150
     worker_name       = "postflop_heavy"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_2 = {
@@ -93,7 +93,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_2"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_3 = {
@@ -103,7 +103,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_3"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_4 = {
@@ -113,7 +113,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_4"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_5 = {
@@ -123,7 +123,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_5"
-    disabled          = false
+    disabled          = true
   }
 
    postflop_heavy_6 = {
@@ -133,7 +133,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_6"
-    disabled          = false
+    disabled          = true
   }
 
    postflop_heavy_7 = {
@@ -143,7 +143,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_7"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_8 = {
@@ -153,7 +153,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_8"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy_9 = {
@@ -163,7 +163,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_9"
-    disabled          = false
+    disabled          = true
   }
 }
 

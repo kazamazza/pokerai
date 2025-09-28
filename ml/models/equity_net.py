@@ -75,6 +75,35 @@ class EquityNetLit(pl.LightningModule):
         self.val_n = 0.0
         self.val_loss_sum = 0.0
 
+    def on_save_checkpoint(self, checkpoint: dict) -> None:
+        checkpoint["model_state_dict"] = self.model.state_dict()
+
+        trained_rows = {}
+        logical_cards = {}
+        emb_dims_map = {}
+
+        for name, emb in zip(self.model.cat_order, self.model.embs):
+            rows = int(getattr(emb, "num_embeddings", emb.weight.shape[0]))
+            dim = int(getattr(emb, "embedding_dim", emb.weight.shape[1]))
+            trained_rows[str(name)] = rows
+            logical_cards[str(name)] = rows - 1 if self.model.pad_at_zero and rows > 0 else rows
+            emb_dims_map[str(name)] = dim
+
+        meta = {
+            "model_name": "ExploitNet",
+            "cat_feats": list(self.model.cat_order),
+            "numeric_feats": list(self.numeric_feats),
+            "pad_at_zero": bool(self.model.pad_at_zero),
+            "cardinals_rows": trained_rows,  # <-- exact table rows (incl PAD)
+            "cardinals": logical_cards,  # <-- logical ID range
+            "emb_dims_map": emb_dims_map,
+            "num_proj_out": int(getattr(self.model, "num_proj_out", 32)),
+            "hidden_dims": list(self.hparams.hidden),
+            "dropout": float(self.hparams.dropout),
+        }
+        # (optional) numeric_stats...
+        checkpoint["exploit_meta"] = meta
+
     # ---- Forward ----
     def forward(
             self,

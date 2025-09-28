@@ -1,5 +1,8 @@
+import numpy as np
+
 from ml.etl.exploit.exploit_nodes import VillainFeat, ExploitNode, NodeCtx, NodeLabel
 from ml.etl.exploit.rolling_stats import RollingPreflopStats
+from ml.utils.exploit_helpers import seat_stack_to_bb, street_to_int, act_to_code, infer_initial_pot_and_committed, spr
 
 ACT_TO_LABEL = {
     0: 0,  # fold
@@ -16,9 +19,6 @@ def _pos_of(player: str, pos_by_player: dict) -> str:
     # position_by_player: {"Aanakin57":{"id":2,"name":"CO"}, ...}
     return pos_by_player[player]["name"]
 
-def _spr(stack_eff_bb: float, pot_bb: float) -> float:
-    if pot_bb <= 0: return 100.0
-    return float(min(100.0, max(0.0, stack_eff_bb / pot_bb)))
 
 def _compact_seq(seq: List[Dict[str, Any]]) -> str:
     # human-readable history up to node
@@ -46,21 +46,6 @@ def update_tracker_from_hand(
         hand_actions=hand["actions"],
     )
 
-def _street_to_int(x):
-    if isinstance(x, int):
-        return x
-    sx = str(x).lower()
-    if sx in ("pre", "preflop", "0"): return 0
-    if sx in ("flop", "1"): return 1
-    if sx in ("turn", "2"): return 2
-    if sx in ("river", "3"): return 3
-    return 0  # fallback
-
-def _act_to_code(a):
-    # adapt to your schema; this is the mapping you used:
-    # 0=fold, 1=call, 2=raise, 3=check, 4=bet
-    return int(a)
-
 def build_nodes_from_hand_json(
     h: Dict[str, Any],
     *,
@@ -81,7 +66,19 @@ def build_nodes_from_hand_json(
 
     # Map actor -> pid and actor -> starting stack (BB)
     actor_to_pid: Dict[str, str] = {}
-    seats_by_pid = {s["player_id"]: float(s["stack_size"]) for s in h["seats"]}
+    # Stakes info (we already read bb/sb earlier when seeding pot)
+    stakes = h.get("stakes", {}) or {}
+    bb = float(stakes.get("bb") or stakes.get("big_blind_bb") or 1.0)
+
+    # Build pid -> starting stack in BB (robust to schema variants)
+    seats_by_pid = {}
+    for s in h.get("seats", []):
+        pid = s.get("player_id")
+        if pid is None:
+            continue
+        seats_by_pid[pid] = seat_stack_to_bb(s, bb)
+
+    # Map actor -> pid and actor -> starting stack in BB
     seats_by_actor: Dict[str, float] = {}
     for actor, info in pos_by_actor.items():
         pid = info.get("player_id") or info.get("id")
@@ -91,7 +88,7 @@ def build_nodes_from_hand_json(
     # ---------- PASS 1: per-hand preflop flags (pid-based) ----------
     PREFLOP = 0
     actions = h["actions"]
-    preflop_actions = [a for a in actions if _street_to_int(a["street"]) == PREFLOP]
+    preflop_actions = [a for a in actions if street_to_int(a["street"]) == PREFLOP]
 
     vpip_flag: Dict[str, int] = {pid: 0 for pid in seats_by_pid}
     pfr_flag:  Dict[str, int] = {pid: 0 for pid in seats_by_pid}
@@ -104,7 +101,7 @@ def build_nodes_from_hand_json(
         pid   = actor_to_pid.get(actor)
         if not pid:
             continue
-        act = _act_to_code(a["act"])
+        act = act_to_code(a["act"])
         amt = float(a.get("amount_bb") or 0.0)
 
         if act in (1, 2) and amt > 0.0:
@@ -124,15 +121,14 @@ def build_nodes_from_hand_json(
             pid   = actor_to_pid.get(actor)
             if not pid:
                 continue
-            act = _act_to_code(a["act"])
+            act = act_to_code(a["act"])
             if act == 2 and not seen_3bet:
                 seen_3bet = True
             elif seen_3bet and act == 0:
                 f3b_flag[pid] = 1
 
     # ---------- PASS 2: walk actions and build nodes (attach rolling rates by pid) ----------
-    committed_by_actor = {actor: 0.0 for actor in seats_by_actor}
-    pot_bb = 0.0
+    pot_bb, committed_by_actor, bb = infer_initial_pot_and_committed(h)
     actions_so_far: List[Dict[str, Any]] = []
 
     for a in actions:
@@ -143,8 +139,8 @@ def build_nodes_from_hand_json(
             actions_so_far.append(a)
             continue
 
-        act    = _act_to_code(a["act"])
-        street = _street_to_int(a["street"])
+        act    = act_to_code(a["act"])
+        street = street_to_int(a["street"])
         amt    = a.get("amount_bb")
 
         pot_before = pot_bb
@@ -159,15 +155,26 @@ def build_nodes_from_hand_json(
 
         villain_pos = _pos_of(actor, pos_by_actor)  # e.g., "BTN","SB",...
 
-        # effective stack at decision (rough)
-        actor_start = seats_by_actor.get(actor, 0.0)
-        actor_rem = max(0.0, actor_start - committed_by_actor[actor])
-        others_rem = [
-            max(0.0, seats_by_actor.get(other, 0.0) - committed_by_actor.get(other, 0.0))
-            for other in seats_by_actor
-            if other != actor
-        ]
-        eff_stack = min([actor_rem] + others_rem) if others_rem else actor_rem
+        actor_start = float(seats_by_actor.get(actor, 0.0))
+        # If we don’t know hero’s stack, fallback to a sane default (e.g., 100bb or median of known stacks)
+        if actor_start <= 0.0:
+            known_starts = [float(v) for v in seats_by_actor.values() if float(v) > 0.0]
+            fallback_start = (np.median(known_starts) if known_starts else 100.0)
+            actor_start = float(fallback_start)
+
+        actor_rem = max(0.0, actor_start - float(committed_by_actor.get(actor, 0.0)))
+
+        others_rem_valid = []
+        for other, start in seats_by_actor.items():
+            if other == actor:
+                continue
+            s0 = float(start)
+            if s0 <= 0.0:  # ignore unknown/zero starts
+                continue
+            rem = max(0.0, s0 - float(committed_by_actor.get(other, 0.0)))
+            others_rem_valid.append(rem)
+
+        eff_stack = min([actor_rem] + others_rem_valid) if others_rem_valid else actor_rem
 
         # rolling rates BEFORE counting this hand’s flags
         rates = tracker.get_rates(pid)  # expects pid only
@@ -189,7 +196,7 @@ def build_nodes_from_hand_json(
             stakes_id=stakes_id,
             hero_pos=None,
             villain_pos=villain_pos,
-            spr=_spr(eff_stack, pot_before),
+            spr=spr(eff_stack, pot_before),  # unchanged call site, now with correct pot_before
             pot_bb=pot_before,
             action_seq=_compact_seq(actions_so_far),
         )

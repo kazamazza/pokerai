@@ -13,8 +13,9 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.datasets.utils_dataset import stratified_indices
 from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPolicyDatasetParquet
-from ml.models.postflop_policy_net import PostflopPolicyNetLit
 from ml.utils.config import load_model_config
+from ml.utils.rangenet_postflop_sidecar import write_postflop_policy_sidecar
+from ml.models.postflop_policy_net import PostflopPolicyLit
 
 # ----------------- small helpers -----------------
 def _get(cfg: Mapping[str, Any], path: str, default=None):
@@ -24,13 +25,6 @@ def _get(cfg: Mapping[str, Any], path: str, default=None):
             return default
         cur = cur[p]
     return cur
-
-def _save_sidecar(ckpt_dir: Path, *, feature_order: Sequence[str],
-                  id_maps: Dict[str, Dict[str, int]], cards: Dict[str, int]) -> None:
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    (ckpt_dir / "feature_order.json").write_text(json.dumps(list(feature_order), indent=2))
-    (ckpt_dir / "id_maps.json").write_text(json.dumps(id_maps, indent=2))
-    (ckpt_dir / "cards.json").write_text(json.dumps(cards, indent=2))
 
 def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
@@ -50,7 +44,8 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     )
 
     # categorical vocab sizes (used for embeddings)
-    cards = ds.id_maps()  # maps cat feature -> vocab size
+    id_maps = ds.id_maps()  # may be partial; fine for sidecar
+    cards = ds.cards()  # definite {feat: vocab_size}
     feature_order = list(ds.cat_features)
 
     # -------- Split --------
@@ -84,7 +79,7 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     )
 
     # -------- Model --------
-    model = PostflopPolicyNetLit(
+    model = PostflopPolicyLit(
         card_sizes=cards,
         cat_feature_order=feature_order,
         lr=float(_get(cfg, "model.lr", 1e-3)),
@@ -138,7 +133,12 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     except Exception:
         cfg_ser = dict(cfg)
     (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
-    _save_sidecar(ckpt_dir, feature_order=feature_order, id_maps=ds.id_maps(), cards=cards)
+    write_postflop_policy_sidecar(
+        ckpt_dir=ckpt_dir,
+        feature_order=feature_order,  # list(ds.cat_features)
+        cards=cards,  # ds.cards()
+        id_maps=id_maps,  # ds.id_maps() (may be partial; still useful)
+    )
 
     # Train
     resume_from = _get(cfg, "train.resume_from", None)
