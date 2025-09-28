@@ -367,12 +367,6 @@ def run_from_config(
     sample_random: bool = False,
     sample_seed: int = 42,
 ) -> None:
-    """
-    Sharded builder with optional small-sample mode.
-
-    - If shard_count & shard_index are provided, only the assigned shard rows are processed.
-    - If sample_n is provided, only that many manifest rows are built (after sharding, if any).
-    """
     import pandas as pd
     import numpy as np
 
@@ -396,6 +390,9 @@ def run_from_config(
         )
         df = df.loc[mask].reset_index(drop=True)
         print(f"🧩 shard {shard_index}/{shard_count} → {len(df)} manifest rows")
+        shard_label = f"{shard_index:02d}of{shard_count:02d}"
+    else:
+        shard_label = "solo"
 
     # Optional sampling (after sharding to keep per-shard test fast)
     if sample_n is not None and sample_n > 0 and len(df) > 0:
@@ -408,8 +405,11 @@ def run_from_config(
             df = df.head(sample_n).reset_index(drop=True)
         print(f"🔎 sample mode: using {len(df)} row(s)")
 
-    tmp_manifest = manifest.with_suffix(f".shard.tmp.parquet")
+    tmp_manifest = manifest.with_suffix(".shard.tmp.parquet")
     df.to_parquet(tmp_manifest, index=False)
+
+    # (optional) per-shard debug log to avoid collisions
+    debug_dump = Path(parts_local_dir) / f"debug-{shard_label}.jsonl"
 
     build_postflop_policy(
         manifest_path=tmp_manifest,
@@ -417,6 +417,9 @@ def run_from_config(
         part_rows=part_rows,
         parts_local_dir=parts_local_dir,
         parts_s3_prefix=parts_s3_prefix,
+        shard_label=shard_label,           # <-- unique per worker
+        strict_mode=_get(cfg, "builder.strict_mode", "fail"),
+        debug_dump=str(debug_dump),
     )
 
     print("✅ run_from_config complete.")
