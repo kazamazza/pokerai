@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Mapping, Tuple, Optional
 from ml.models.policy_consts import VOCAB_INDEX, ACTION_VOCAB
 
 
-# --- SMALL STRING UTILS ---
 def _last_number(s: str) -> Optional[float]:
     import re
     m = re.findall(r"[-+]?\d+(?:\.\d+)?", str(s))
