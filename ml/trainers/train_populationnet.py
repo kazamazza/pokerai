@@ -1,13 +1,8 @@
 from __future__ import annotations
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Any, Optional, Dict
-
-import numpy as np
-import pandas as pd
-import torch
+from typing import Mapping, Any
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader, Subset
 import pytorch_lightning as pl
@@ -21,26 +16,6 @@ from ml.datasets.population import PopulationDatasetParquet, population_collate_
 from ml.datasets.utils_dataset import categorical_cardinalities, stratified_indices
 from ml.models.population_net import PopulationNetLit
 
-def make_collate_fn(feature_order):
-    """
-    Batch of (X, Y, W) -> (x_dict, y, w) that PopulationNetLit expects.
-    X: [B, F] long; Y: [B, 3] float OR [B] long; W: [B] float
-    If Y is [B,3] probs, we convert to hard labels via argmax here.
-    """
-    def _collate(batch):
-        X = torch.stack([b[0] for b in batch], dim=0)       # [B, F]
-        Y = torch.stack([b[1] for b in batch], dim=0)       # [B, 3] or [B]
-        W = torch.stack([b[2] for b in batch], dim=0)       # [B]
-
-        # Ensure hard labels (long) for CE; if Y is soft, take argmax
-        if Y.dim() == 2:
-            y = Y.argmax(dim=1).long()
-        else:
-            y = Y.long()
-
-        x_dict = {name: X[:, i] for i, name in enumerate(feature_order)}
-        return x_dict, y, W
-    return _collate
 
 def run_train(cfg: Mapping[str, Any]):
     """

@@ -23,7 +23,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"  # 64 GiB RAM
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_0"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_dataset_shard_1 = {
@@ -33,7 +33,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_1"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_dataset_shard_2 = {
@@ -43,7 +43,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_2"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_dataset_shard_3 = {
@@ -53,7 +53,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_3"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_dataset_shard_4 = {
@@ -63,7 +63,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_4"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_dataset_shard_5 = {
@@ -73,7 +73,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_5"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy = {

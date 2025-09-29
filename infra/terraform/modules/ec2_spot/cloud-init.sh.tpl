@@ -118,7 +118,7 @@ source /etc/environment || true
 set +o allexport
 
 # Decide process count: force a single worker
-N=1
+N=6
 echo "[init] Launching $N worker process..."
 
 # Don’t let native libs oversubscribe threads

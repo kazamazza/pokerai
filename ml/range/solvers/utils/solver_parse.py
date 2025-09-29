@@ -1,5 +1,6 @@
-from typing import Any, Dict, List, Optional, Tuple
-from collections import defaultdict
+import math
+from typing import Any, Dict, List, Optional, Tuple, Mapping
+
 
 # -------- core accessors --------
 
@@ -19,45 +20,62 @@ def get_children(node: Dict[str, Any]) -> Dict[str, Any]:
         ch = node.get("children")
     return ch if isinstance(ch, dict) else {}
 
-def actions_and_mix(node: Dict[str, Any]) -> Tuple[List[str], List[float]]:
+def actions_and_mix(node: Mapping[str, Any]) -> Tuple[List[str], List[float]]:
     """
-    Return (actions, mix) where actions are strings and mix sums to 1 (if available).
-    Falls back to [] for mix if no per-hand strategy is present.
+    Extract (actions, mix) from a solver node.
+
+    - `actions`: list of action labels as strings
+    - `mix`: normalized probabilities (sums ~1.0) or [] if unavailable
     """
-    acts = list(node.get("actions") or [])
+    # Actions may be directly on node or inside node["strategy"]["actions"]
+    acts: List[str] = list(node.get("actions") or [])
     strat = node.get("strategy") or {}
 
-    # Some dumps mirror actions under strategy.actions
-    s_acts = list((strat.get("actions") or []))
-    if not acts and s_acts:
-        acts = s_acts
+    if not acts and isinstance(strat, dict):
+        s_acts = strat.get("actions") or []
+        if s_acts:
+            acts = list(s_acts)
 
-    # Aggregate per-hand strategy → action mass
-    strat_map = strat.get("strategy") or {}
+    if not acts:
+        return [], []
+
     k = len(acts)
-    if not k or not isinstance(strat_map, dict) or not strat_map:
+
+    # Strategy probabilities are usually under node["strategy"]["strategy"]
+    strat_map = strat.get("strategy") if isinstance(strat, dict) else None
+    if not isinstance(strat_map, dict) or not strat_map:
         return acts, []
 
     mass = [0.0] * k
     nrows = 0
+
     for probs in strat_map.values():
-        if not isinstance(probs, list):
+        if not isinstance(probs, (list, tuple)):
             continue
         L = min(len(probs), k)
         if L <= 0:
             continue
         for i in range(L):
             v = probs[i]
-            if v is not None and v >= 0:
-                mass[i] += float(v)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(fv) and fv >= 0.0:
+                mass[i] += fv
         nrows += 1
 
     if nrows == 0:
         return acts, []
 
     s = sum(mass)
-    if s > 0:
+    if s > 1e-12:
         mass = [m / s for m in mass]
+    else:
+        return acts, []
+
     return acts, mass
 
 # -------- helpers for BET aggregation --------
@@ -112,54 +130,75 @@ def extract_ip_root_decision(payload: Dict[str, Any]) -> Tuple[List[str], List[f
             mix = [m / s for m in mix]
     return acts, mix
 
-def extract_oop_facing_bet(payload: Dict[str, Any]) -> Tuple[List[str], List[float]]:
-    """
-    OOP vs a bet at root: aggregate ALL bet-children.
-    For each BET child c with root mass w_root, accumulate w_root * c.strategy over
-    the child actions (CALL/FOLD/RAISE*/ALLIN). Return merged, normalized (labels, mix).
-    """
-    root = root_node(payload)
 
-    # Accumulate mass per label across bet-children
-    acc: Dict[str, float] = defaultdict(float)
-    total_root_mass = 0.0
-    any_child = False
+def collect_oop_actions_recursive(
+    node: Mapping[str, Any],
+    weight: float,
+    *,
+    pot_bb: float,
+    facing_bet_bb: float,
+    stack_bb: float | None,
+    ACTION_VOCAB: List[str],
+    VOCAB_INDEX: Dict[str, int],
+    actions_and_mix,           # fn(node) -> (List[str], List[float])
+    get_children,              # fn(node) -> Dict[str, Any]
+    _resolve_child,            # fn(children, label) -> Mapping[str, Any] | {}
+    _has_any,                  # fn(s, *needles) -> bool
+    parse_raise_to_bb,         # fn(label, pot_bb, bet_size_bb) -> float | None
+    bucket_raise_label,        # fn(label, pot_bb, facing_bet_bb, stack_bb) -> str
+) -> List[Tuple[str, float]]:
+    """
+    DFS from an OOP action node, accumulating soft mass into policy buckets.
+    IMPORTANT: when we see a RAISE, we recurse into that child and update facing_bet_bb
+               to the *raise-to* size, so re-raises are bucketed correctly.
+    Returns list of (bucket_label, mass).
+    """
+    out: List[Tuple[str, float]] = []
+    acts, mix = actions_and_mix(node)
+    if not acts or not mix:
+        return out
 
-    for bet_label, child, w_root in _iter_bet_children_with_weight(root):
-        any_child = True
-        # If root had no mix, treat each discovered BET child equally
-        # (split uniformly). This keeps us from discarding branches blindly.
-        if w_root <= 0.0:
-            w_root = 1.0  # temporary; we’ll renorm over children below
-        acts, mix = actions_and_mix(child)
-        if not acts or not mix:
+    for a, p in zip(acts, mix):
+        w = float(weight) * float(p)
+        if w <= 0:
             continue
-        # ensure child mix sums to 1
-        s_child = sum(mix)
-        if s_child > 0 and abs(s_child - 1.0) > 1e-6:
-            mix = [m / s_child for m in mix]
+        up = str(a).strip().upper()
 
-        total_root_mass += w_root
-        for i, a in enumerate(acts):
-            acc[str(a).upper()] += w_root * float(mix[i])
+        if up.startswith("CALL"):
+            out.append(("CALL", w))
+        elif up.startswith("FOLD"):
+            out.append(("FOLD", w))
+        elif _has_any(up, "ALLIN", "ALL-IN", "JAM"):
+            if "ALLIN" in VOCAB_INDEX:
+                out.append(("ALLIN", w))
+        elif up.startswith("RAISE") or _has_any(up, "RE-RAISE", "RERAISE", "MIN-RAISE", "MINRAISE"):
+            # bucket this raise vs current facing bet
+            bucket = bucket_raise_label(
+                up, pot_bb=pot_bb, facing_bet_bb=facing_bet_bb, stack_bb=stack_bb
+            )
+            if bucket in VOCAB_INDEX:
+                out.append((bucket, w))
 
-    if not any_child or not acc:
-        return [], []
+            # Recurse into the raise child with updated "facing bet" = raise_to
+            ch = _resolve_child(get_children(node), a)
+            if ch and isinstance(ch, Mapping):
+                raise_to_bb = parse_raise_to_bb(up, pot_bb=pot_bb, bet_size_bb=facing_bet_bb) or facing_bet_bb
+                out.extend(
+                    collect_oop_actions_recursive(
+                        ch, w,
+                        pot_bb=pot_bb,
+                        facing_bet_bb=raise_to_bb,
+                        stack_bb=stack_bb,
+                        ACTION_VOCAB=ACTION_VOCAB,
+                        VOCAB_INDEX=VOCAB_INDEX,
+                        actions_and_mix=actions_and_mix,
+                        get_children=get_children,
+                        _resolve_child=_resolve_child,
+                        _has_any=_has_any,
+                        parse_raise_to_bb=parse_raise_to_bb,
+                        bucket_raise_label=bucket_raise_label,
+                    )
+                )
+        # else: ignore anything not relevant (e.g., INFO nodes)
 
-    # If we fabricated equal weights (root had no usable mix), make them uniform
-    # by dividing by the number of used bet-children.
-    if total_root_mass <= 0.0:
-        # Count how many bet-children actually contributed
-        n_children = 0
-        for _ in _iter_bet_children_with_weight(root):
-            n_children += 1
-        if n_children > 0:
-            scale = 1.0 / n_children
-            for k in list(acc.keys()):
-                acc[k] *= scale
-
-    acc = _normalize(acc)
-
-    labels = list(acc.keys())
-    mix = [acc[k] for k in labels]
-    return labels, mix
+    return out

@@ -53,13 +53,22 @@ def _is_aggressor(role: str) -> bool:
 def _is_oop(role: str) -> bool:
     return role.endswith("_OOP") or role == "OOP"
 
+def _legalize_raise_mult(raise_mult: list[int]) -> list[int]:
+    # keep only >100% to ensure a legal raise-to
+    out = sorted({int(m) for m in raise_mult if m > 100})
+    # fallback to safe defaults if user supplied nonsense
+    return out or [150, 200, 300]
+
 def _make_flop_side(role: str, sizes_pct: List[int], *, allow_donk_for_oop_caller: bool) -> dict:
     """
     Why: ensure raises are present and legal on flop for both roles.
     - 'raise' uses 150/200/300 (bet-relative).
     - enable 'allin' on flop to keep branch viable at short stacks.
     """
-    side: Dict[str, object] = {"raise": RAISE_FLOP_MULT, "allin": ENABLE_FLOP_ALLIN}
+    side: Dict[str, object] = {
+        "raise": _legalize_raise_mult(RAISE_FLOP_MULT),
+        "allin": ENABLE_FLOP_ALLIN,
+    }
     if (not _is_aggressor(role)) and _is_oop(role) and allow_donk_for_oop_caller:
         side["donk"] = sizes_pct                      # OOP caller may donk after IP check
     else:

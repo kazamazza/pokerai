@@ -8,8 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from infra.storage.s3_client import S3Client
-# --- constants ---
-# Cell granularity for PopulationNet
+
 GRP = ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
 
 # Action IDs (must match your parser/enums)
@@ -57,17 +56,6 @@ def build_population_parquet(
     *,
     weight_mode: str = "count",  # "count" | "sqrt" | "log1p"
 ) -> Path:
-    """
-    Build the PopulationNet training parquet from parsed decisions.
-
-    Input (decisions .jsonl/.jsonl.gz) rows must include:
-      stakes_id, street_id, ctx_id, hero_pos_id, villain_pos_id, act_id
-      (hand_id can be present but is not required for training)
-
-    Output parquet schema:
-      stakes_id, street_id, ctx_id, hero_pos_id, villain_pos_id,
-      p_fold, p_call, p_raise, y, w, n_rows
-    """
     df = _read_ndjson_auto(decisions_in)
 
     # Normalize ALL_IN to RAISE
@@ -149,7 +137,6 @@ def run_from_config(cfg: dict, overrides: Optional[dict] = None) -> Path:
           weight_mode: count  # or sqrt/log1p
     """
     sect = _cfg_get(cfg, "build", {})
-    print(cfg)
     decisions_in = (overrides or {}).get("decisions_in", sect.get("decisions_in"))
     out_parquet  = (overrides or {}).get("out_parquet",  sect.get("out_parquet"))
     weight_mode  = (overrides or {}).get("weight_mode",  sect.get("weight_mode", "count"))

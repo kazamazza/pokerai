@@ -8,7 +8,7 @@ import numpy as np
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
-from ml.inference.policy import PolicyInfer, PolicyInferDeps
+from ml.inference.policy.policy import PolicyInfer, PolicyInferDeps
 
 # --- (1) monkeypatch the postflop ACTION_VOCAB module the PolicyInfer expects ---
 # Your PolicyInfer calls: from ml.models.postflop_policy_net import ACTION_VOCAB

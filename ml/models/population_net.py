@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-# actions: 0=FOLD, 1=CALL, 2=RAISE
 N_ACTIONS = 3
 
 def default_emb_dim(card: int) -> int:

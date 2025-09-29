@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, argparse, math
+import os, sys, argparse
 from pathlib import Path
 from typing import List
 
@@ -7,10 +7,10 @@ import dotenv
 import pandas as pd
 import numpy as np
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
-from ml.inference.policy import ACTION_VOCAB
+from ml.inference.policy.policy import ACTION_VOCAB
 
 dotenv.load_dotenv()
 # We use s3fs transparently via pandas; ensure engine matches your env

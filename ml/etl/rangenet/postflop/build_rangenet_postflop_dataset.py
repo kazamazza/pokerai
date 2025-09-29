@@ -3,8 +3,6 @@ import sys
 from pathlib import Path
 import dotenv
 
-
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -12,10 +10,12 @@ from infra.storage.s3_client import S3Client
 from pathlib import Path
 from typing import Any, Optional, Mapping
 from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
-from ml.range.solvers.utils.solver_parse import actions_and_mix, get_children, extract_oop_facing_bet, \
-    extract_ip_root_decision, root_node
+from ml.range.solvers.utils.solver_parse import actions_and_mix, get_children, \
+    extract_ip_root_decision, root_node, collect_oop_actions_recursive
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
-    bucket_bet_label, bucket_raise_label, _stable_shard_index, _get
+    bucket_bet_label, bucket_raise_label, _stable_shard_index, _get, _last_number, _resolve_child, \
+    _is_action_node, is_check, is_bet_like, _has_any, \
+    parse_root_bet_size_bb, parse_raise_to_bb
 from ml.models.policy_consts import ACTION_VOCAB, VOCAB_INDEX
 
 dotenv.load_dotenv()
@@ -41,46 +41,6 @@ def build_postflop_policy(
     import pandas as pd
     from tqdm import tqdm
 
-    # ------- tiny helpers -------
-    NUM = re.compile(r"([-+]?\d+(?:\.\d+)?)")
-
-    def _extract_last_number(s: str) -> float | None:
-        m = NUM.findall(str(s))
-        if not m: return None
-        try: return float(m[-1])
-        except Exception: return None
-
-    def _verb(s: str) -> str:
-        u = str(s).strip().upper()
-        return u.split()[0] if u else u
-
-    def _norm(s: str) -> tuple[str, float | None]:
-        u = str(s).strip().upper()
-        return _verb(u), _extract_last_number(u)
-
-    def _resolve_child(children: Mapping[str, Any], action_label: str, eps: float = 1e-3) -> Mapping[str, Any]:
-        """Find child by verb + numeric (last number). Accepts minor formatting variants."""
-        if not children: return {}
-        if action_label in children:  # exact fast path
-            v = children[action_label]
-            return v if isinstance(v, dict) else {}
-        verb_t, val_t = _norm(action_label)
-        for k, v in children.items():
-            if not isinstance(v, dict):
-                continue
-            vk, vv = _norm(k)
-            if vk != verb_t:
-                continue
-            if val_t is None and vv is None:
-                return v
-            if (val_t is not None) and (vv is not None) and abs(val_t - vv) <= eps:
-                return v
-        return {}
-
-    def _is_action_node(n: Mapping[str, Any]) -> bool:
-        t = str(n.get("node_type", "")).lower()
-        if t in {"chance_node", "terminal", "showdown"}: return False
-        return True
 
     # ------- IO -------
     df = pd.read_parquet(manifest_path)
@@ -198,84 +158,102 @@ def build_postflop_policy(
             # --------- IP at root (aggressor) ----------
             if role.startswith("PFR") or "AGGRESSOR" in role:
                 acts, mix = extract_ip_root_decision(js)
-                if (not acts) or (not mix):
+                if not acts or not mix:
                     _emit_or_handle_sentinel(base_row, "zero_mass_root", {"s3_key": s3_key})
                     continue
-                # Map CHECK/BET_xx to vocab
+
                 for i, lab in enumerate(acts):
-                    w = float(mix[i]);
+                    w = float(mix[i])
                     if w <= 0:
                         continue
                     up = str(lab).upper()
-                    if up.startswith("CHECK"):
+
+                    if is_check(up):
                         vec[VOCAB_INDEX["CHECK"]] += w
-                    elif up.startswith("BET"):
-                        b = bucket_bet_label(up, pot_bb=pot_bb, actor="ip")
+                    elif is_bet_like(up):
+                        b = bucket_bet_label(up, pot_bb=pot_bb)
                         vec[VOCAB_INDEX[b]] += w
-
-            # --------- OOP parsing (facing bet or after IP checks) ----------
-            else:
-                ch_map = get_children(root)
-                if not ch_map:
-                    _emit_or_handle_sentinel(base_row, "no_children", {"s3_key": s3_key})
-                    continue
-
-                # (A) OOP vs BET at root: aggregate all bet children with their root weights
-                labels_bet, mix_bet = extract_oop_facing_bet(js)
-                any_raise_mass = False
-
-                # Apply facing-bet mass into vocab
-                if labels_bet and mix_bet:
-                    counters["oop_facing_bet_nodes"] += 1
-                    for i, lab in enumerate(labels_bet):
-                        w = float(mix_bet[i])
-                        if w <= 0:
+                    else:
+                        ch_map = get_children(root)
+                        if not ch_map:
+                            _emit_or_handle_sentinel(base_row, "no_children", {"s3_key": s3_key})
                             continue
-                        up = str(lab).upper()
-                        if up.startswith("CALL"):
-                            vec[VOCAB_INDEX["CALL"]] += w
-                        elif up.startswith("FOLD"):
-                            vec[VOCAB_INDEX["FOLD"]] += w
-                        elif up.startswith("ALLIN") or up.startswith("RAISE") or "RE-RAISE" in up:
-                            # We need the current bet size to bucket raises.
-                            # Best-effort: find the *largest* BET at root (by label), or any numeric.
-                            curr = 0.0
+
+                        any_raise_mass = False
+
+                        # Establish facing bet size in BB
+                        facing_bet_bb = parse_root_bet_size_bb(root_actions, pot_bb)
+                        if not facing_bet_bb:
+                            fb = 0.0
                             for a in root_actions:
                                 ua = str(a).upper()
                                 if ua.startswith("BET"):
-                                    v = _extract_last_number(ua)
+                                    v = _last_number(ua)
                                     if v is not None:
-                                        curr = max(curr, float(v))
-                            rb = bucket_raise_label(up, current_bet_bb=(curr or 1.0))
-                            if rb in VOCAB_INDEX:
-                                vec[VOCAB_INDEX[rb]] += w
-                                any_raise_mass = True
+                                        fb = max(fb, float(v))
+                            facing_bet_bb = fb if fb > 0.0 else 1.0
 
-                # (B) OOP after IP CHECK: lookup the CHECK child and collect CHECK/DONK
-                #     (We intentionally do this *in addition* to facing-bet handling.)
-                for i, lab in enumerate(root_actions):
-                    if float(root_mix[i]) <= 0:
-                        continue
-                    if str(lab).upper().startswith("CHECK"):
-                        node = _resolve_child(ch_map, lab)
-                        if not node or not _is_action_node(node):
-                            continue
-                        n_acts, n_mix = actions_and_mix(node)
-                        if not n_acts or not n_mix:
-                            continue
-                        for j, a_lab in enumerate(n_acts):
-                            mass = float(root_mix[i] * n_mix[j])
-                            if mass <= 0:
+                        # Walk each BET child and collect OOP responses (recursively)
+                        for root_lab, w_root in zip(root_actions, root_mix):
+                            if float(w_root) <= 0:
                                 continue
-                            aup = str(a_lab).upper()
-                            if aup.startswith("CHECK"):
-                                vec[VOCAB_INDEX["CHECK"]] += mass
-                            elif aup.startswith("BET"):
-                                b = bucket_bet_label(aup, pot_bb=pot_bb, actor="oop")
-                                vec[VOCAB_INDEX[b]] += mass
+                            uroot = str(root_lab).upper()
+                            if not uroot.startswith("BET"):
+                                continue
 
-                if any_raise_mass:
-                    counters["rows_with_nonzero_raise_mass"] += 1
+                            node_bet = _resolve_child(ch_map, root_lab)
+                            if not node_bet or not _is_action_node(node_bet):
+                                continue
+
+                            counters["oop_facing_bet_nodes"] += 1
+
+                            # NEW: recursive collection (includes FOLD, RAISE, ALLIN)
+                            pairs = collect_oop_actions_recursive(
+                                node=node_bet,
+                                weight=float(w_root),
+                                pot_bb=pot_bb,
+                                facing_bet_bb=facing_bet_bb,
+                                stack_bb=stack_bb,
+                                ACTION_VOCAB=ACTION_VOCAB,
+                                VOCAB_INDEX=VOCAB_INDEX,
+                                actions_and_mix=actions_and_mix,
+                                get_children=get_children,
+                                _resolve_child=_resolve_child,
+                                _has_any=_has_any,
+                                parse_raise_to_bb=parse_raise_to_bb,
+                                bucket_raise_label=bucket_raise_label,
+                            )
+
+                            for bucket, mass in pairs:
+                                vec[VOCAB_INDEX[bucket]] += mass
+                                if bucket.startswith("RAISE") or bucket == "ALLIN":
+                                    any_raise_mass = True
+
+                        # (B) OOP after IP CHECK
+                        for i, lab in enumerate(root_actions):
+                            if float(root_mix[i]) <= 0:
+                                continue
+                            if str(lab).upper().startswith("CHECK"):
+                                node = _resolve_child(ch_map, lab)
+                                if not node or not _is_action_node(node):
+                                    continue
+                                n_acts, n_mix = actions_and_mix(node)
+                                if not n_acts or not n_mix:
+                                    continue
+                                for j, a_lab in enumerate(n_acts):
+                                    mass = float(root_mix[i] * n_mix[j])
+                                    if mass <= 0:
+                                        continue
+                                    aup = str(a_lab).upper()
+                                    if aup.startswith("CHECK"):
+                                        vec[VOCAB_INDEX["CHECK"]] += mass
+                                    elif aup.startswith("BET"):
+                                        b = bucket_bet_label(aup, pot_bb=pot_bb)
+                                        vec[VOCAB_INDEX[b]] += mass
+
+                        if any_raise_mass:
+                            counters["rows_with_nonzero_raise_mass"] += 1
+
 
             # ---- finalize row ----
             s = float(vec.sum())

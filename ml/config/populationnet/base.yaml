@@ -1,63 +1,83 @@
+# =========================
+# PopulationNet (PROD BASE)
+# =========================
+
+# -------- Inputs --------
 inputs:
-  parquet: data/datasets/populationnet_nl10_dev.parquet
+  parquet: data/datasets/populationnet_nl10.parquet   # final training parquet
 
+# -------- Dataset --------
 dataset:
-  # Categorical feature columns (order matters for embeddings)
-  x_cols: ["stakes_id","street_id","ctx_id","hero_pos_id","villain_pos_id"]
+  # Categorical feature columns (ORDER MATTERS for embedding tables)
+  x_cols: ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
 
-  # Soft-label target columns
-  y_cols: ["p_fold","p_call","p_raise"]
+  # Soft-label target columns (must sum to 1 per row post-normalization)
+  y_cols: ["p_fold", "p_call", "p_raise"]
 
-  # Per-row weight column
-  weight_col: w
+  # Sample weight column
+  weight_col: "w"
 
-  # Optional load-time filters (usually already applied at build-time)
+  # Optional load-time filters (most filtering should already be done in the builder)
   filters:
-    keep_ctx_ids: null
-    keep_street_ids: null
-    min_weight: 10
+    keep_ctx_ids: ~            # e.g. [0,1,2] or null
+    keep_street_ids: ~         # e.g. [1] for FLOP only or null
+    min_weight: 20
 
+  # Train/val split
+  stratify_keys: ["ctx_id", "street_id"]  # preserves distribution across contexts/streets
+  train_frac: 0.80
+
+# -------- Coverage (optional but recommended pre-train audit) --------
 coverage:
   enabled: true
   output: reports/coverage/populationnet_nl10.json
   group_by: ["stakes_id","street_id","ctx_id","hero_pos_id","villain_pos_id"]
-  min_rows_per_cell: 50
-  min_cells_per_ctx: 10
-  alpha: 1.0
-  input_decisions: null   # e.g. s3://bucket/decisions.jsonl.gz (or local path)
+  min_rows_per_cell: 50         # flag sparse cells
+  min_cells_per_ctx: 10         # flag underrepresented contexts
+  alpha: 1.0                    # smoothing for rates if you compute them here
+  input_decisions: ~            # optional: s3://bucket/path/decisions.jsonl.gz (for deeper audits)
 
+# -------- Model --------
 model:
-  hidden_dims: [64, 64]
+  hidden_dims: [128, 64]        # small, fast, usually plenty for this task
   dropout: 0.10
-  lr: 0.001
-  weight_decay: 0.0001
-  soft_labels: true
+  lr: 3e-4                      # conservative; AdamW
+  weight_decay: 1.0e-4
+  soft_labels: true             # keep true (uses KL on soft targets)
 
+# -------- Training --------
 train:
-  batch_size: 2048
-  max_epochs: 10
-  patience: 3
-  num_workers: 0
-  accelerator: auto
-  devices: auto
-  precision: 16-mixed
+  batch_size: 4096              # scale by GPU RAM; 4096 is efficient on 16GB+
+  max_epochs: 12
+  patience: 3                   # early stop on val_loss
+  num_workers: 4                # <= CPU cores; 0 if you’ve seen dataloader issues
+  accelerator: "auto"
+  devices: "auto"
+  precision: "16-mixed"         # AMP for speed
   seed: 42
-  monitor: val_loss
-  mode: min
+  monitor: "val_loss"
+  mode: "min"
   checkpoints_dir: checkpoints/popnet
 
+  # Optional resume
+  resume_from: ~                # path/to/ckpt if resuming
+
+# -------- Evaluation --------
 eval:
   use_best_ckpt: true
   output_dir: reports/eval/populationnet
-  filters: {}
+  filters: {}                   # same schema as dataset.filters if you want eval subsets
 
+# -------- Logging --------
 logging:
-  logger: tensorboard     # or "csv", "none"
+  logger: "tensorboard"         # "csv" | "none"
   tb_log_dir: logs/tb/popnet
   csv_log_dir: logs/csv/popnet
 
+# -------- Build (builder stage; used by your NDJSON->Parquet job) --------
 build:
   stake: 10
-  decisions_in: data/processed/decisions.jsonl.gz      # s3://.../decisions.jsonl.gz or local path
-  coverage_json: null     # reports/coverage/populationnet_nl10.json
+  decisions_in: data/processed/nl10/decisions.jsonl.gz   # or s3://bucket/parsed/nl10/decisions.jsonl.gz
   out_parquet: data/datasets/populationnet_nl10.parquet
+  weight_mode: "sqrt"            # "count" | "sqrt" | "log1p"
+  # Optional: coverage_json: reports/coverage/populationnet_nl10.json
