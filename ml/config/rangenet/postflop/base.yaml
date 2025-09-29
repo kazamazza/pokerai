@@ -46,13 +46,19 @@ manifest_build:
       ctx: VS_OPEN
       stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
-        - [ "BB",  "SB" ]   # SB opened, BB called
-        - [ "BTN", "SB" ]   # BTN opened, SB called
-        - [ "UTG", "SB" ]   # NEW: UTG opened, SB called
-        - [ "HJ",  "SB" ]   # NEW
-        - [ "CO",  "SB" ]   # NEW
+        # Caller OOP = BB (the bread-and-butter raise spots)
+        - [ "UTG", "BB" ]
+        - [ "HJ",  "BB" ]
+        - [ "CO",  "BB" ]
+        - [ "BTN", "BB" ]
+
+        # Caller OOP = SB (BTN/UTG/HJ/CO opens → SB calls) — keep some if you want
+        - [ "BTN", "SB" ]
+        - [ "UTG", "SB" ]
+        - [ "HJ",  "SB" ]
+        - [ "CO",  "SB" ]
       pots_bb: [ 18, 28, 40 ]
-      bet_menus: [ "srp_oop" ]
+      bet_menus: [ "srp_oop" ]   # must map to srp_hu.Caller_OOP
 
     # --- Blind vs steal (treated like SRP) ---
     - name: BLIND_VS_STEAL
