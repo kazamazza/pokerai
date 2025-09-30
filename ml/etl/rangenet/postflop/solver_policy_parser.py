@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Tuple, Optional
 
+from ml.etl.rangenet.postflop.solver_policy_kinds import ScenarioParseKind
+from ml.etl.rangenet.postflop.solver_scan import presence_scan
 from ml.models.policy_consts import VOCAB_INDEX, ACTION_VOCAB
 
 
@@ -63,19 +65,29 @@ def _norm_key(s: str) -> Tuple[str, Optional[float]]:
     return verb, val
 
 def resolve_child(children: Mapping[str, Any], action_label: str, eps: float = 1e-3) -> Mapping[str, Any]:
-    """
-    Match by verb + last-number. Works across minor formatting variants.
-    """
     if not children: return {}
     if action_label in children and isinstance(children[action_label], dict):
         return children[action_label]
-    v_t, n_t = _norm_key(action_label)
+    def _norm(s: str):
+        u = str(s).strip().upper()
+        verb = u.split()[0] if u else u
+        # last numeric
+        import re
+        nums = re.findall(r"[-+]?\d+(?:\.\d+)?", u)
+        val = float(nums[-1]) if nums else None
+        return verb, val
+    vt, nt = _norm(action_label)
+    candidates = []
     for k, v in children.items():
         if not isinstance(v, dict): continue
-        v_k, n_k = _norm_key(k)
-        if v_k != v_t: continue
-        if n_t is None and n_k is None: return v
-        if (n_t is not None) and (n_k is not None) and abs(n_t - n_k) <= eps: return v
+        vk, nk = _norm(k)
+        if vk != vt: continue
+        if nt is None and nk is None: return v
+        if (nt is not None) and (nk is not None) and abs(nt - nk) <= eps: return v
+        candidates.append((k, v))
+    # fallback: single same-verb child
+    if len(candidates) == 1:
+        return candidates[0][1]
     return {}
 
 # --- BUCKETING ---
@@ -162,108 +174,150 @@ def collect_oop_actions_recursive(
 
     return out
 
-# --- Config & Result types ---
+def infer_parse_kind_from_role(role: str) -> ScenarioParseKind:
+    r = (role or "").upper()
+    if r.endswith("_IP"):  # PFR_IP, AGGRESSOR_IP, SB_IP (limped)
+        if r == "SB_IP":   # limped single special
+            return ScenarioParseKind.LIMPed_SB_IP
+        return ScenarioParseKind.IP_ROOT
+    if r.endswith("_OOP"):
+        # For some SRP Caller_OOP/3bet Caller_OOP solves the root actor is IP;
+        # prefer OOP_VS_IP_ROOT_BET to pick OOP responses vs root bet.
+        if "CALLER_OOP" in r:
+            return ScenarioParseKind.OOP_VS_IP_ROOT_BET
+        return ScenarioParseKind.OOP_ROOT
+    # sane default
+    return ScenarioParseKind.IP_ROOT
+
 @dataclass
 class PolicyParseConfig:
     pot_bb: float
     stack_bb: float
-    role: str              # e.g., "PFR_IP", "CALLER_OOP", "AGGRESSOR_IP" etc.
+    role: str
+    parse_kind: Optional[ScenarioParseKind] = None  # NEW
 
 @dataclass
 class ParseResult:
-    vec: List[float]                   # length = len(ACTION_VOCAB)
+    vec: List[float]
     debug: Dict[str, Any]
     ok: bool
 
-# --- The parser class ---
 class SolverPolicyParser:
     def __init__(self, action_vocab: List[str] | None = None):
         self.vocab = action_vocab or ACTION_VOCAB
         self.index = {a: i for i, a in enumerate(self.vocab)}
 
-    def parse(self, payload: Mapping[str, Any], cfg: PolicyParseConfig) -> ParseResult:
-        """
-        Convert a single solver payload to a soft policy vector over ACTION_VOCAB.
-        Supports:
-          - IP at root: CHECK / BET_xx buckets
-          - OOP vs root BET: CALL/FOLD/RAISE_xxx/ALLIN (recursively)
-          - OOP after IP CHECK: CHECK / DONK (bucketed as BET_xx)
-        """
+    # --- helpers to add mass ---
+    def _add(self, vec, key, w): vec[self.index[key]] += float(w)
+
+    # --- strategies ---
+    def _ip_root(self, root, acts, mix, cfg) -> Tuple[List[float], Dict[str, Any], bool]:
         vec = [0.0] * len(self.vocab)
+        for a, p in zip(acts, mix):
+            if p <= 0: continue
+            u = str(a).upper()
+            if u.startswith("CHECK"):
+                self._add(vec, "CHECK", p)
+            elif u.startswith("BET"):
+                b = bucket_bet_label(u, pot_bb=cfg.pot_bb)
+                self._add(vec, b, p)
+        s = sum(vec)
+        ok = s > 0
+        if ok: vec = [x/s for x in vec]
+        return vec, {"mode": "ip_root"}, ok
+
+    def _oop_root(self, root, acts, mix, cfg) -> Tuple[List[float], Dict[str, Any], bool]:
+        vec = [0.0] * len(self.vocab)
+        any_mass = any_raise = False
+        children = get_children(root)
+
+        # OOP donks at root
+        for a, p in zip(acts, mix):
+            if p <= 0: continue
+            if str(a).upper().startswith("BET"):
+                b = bucket_bet_label(str(a).upper(), pot_bb=cfg.pot_bb)
+                self._add(vec, b, p); any_mass = True
+
+        # OOP CHECK → go to IP node, then for each IP BET collect OOP responses
+        for a, p in zip(acts, mix):
+            if p <= 0: continue
+            if not str(a).upper().startswith("CHECK"): continue
+            node_ip = resolve_child(children, a)
+            if not node_ip: continue
+            ip_acts, ip_mix = actions_and_mix(node_ip)
+            ip_children = get_children(node_ip)
+            for lab, q in zip(ip_acts, ip_mix or []):
+                if q <= 0: continue
+                if not str(lab).upper().startswith("BET"): continue
+                node_ip_bet = resolve_child(ip_children, lab)
+                if not node_ip_bet: continue
+                facing_bet_bb = parse_raise_to_bb(str(lab).upper(), pot_bb=cfg.pot_bb, bet_size_bb=1.0) or 1.0
+                for bucket, mass in collect_oop_actions_recursive(
+                    node=node_ip_bet, weight=float(p*q),
+                    pot_bb=cfg.pot_bb, facing_bet_bb=facing_bet_bb, stack_bb=cfg.stack_bb):
+                    self._add(vec, bucket, mass); any_mass = True
+                    if bucket.startswith("RAISE") or bucket == "ALLIN": any_raise = True
+
+        if not any_mass:
+            return vec, {"mode": "oop_root", "any_raise": False}, False
+
+        s = sum(vec)
+        if s > 0: vec = [x/s for x in vec]
+        return vec, {"mode": "oop_root", "any_raise": any_raise}, True
+
+    def _oop_vs_ip_root_bet(self, root, acts, mix, cfg) -> Tuple[List[float], Dict[str, Any], bool]:
+        # Root actor is IP; we want OOP responses vs each root BET
+        vec = [0.0] * len(self.vocab)
+        any_mass = any_raise = False
+        children = get_children(root)
+        facing_bet_bb = parse_root_bet_size_bb(acts, cfg.pot_bb) or 1.0
+        for a, p in zip(acts, mix):
+            if p <= 0: continue
+            if not str(a).upper().startswith("BET"): continue
+            node_bet = resolve_child(children, a)
+            if not node_bet: continue
+            for bucket, mass in collect_oop_actions_recursive(
+                    node=node_bet, weight=float(p),
+                    pot_bb=cfg.pot_bb, facing_bet_bb=facing_bet_bb, stack_bb=cfg.stack_bb):
+                self._add(vec, bucket, mass); any_mass = True
+                if bucket.startswith("RAISE") or bucket == "ALLIN": any_raise = True
+
+        if not any_mass:
+            return vec, {"mode": "oop_vs_ip_root_bet", "any_raise": False}, False
+        s = sum(vec)
+        if s > 0: vec = [x/s for x in vec]
+        return vec, {"mode": "oop_vs_ip_root_bet", "any_raise": any_raise}, True
+
+    # --- main parse ---
+    def parse(self, payload: Mapping[str, Any], cfg: PolicyParseConfig) -> ParseResult:
+        vec = [0.0] * len(self.vocab)
+
         root = root_node(payload)
         acts, mix = actions_and_mix(root)
-
+        if acts and (not mix or sum(mix) <= 0):
+            mix = [1.0 / len(acts)] * len(acts)
         if not acts or not mix or sum(mix) <= 0:
             return ParseResult(vec, {"reason": "zero_mass_root"}, ok=False)
 
-        # IP at root (aggressor roles)
-        is_aggressor = cfg.role.startswith("PFR") or ("AGGRESSOR" in cfg.role)
-        if is_aggressor:
-            for a, p in zip(acts, mix):
-                if p <= 0: continue
-                u = str(a).upper()
-                if u.startswith("CHECK"):
-                    vec[self.index["CHECK"]] += float(p)
-                elif u.startswith("BET"):
-                    b = bucket_bet_label(u, pot_bb=cfg.pot_bb)
-                    vec[self.index[b]] += float(p)
-            s = sum(vec)
-            if s <= 0:
-                return ParseResult(vec, {"reason": "zero_mass_child"}, ok=False)
-            return ParseResult([x/s for x in vec], {"mode": "ip_root"}, ok=True)
+        kind = cfg.parse_kind or infer_parse_kind_from_role(cfg.role)
 
-        # OOP branch
-        # (A) vs BET at root: walk each BET child and aggregate OOP responses recursively
-        facing_bet_bb = parse_root_bet_size_bb(acts, cfg.pot_bb) or 1.0
-        children = get_children(root)
-        any_mass = False
-        any_raise = False
+        if kind == ScenarioParseKind.IP_ROOT or kind == ScenarioParseKind.LIMPed_SB_IP:
+            v, dbg, ok = self._ip_root(root, acts, mix, cfg)
+        elif kind == ScenarioParseKind.OOP_ROOT:
+            v, dbg, ok = self._oop_root(root, acts, mix, cfg)
+        elif kind == ScenarioParseKind.OOP_VS_IP_ROOT_BET:
+            v, dbg, ok = self._oop_vs_ip_root_bet(root, acts, mix, cfg)
+        else:
+            v, dbg, ok = self._ip_root(root, acts, mix, cfg)
 
-        for a, p in zip(acts, mix):
-            if p <= 0: continue
-            u = str(a).upper()
-            if not u.startswith("BET"): continue
-            node_bet = resolve_child(children, a)
-            if not isinstance(node_bet, Mapping) or not node_bet: continue
+        # Guided fallback: if file *contains* raises/calls/folds but computed mass=0 raise/call, dump + retry once
+        pres = presence_scan(payload)
+        raise_mass = sum(v[self.index[a]] for a in ("RAISE_150","RAISE_200","RAISE_300","ALLIN") if a in self.index)
+        call_fold = sum(v[self.index[a]] for a in ("CALL","FOLD") if a in self.index)
 
-            pairs = collect_oop_actions_recursive(
-                node=node_bet, weight=float(p),
-                pot_bb=cfg.pot_bb, facing_bet_bb=facing_bet_bb, stack_bb=cfg.stack_bb
-            )
-            for bucket, mass in pairs:
-                vec[self.index[bucket]] += mass
-                any_mass = True
-                if bucket.startswith("RAISE") or bucket == "ALLIN":
-                    any_raise = True
+        if (pres["has_raise"] and raise_mass <= 1e-12 and kind in (ScenarioParseKind.OOP_ROOT, ScenarioParseKind.OOP_VS_IP_ROOT_BET)):
+            dbg["warn"] = "raises_present_but_zero_mass"
+        if (pres["has_call"] and pres["has_fold"]) and (call_fold <= 1e-12):
+            dbg["warn_call_fold"] = "call_fold_present_but_zero_mass"
 
-        # (B) OOP after IP CHECK: find CHECK child and collect CHECK/DONK
-        for a, p in zip(acts, mix):
-            if p <= 0: continue
-            u = str(a).upper()
-            if not u.startswith("CHECK"): continue
-            node_check = resolve_child(children, a)
-            if not isinstance(node_check, Mapping) or not node_check: continue
-            a2, m2 = actions_and_mix(node_check)
-            if not a2 or not m2: continue
-            for aa, mm in zip(a2, m2):
-                mass = float(p * mm)
-                if mass <= 0: continue
-                uu = str(aa).upper()
-                if uu.startswith("CHECK"):
-                    vec[self.index["CHECK"]] += mass
-                    any_mass = True
-                elif uu.startswith("BET"):
-                    b = bucket_bet_label(uu, pot_bb=cfg.pot_bb)
-                    vec[self.index[b]] += mass
-                    any_mass = True
-
-        if not any_mass:
-            return ParseResult(vec, {"reason": "zero_mass_child"}, ok=False)
-
-        # normalize
-        s = sum(vec)
-        if s > 0:
-            vec = [x/s for x in vec]
-
-        dbg = {"mode": "oop_root", "any_raise": any_raise}
-        return ParseResult(vec, dbg, ok=True)
+        return ParseResult(v, dbg | {"presence": pres, "kind": kind.name}, ok=ok)

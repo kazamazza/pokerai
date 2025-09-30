@@ -3,18 +3,18 @@ import sys
 from pathlib import Path
 import dotenv
 
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
+from ml.etl.rangenet.postflop.solver_policy_parser import PolicyParseConfig, SolverPolicyParser
 from infra.storage.s3_client import S3Client
 from pathlib import Path
 from typing import Any, Optional, Mapping
 from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
-    bucket_bet_label, bucket_raise_label, _stable_shard_index, _get, _last_number, _resolve_child, \
-    _is_action_node, is_check, is_bet_like, _has_any, \
-    parse_root_bet_size_bb, parse_raise_to_bb
-from ml.models.policy_consts import ACTION_VOCAB, VOCAB_INDEX
+     _stable_shard_index, _get
+from ml.models.policy_consts import ACTION_VOCAB
 
 dotenv.load_dotenv()
 
@@ -39,8 +39,6 @@ def build_postflop_policy(
     import pandas as pd
     from tqdm import tqdm
 
-
-    # ------- IO -------
     df = pd.read_parquet(manifest_path)
     s3c = S3Client()
     use_clusters = bool(_get(cfg, "worker.use_board_clusters", True))
@@ -49,7 +47,6 @@ def build_postflop_policy(
     rows_buffer: list[dict] = []
     parts_written = 0
 
-    # diagnostics
     diag = {
         "ok": 0,
         "sentinel": 0,
@@ -78,7 +75,6 @@ def build_postflop_policy(
             row = {**base_row, "valid": 0, "weight": 0.0, "action": "CHECK"}
             for a in ACTION_VOCAB: row[a] = 0.0
             rows_buffer.append(row); diag["sentinel"] += 1
-        # 'skip' does nothing
 
     def part_name(i: int) -> str:
         pref = f"shard-{shard_label}-" if shard_label else ""
@@ -109,8 +105,12 @@ def build_postflop_policy(
             return json.loads(text)
         return json.loads(b.decode("utf-8"))
 
-    # ------- main loop -------
+    parser = SolverPolicyParser()
+    parser = SolverPolicyParser()
+
     for _, r in tqdm(df.iterrows(), total=len(df), desc="Building postflop policy"):
+        # keep base_row defined outside try so it's available in except
+        base_row = None
         try:
             s3_key = str(r["s3_key"])
             node_key = str(r.get("node_key", "root"))
@@ -121,21 +121,20 @@ def build_postflop_policy(
             actor = "ip" if role.endswith("_IP") else ("oop" if role.endswith("_OOP") else "ip")
             hero_pos = ip_pos if actor == "ip" else oop_pos
 
-            stack_bb = int(round(float(r["effective_stack_bb"])))
-            pot_bb   = float(r["pot_bb"])
-            street   = int(r["street"])
-            ctx      = str(r["ctx"])
+            stack_bb = float(r["effective_stack_bb"])
+            pot_bb = float(r["pot_bb"])
+            street = int(r["street"])
+            ctx = str(r["ctx"])
 
             board_cluster = None
             if use_clusters and "board_cluster_id" in r:
                 board_cluster = int(r["board_cluster_id"])
 
             js = _load_solver_json_local_or_s3(cfg, s3c, s3_key)
-            root = root_node(js)
 
             base_row = {
                 "s3_key": s3_key, "node_key": node_key,
-                "stack_bb": stack_bb, "pot_bb": pot_bb,
+                "stack_bb": int(round(stack_bb)), "pot_bb": pot_bb,
                 "hero_pos": hero_pos, "ip_pos": ip_pos, "oop_pos": oop_pos,
                 "street": street, "ctx": ctx, "actor": actor,
                 "bet_sizing_id": menu_id, "valid": 1,
@@ -143,123 +142,20 @@ def build_postflop_policy(
             if board_cluster is not None:
                 base_row["board_cluster"] = board_cluster
 
-            vec = np.zeros(len(ACTION_VOCAB), dtype=np.float32)
+            # ---- parse with the centralized parser ----
+            cfg_parser = PolicyParseConfig(pot_bb=pot_bb, stack_bb=stack_bb, role=role)
+            result = parser.parse(js, cfg_parser)
 
-            # Root sanity & quick stats
-            root_actions, root_mix = actions_and_mix(root)
-            if (not root_actions) or (not root_mix) or float(sum(root_mix)) <= 0:
-                _emit_or_handle_sentinel(base_row, "zero_mass_root", {"s3_key": s3_key})
+            if not result.ok:
+                _emit_or_handle_sentinel(base_row, result.debug.get("reason", "parse_fail"), {"s3_key": s3_key})
                 continue
-            if any(str(a).upper().startswith("BET") and root_mix[i] > 0 for i, a in enumerate(root_actions)):
-                counters["root_has_any_bet"] += 1
 
-            # --------- IP at root (aggressor) ----------
-            if role.startswith("PFR") or "AGGRESSOR" in role:
-                acts, mix = extract_ip_root_decision(js)
-                if not acts or not mix:
-                    _emit_or_handle_sentinel(base_row, "zero_mass_root", {"s3_key": s3_key})
-                    continue
-
-                for i, lab in enumerate(acts):
-                    w = float(mix[i])
-                    if w <= 0:
-                        continue
-                    up = str(lab).upper()
-
-                    if is_check(up):
-                        vec[VOCAB_INDEX["CHECK"]] += w
-                    elif is_bet_like(up):
-                        b = bucket_bet_label(up, pot_bb=pot_bb)
-                        vec[VOCAB_INDEX[b]] += w
-                    else:
-                        ch_map = get_children(root)
-                        if not ch_map:
-                            _emit_or_handle_sentinel(base_row, "no_children", {"s3_key": s3_key})
-                            continue
-
-                        any_raise_mass = False
-
-                        # Establish facing bet size in BB
-                        facing_bet_bb = parse_root_bet_size_bb(root_actions, pot_bb)
-                        if not facing_bet_bb:
-                            fb = 0.0
-                            for a in root_actions:
-                                ua = str(a).upper()
-                                if ua.startswith("BET"):
-                                    v = _last_number(ua)
-                                    if v is not None:
-                                        fb = max(fb, float(v))
-                            facing_bet_bb = fb if fb > 0.0 else 1.0
-
-                        # Walk each BET child and collect OOP responses (recursively)
-                        for root_lab, w_root in zip(root_actions, root_mix):
-                            if float(w_root) <= 0:
-                                continue
-                            uroot = str(root_lab).upper()
-                            if not uroot.startswith("BET"):
-                                continue
-
-                            node_bet = _resolve_child(ch_map, root_lab)
-                            if not node_bet or not _is_action_node(node_bet):
-                                continue
-
-                            counters["oop_facing_bet_nodes"] += 1
-
-                            # NEW: recursive collection (includes FOLD, RAISE, ALLIN)
-                            pairs = collect_oop_actions_recursive(
-                                node=node_bet,
-                                weight=float(w_root),
-                                pot_bb=pot_bb,
-                                facing_bet_bb=facing_bet_bb,
-                                stack_bb=stack_bb,
-                                ACTION_VOCAB=ACTION_VOCAB,
-                                VOCAB_INDEX=VOCAB_INDEX,
-                                actions_and_mix=actions_and_mix,
-                                get_children=get_children,
-                                _resolve_child=_resolve_child,
-                                _has_any=_has_any,
-                                parse_raise_to_bb=parse_raise_to_bb,
-                                bucket_raise_label=bucket_raise_label,
-                            )
-
-                            for bucket, mass in pairs:
-                                vec[VOCAB_INDEX[bucket]] += mass
-                                if bucket.startswith("RAISE") or bucket == "ALLIN":
-                                    any_raise_mass = True
-
-                        # (B) OOP after IP CHECK
-                        for i, lab in enumerate(root_actions):
-                            if float(root_mix[i]) <= 0:
-                                continue
-                            if str(lab).upper().startswith("CHECK"):
-                                node = _resolve_child(ch_map, lab)
-                                if not node or not _is_action_node(node):
-                                    continue
-                                n_acts, n_mix = actions_and_mix(node)
-                                if not n_acts or not n_mix:
-                                    continue
-                                for j, a_lab in enumerate(n_acts):
-                                    mass = float(root_mix[i] * n_mix[j])
-                                    if mass <= 0:
-                                        continue
-                                    aup = str(a_lab).upper()
-                                    if aup.startswith("CHECK"):
-                                        vec[VOCAB_INDEX["CHECK"]] += mass
-                                    elif aup.startswith("BET"):
-                                        b = bucket_bet_label(aup, pot_bb=pot_bb)
-                                        vec[VOCAB_INDEX[b]] += mass
-
-                        if any_raise_mass:
-                            counters["rows_with_nonzero_raise_mass"] += 1
-
-
-            # ---- finalize row ----
+            vec = np.asarray(result.vec, dtype=np.float32)
             s = float(vec.sum())
             if s <= 0:
                 _emit_or_handle_sentinel(base_row, "zero_mass_child", {"s3_key": s3_key})
                 continue
 
-            vec /= s
             argmax_action = ACTION_VOCAB[int(vec.argmax())]
             out_row = {
                 **base_row,
@@ -275,29 +171,38 @@ def build_postflop_policy(
             if len(rows_buffer) >= part_rows:
                 flush_part()
 
-        except Exception as e:
+            # optional counters fed by parser.debug (no duplicate logic)
+            dbg = result.debug or {}
+            pres = dbg.get("presence", {})
+            if dbg.get("any_raise"): counters["rows_with_nonzero_raise_mass"] += 1
+            if pres.get("has_raise"): counters["oop_raises_present_in_actions"] += 1
+
+        except Exception:
             if strict_mode == "fail":
                 raise
             elif strict_mode == "emit_sentinel":
-                # minimal sentinel if we had a hard error
+                # minimal sentinel row
                 row = {
-                    "s3_key": str(r.get("s3_key","?")),
-                    "node_key": str(r.get("node_key","root")),
+                    "s3_key": (base_row or {}).get("s3_key", str(r.get("s3_key", "?"))),
+                    "node_key": (base_row or {}).get("node_key", str(r.get("node_key", "root"))),
                     "stack_bb": int(round(float(r.get("effective_stack_bb", 0)))),
                     "pot_bb": float(r.get("pot_bb", 0.0)),
-                    "hero_pos": "",
-                    "ip_pos": "", "oop_pos": "",
+                    "hero_pos": (base_row or {}).get("hero_pos", ""),
+                    "ip_pos": (base_row or {}).get("ip_pos", ""),
+                    "oop_pos": (base_row or {}).get("oop_pos", ""),
                     "street": int(r.get("street", 1)),
-                    "ctx": str(r.get("ctx","")),
-                    "actor": "",
-                    "bet_sizing_id": str(r.get("bet_sizing_id","")),
+                    "ctx": str(r.get("ctx", "")),
+                    "actor": (base_row or {}).get("actor", ""),
+                    "bet_sizing_id": str(r.get("bet_sizing_id", "")),
                     "valid": 0,
                     "weight": 0.0,
                     "action": "CHECK",
                 }
-                for a in ACTION_VOCAB: row[a] = 0.0
-                rows_buffer.append(row); diag["sentinel"] += 1
-            # 'skip' → ignore
+                for a in ACTION_VOCAB:
+                    row[a] = 0.0
+                rows_buffer.append(row)
+                diag["sentinel"] += 1
+            # strict_mode == 'skip' → just drop the row and continue
 
     flush_part()
     if dump_fh: dump_fh.close()
