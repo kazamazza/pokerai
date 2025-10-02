@@ -7,7 +7,7 @@ ACTION_VOCAB = [
     "FOLD","CHECK","CALL",
     "BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
     "DONK_33",
-    "RAISE_150","RAISE_200","RAISE_300",
+    "RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500",
     "ALLIN",
 ]
 VOCAB_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}

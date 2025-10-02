@@ -121,10 +121,15 @@ def _bucket_bet_pct(pct: Optional[float]) -> Optional[str]:
     if 90 <= p <= 110: return "BET_100"
     return None
 
-_TARGETS = [1.5, 2.0, 3.0]
+_TARGETS = [1.5, 2.0, 3.0, 4.0, 5.0]
+
 def _nearest_raise_label(rb: float) -> str:
     t = min(_TARGETS, key=lambda x: abs(rb - x))
-    return "RAISE_150" if t == 1.5 else ("RAISE_200" if t == 2.0 else "RAISE_300")
+    if t == 1.5: return "RAISE_150"
+    if t == 2.0: return "RAISE_200"
+    if t == 3.0: return "RAISE_300"
+    if t == 4.0: return "RAISE_400"
+    return "RAISE_500"
 
 def _infer_facing(menu_pcts: Sequence[float], pot_before: float, raise_to_bb: Optional[float]) -> float:
     if not menu_pcts or raise_to_bb is None or not math.isfinite(raise_to_bb):

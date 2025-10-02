@@ -30,6 +30,7 @@ data/preflop/
 data/rangenet/
 data/ranges/
 data/solver_cache
+data/solver
 postflop/strategy_templates/
 infra/terraform/terraform.tfvars
 debug_cmds
