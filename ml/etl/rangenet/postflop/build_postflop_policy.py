@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 import dotenv
 
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -15,6 +14,7 @@ from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
      _stable_shard_index, _get
 from ml.models.policy_consts import ACTION_VOCAB
+from ml.etl.rangenet.postflop.solver_policy_kinds import ScenarioParseKind
 
 dotenv.load_dotenv()
 
@@ -106,7 +106,6 @@ def build_postflop_policy(
         return json.loads(b.decode("utf-8"))
 
     parser = SolverPolicyParser()
-    parser = SolverPolicyParser()
 
     for _, r in tqdm(df.iterrows(), total=len(df), desc="Building postflop policy"):
         # keep base_row defined outside try so it's available in except
@@ -116,9 +115,22 @@ def build_postflop_policy(
             node_key = str(r.get("node_key", "root"))
 
             ip_pos, oop_pos = _split_positions(str(r.get("positions", "")))
+            scenario = str(r.get("scenario", "")).upper()
+
+            # choose parser role by scenario (NOT by bet_sizing_id)
+            if scenario in {"SRP_OOP", "VS_3BET_OOP"}:
+                role = "Aggressor_OOP"  # collect OOP responses vs IP bet
+            elif scenario in {"VS_4BET"}:
+                role = "Aggressor_OOP"  # keep 4bet tiny; train OOP side
+            else:
+                # SRP_IP, VS_3BET_IP, LIMPED_SINGLE, LIMPED_MULTI → IP acts at root
+                role = "PFR_IP"
+
+            # (keep menu_id just for bookkeeping; it does NOT control role)
             menu_id = str(r.get("bet_sizing_id", "") or "")
-            role = _role_from_menu(menu_id).upper()
-            actor = "ip" if role.endswith("_IP") else ("oop" if role.endswith("_OOP") else "ip")
+
+            # recompute actor/hero_pos from role
+            actor = "ip" if role.endswith("_IP") else "oop"
             hero_pos = ip_pos if actor == "ip" else oop_pos
 
             stack_bb = float(r["effective_stack_bb"])
@@ -143,7 +155,22 @@ def build_postflop_policy(
                 base_row["board_cluster"] = board_cluster
 
             # ---- parse with the centralized parser ----
-            cfg_parser = PolicyParseConfig(pot_bb=pot_bb, stack_bb=stack_bb, role=role)
+            scenario = str(r.get("scenario", "")).upper()
+
+            force_kind = None
+            if scenario in {"SRP_OOP", "VS_3BET_OOP"}:
+                # root actor is IP; we want OOP responses vs that root bet
+                force_kind = ScenarioParseKind.OOP_VS_IP_ROOT_BET
+            elif scenario == "LIMPED_SINGLE" and role == "SB_IP":
+                force_kind = ScenarioParseKind.LIMPed_SB_IP
+
+            cfg_parser = PolicyParseConfig(
+                pot_bb=pot_bb,
+                stack_bb=stack_bb,
+                role=role,  # e.g. PFR_IP / Aggressor_OOP / SB_IP
+                parse_kind=force_kind  # <-- this is the key line
+            )
+
             result = parser.parse(js, cfg_parser)
 
             if not result.ok:

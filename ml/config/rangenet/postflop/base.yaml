@@ -3,6 +3,7 @@ inputs:
   monker_manifest: data/artifacts/monker_manifest.parquet
   sph_manifest:    data/artifacts/sph_manifest.parquet
   vendor_s3_prefix: data/vendor
+  manifest: data/artifacts/manifest_debug_srp_oop.parquet
 
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke

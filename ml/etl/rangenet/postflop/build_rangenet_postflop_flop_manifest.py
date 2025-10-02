@@ -28,6 +28,18 @@ OPEN_X = {"UTG": 3.0, "HJ": 2.5, "CO": 2.5, "BTN": 2.5, "SB": 3.0}
 THREEBET_X = {"IP": 7.5, "OOP": 9.0}  # final 3bet size
 FOURBET_X = 24.0                      # final 4bet size
 
+# Exact ids your BET_SIZE_MENUS exposes
+MENU_TAG_TO_ID = {
+    "srp_ip":    "srp_hu.PFR_IP",
+    "srp_oop":   "srp_hu.Caller_OOP",  # OOP caller (donk after check line)
+    "3bet_ip":   "3bet_hu.Aggressor_IP",
+    "3bet_oop":  "3bet_hu.Aggressor_OOP",
+    "4bet_ip":   "4bet_hu.Aggressor_IP",
+    "4bet_oop":  "4bet_hu.Aggressor_OOP",
+    "limp":      "limped_single.SB_IP",
+    "limp_multi":"limped_multi.Any",
+}
+
 # =========================
 # Helpers: ctx + topology
 # =========================
@@ -146,43 +158,35 @@ def _compute_pot_bb(ctx: str, opener: Optional[str], ip: str, three_bettor: Opti
 # =========================
 # Menu binding (topology+roles)
 # =========================
-def _menu_for(
-    ctx: str,
-    ip: str,
-    oop: str,
-    opener: Optional[str],
-    three_bettor: Optional[str],
-) -> Tuple[str, List[float]]:
+def _menu_for(ctx, ip, oop, opener, three_bettor, menu_tag: str | None = None):
     topo, opener_h, three_h = _infer_topology_and_roles(ctx, ip, oop)
 
-    # Ask the mapper
+    # 1) explicit tag wins
+    if menu_tag:
+        tag = str(menu_tag).strip().lower()
+        menu_id = MENU_TAG_TO_ID.get(tag)
+        if not menu_id:
+            raise ValueError(f"Unknown bet_menus tag '{menu_tag}'")
+        if menu_id not in BET_SIZE_MENUS:
+            raise ValueError(f"Menu id '{menu_id}' from tag '{menu_tag}' not in BET_SIZE_MENUS")
+        return menu_id, BET_SIZE_MENUS[menu_id]
+
+    # 2) fall back to inference (unchanged)
     menu_id = expected_menu_id(
         topo=topo,
         ip=canon_pos(ip),
         oop=canon_pos(oop),
-        opener=opener or opener_h,
-        three_bettor=three_bettor or three_h,
+        opener=(opener or opener_h),
+        three_bettor=(three_bettor or three_h),
     )
-
-    # ---- explicit context fallbacks (no silent SRP default) ----
     if not menu_id:
-        if topo == "limped_multi":
-            menu_id = "limped_multi.Any"
-        elif topo == "limped_single":
-            # HU limp: SB is IP vs BB
-            menu_id = "limped_single.SB_IP"
+        if topo == "limped_multi": menu_id = "limped_multi.Any"
+        elif topo == "limped_single": menu_id = "limped_single.SB_IP"
         else:
-            raise ValueError(
-                f"Cannot derive bet_sizing_id for ctx={ctx} topo={topo} ip={ip} oop={oop} "
-                f"(opener={opener or opener_h}, 3bettor={three_bettor or three_h})"
-            )
-
-    # Hard guard: the id must exist
+            raise ValueError(f"Cannot derive bet_sizing_id for ctx={ctx} topo={topo} ip={ip} oop={oop}")
     if menu_id not in BET_SIZE_MENUS:
-        raise ValueError(f"Unknown bet_sizing_id '{menu_id}' for ctx={ctx} topo={topo} ip={ip} oop={oop}")
-
-    sizes = BET_SIZE_MENUS[menu_id]
-    return menu_id, sizes
+        raise ValueError(f"Unknown bet_sizing_id '{menu_id}'")
+    return menu_id, BET_SIZE_MENUS[menu_id]
 
 # =========================
 # Builder

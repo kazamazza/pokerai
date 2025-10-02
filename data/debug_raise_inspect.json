@@ -1,0 +1,138 @@
+{
+  "3bet_hu.Aggressor_IP.json.gz": {
+    "file": "3bet_hu.Aggressor_IP.json.gz",
+    "count": 2,
+    "samples": [
+      {
+        "path": "BET 5.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      },
+      {
+        "path": "CHECK / BET 5.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      }
+    ]
+  },
+  "3bet_hu.Aggressor_OOP.json.gz": {
+    "file": "3bet_hu.Aggressor_OOP.json.gz",
+    "count": 2,
+    "samples": [
+      {
+        "path": "BET 6.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      },
+      {
+        "path": "CHECK / BET 6.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      }
+    ]
+  },
+  "4bet_hu.Aggressor_IP.json.gz": {
+    "file": "4bet_hu.Aggressor_IP.json.gz",
+    "count": 0,
+    "samples": []
+  },
+  "4bet_hu.Aggressor_OOP.json.gz": {
+    "file": "4bet_hu.Aggressor_OOP.json.gz",
+    "count": 0,
+    "samples": []
+  },
+  "limped_multi.Any.json.gz": {
+    "file": "limped_multi.Any.json.gz",
+    "count": 0,
+    "samples": []
+  },
+  "limped_single.SB_IP.json.gz": {
+    "file": "limped_single.SB_IP.json.gz",
+    "count": 0,
+    "samples": []
+  },
+  "srp_hu.PFR_IP.json.gz": {
+    "file": "srp_hu.PFR_IP.json.gz",
+    "count": 3,
+    "samples": [
+      {
+        "path": "BET 2.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      },
+      {
+        "path": "BET 5.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      },
+      {
+        "path": "CHECK / BET 2.000000 / RAISE 25.000000",
+        "label": "RAISE 25.000000",
+        "parent": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        },
+        "child": {
+          "pots": {},
+          "faces": {},
+          "keys": []
+        }
+      }
+    ]
+  }
+}

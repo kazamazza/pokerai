@@ -1,0 +1,182 @@
+{
+  "3bet_hu.Aggressor_IP.json.gz": {
+    "pot": 24.0,
+    "stack": 100.0,
+    "menu_id": "3bet_hu.Aggressor_IP",
+    "menu_pcts": [
+      0.33,
+      0.66
+    ],
+    "probs": {
+      "CHECK": 0.16666666666666666,
+      "CALL": 0.5,
+      "BET_100": 0.16666666666666666,
+      "RAISE_300": 0.16666666666666666
+    },
+    "meta": {
+      "total_actions": 12,
+      "raises_seen": [
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 5.0,
+          "ratio_rb": 5.0,
+          "ratio_pot": 0.862
+        },
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 5.0,
+          "ratio_rb": 5.0,
+          "ratio_pot": 0.862
+        }
+      ]
+    }
+  },
+  "3bet_hu.Aggressor_OOP.json.gz": {
+    "pot": 24.0,
+    "stack": 100.0,
+    "menu_id": "3bet_hu.Aggressor_OOP",
+    "menu_pcts": [
+      0.33,
+      0.66
+    ],
+    "probs": {
+      "CHECK": 0.14285714285714285,
+      "CALL": 0.42857142857142855,
+      "BET_25": 0.14285714285714285,
+      "BET_100": 0.14285714285714285,
+      "RAISE_300": 0.14285714285714285
+    },
+    "meta": {
+      "total_actions": 14,
+      "raises_seen": [
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 6.0,
+          "ratio_rb": 4.167,
+          "ratio_pot": 0.833
+        },
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 6.0,
+          "ratio_rb": 4.167,
+          "ratio_pot": 0.833
+        }
+      ]
+    }
+  },
+  "4bet_hu.Aggressor_IP.json.gz": {
+    "pot": 48.0,
+    "stack": 100.0,
+    "menu_id": "4bet_hu.Aggressor_IP",
+    "menu_pcts": [
+      0.33
+    ],
+    "probs": {
+      "CHECK": 0.5,
+      "CALL": 0.5
+    },
+    "meta": {
+      "total_actions": 4,
+      "raises_seen": []
+    }
+  },
+  "4bet_hu.Aggressor_OOP.json.gz": {
+    "pot": 48.0,
+    "stack": 100.0,
+    "menu_id": "4bet_hu.Aggressor_OOP",
+    "menu_pcts": [
+      0.33
+    ],
+    "probs": {
+      "CHECK": 0.5,
+      "CALL": 0.5
+    },
+    "meta": {
+      "total_actions": 4,
+      "raises_seen": []
+    }
+  },
+  "limped_multi.Any.json.gz": {
+    "pot": 3.5,
+    "stack": 100.0,
+    "menu_id": "limped_multi.Any",
+    "menu_pcts": [
+      0.33
+    ],
+    "probs": {
+      "CHECK": 0.5,
+      "CALL": 0.5
+    },
+    "meta": {
+      "total_actions": 4,
+      "raises_seen": []
+    }
+  },
+  "limped_single.SB_IP.json.gz": {
+    "pot": 3.5,
+    "stack": 100.0,
+    "menu_id": "limped_single.SB_IP",
+    "menu_pcts": [
+      0.33
+    ],
+    "probs": {
+      "CHECK": 0.5,
+      "CALL": 0.5
+    },
+    "meta": {
+      "total_actions": 4,
+      "raises_seen": []
+    }
+  },
+  "srp_hu.PFR_IP.json.gz": {
+    "pot": 28.0,
+    "stack": 100.0,
+    "menu_id": "srp_hu.PFR_IP",
+    "menu_pcts": [
+      0.33,
+      0.66
+    ],
+    "probs": {
+      "CHECK": 0.125,
+      "CALL": 0.625,
+      "RAISE_300": 0.25
+    },
+    "meta": {
+      "total_actions": 16,
+      "raises_seen": [
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 2.0,
+          "ratio_rb": 12.5,
+          "ratio_pot": 0.833
+        },
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 5.0,
+          "ratio_rb": 5.0,
+          "ratio_pot": 0.758
+        },
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 2.0,
+          "ratio_rb": 12.5,
+          "ratio_pot": 0.833
+        },
+        {
+          "label": "RAISE 25.000000",
+          "raise_to_bb": 25.0,
+          "facing_bet_bb": 5.0,
+          "ratio_rb": 5.0,
+          "ratio_pot": 0.758
+        }
+      ]
+    }
+  }
+}

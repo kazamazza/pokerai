@@ -2,28 +2,22 @@ from typing import Dict, List, Tuple, Optional, Literal
 
 # -------- Betting menus (unchanged bets; adjusted raises) --------
 # Aggressors get two bet sizes; OOP caller may donk one size.
-BET_SIZE_MENUS: Dict[str, List[float]] = {
+BET_SIZE_MENUS = {
     # SRP
     "srp_hu.PFR_IP":      [0.33, 0.66],
-    "srp_hu.PFR_OOP":     [0.33, 0.66],
-    "srp_hu.Caller_IP":   [0.33, 0.66],
-    "srp_hu.Caller_OOP":  [0.33],        # donk single size
+    "srp_hu.Caller_OOP":  [0.33],        # donk single size; OOP responses vs IP c-bet
 
     # 3-bet HU
     "3bet_hu.Aggressor_IP":  [0.33, 0.66],
     "3bet_hu.Aggressor_OOP": [0.33, 0.66],
-    "3bet_hu.Caller_IP":     [0.33],
-    "3bet_hu.Caller_OOP":    [0.33],     # donk single size if OOP caller
 
     # 4-bet HU (keep tiny)
     "4bet_hu.Aggressor_IP":  [0.33],
     "4bet_hu.Aggressor_OOP": [0.33],
-    "4bet_hu.Caller_IP":     [0.33],
-    "4bet_hu.Caller_OOP":    [0.33],
 
     # Limped
-    "limped_single.SB_IP": [0.33],       # SB limped HU: OOP may donk (single size)
-    "limped_multi.Any":    [0.33],       # symmetric, no donk key
+    "limped_single.SB_IP": [0.33],
+    "limped_multi.Any":    [0.33],
 }
 
 DEFAULT_MENU = [0.33]

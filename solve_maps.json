@@ -1,0 +1,324 @@
+{
+  "3bet_hu.Aggressor_IP.json": {
+    "entries": [
+      {
+        "captures_raise": true,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": true
+    }
+  },
+  "3bet_hu.Aggressor_OOP.json": {
+    "entries": [
+      {
+        "captures_raise": true,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": true
+    }
+  },
+  "4bet_hu.Aggressor_IP.json": {
+    "entries": [
+      {
+        "captures_raise": false,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": false
+    }
+  },
+  "4bet_hu.Aggressor_OOP.json": {
+    "entries": [
+      {
+        "captures_raise": false,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": false
+    }
+  },
+  "limped_multi.Any.json": {
+    "entries": [
+      {
+        "captures_raise": false,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": false
+    }
+  },
+  "limped_single.SB_IP.json": {
+    "entries": [
+      {
+        "captures_raise": false,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": false,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": false
+    }
+  },
+  "srp_hu.PFR_IP.json": {
+    "entries": [
+      {
+        "captures_raise": true,
+        "facing_source": null,
+        "nodes": "root",
+        "pattern_id": "ROOT_OOP_DONK"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet",
+        "nodes": "root->bet_child",
+        "pattern_id": "ROOT_IP_BETS"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet",
+        "nodes": "root->check_child->bet_child",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_oop_donk_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_OOP_DONK_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "root_ip_bet_deep",
+        "nodes": "root->bet_child(deep)",
+        "pattern_id": "ROOT_IP_BETS_DEEP"
+      },
+      {
+        "captures_raise": true,
+        "facing_source": "check->ip_bet_deep",
+        "nodes": "root->check_child->bet_child(deep)",
+        "pattern_id": "OOP_CHECK_THEN_IP_BET_DEEP"
+      }
+    ],
+    "presence": {
+      "has_allin": false,
+      "has_call": true,
+      "has_fold": true,
+      "has_raise": true
+    }
+  }
+}

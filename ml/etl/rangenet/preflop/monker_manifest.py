@@ -255,40 +255,50 @@ def derive_ip_oop(topo: str, opener: Optional[str], three_bettor: Optional[str],
     return None, None
 
 # ---------- expected menu label (audit only) ----------
-def expected_menu_id(
-    topo: str,
-    ip: Optional[str],
-    oop: Optional[str],
-    opener: Optional[str],
-    three_bettor: Optional[str],
-) -> Optional[str]:
-    """
-    Assign a canonical menu ID based on topology and role.
-    These IDs must match exactly with keys in BET_SIZE_MENUS.
-    """
+def expected_menu_id(*, topo: str, ip: str, oop: str, opener: Optional[str], three_bettor: Optional[str]) -> str:
+    topo = (topo or "").lower()
+    ip, oop = (ip or "").upper(), (oop or "").upper()
+    opener = (opener or "").upper()
+    three_bettor = (three_bettor or "").upper()
+
+    # --- SRP (VS_OPEN / BvS / SRP) ---
     if topo == "srp_hu":
-        if opener and ip:
-            return "srp_hu.PFR_IP" if opener == ip else "srp_hu.PFR_OOP"
-        return "srp_hu.unknown"
+        if opener == ip:
+            # IP opened → IP is PFR at root
+            return "srp_hu.PFR_IP"
+        elif opener == oop:
+            # OOP opened → OOP is PFR at root
+            return "srp_hu.PFR_OOP"
+        else:
+            # If opener not resolved, choose by actor: default to IP PFR, but
+            # when we explicitly want caller-OOP data (SRP_OOP scenario),
+            # the caller is OOP, so give them the donk menu.
+            # Heuristic: if opener != ip and opener != oop → assume OOP is caller.
+            return "srp_hu.Caller_OOP"
 
+    # --- 3-bet HU ---
     if topo == "3bet_hu":
-        if three_bettor and oop and three_bettor == oop:
-            return "3bet_hu.Aggressor_OOP"
-        if three_bettor and ip and three_bettor == ip:
+        if three_bettor == ip:
             return "3bet_hu.Aggressor_IP"
-        return "3bet_hu.unknown"
+        elif three_bettor == oop:
+            return "3bet_hu.Aggressor_OOP"
+        # fallback (rare): default to OOP aggressor
+        return "3bet_hu.Aggressor_OOP"
 
+    # --- 4-bet HU ---
     if topo == "4bet_hu":
-        if three_bettor and oop and three_bettor == oop:
-            return "4bet_hu.Aggressor_OOP"
-        if three_bettor and ip and three_bettor == ip:
-            return "4bet_hu.Aggressor_IP"
-        return "4bet_hu.unknown"
+        # We train vs 4-bettor; keep menus on aggressor only
+        # Use positions to decide aggressor side if needed; default to OOP to keep trees tiny
+        return "4bet_hu.Aggressor_OOP" if oop in {"SB","BB"} else "4bet_hu.Aggressor_IP"
 
+    # --- Limped ---
     if topo == "limped_single":
         return "limped_single.SB_IP"
+    if topo == "limped_multi":
+        return "limped_multi.Any"
 
-    return None
+    # default
+    return "srp_hu.PFR_IP"
 
 # ---------- scanner ----------
 def scan_monker(root: Path, rake_tier: str = "nl10_5pct_1bbcap") -> pd.DataFrame:
