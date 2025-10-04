@@ -1,7 +1,4 @@
 from __future__ import annotations
-
-import gzip
-import io
 import json
 import sys
 from pathlib import Path
@@ -10,10 +7,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
-from ml.etl.rangenet.postflop.solver_policy_parser import parse_solver_file
+from ml.etl.rangenet.postflop.solver_policy_parser import parse_solver_file, FocusMode
 from infra.storage.s3_client import S3Client
 from pathlib import Path
 from typing import Any, Optional, Mapping
@@ -21,9 +19,27 @@ from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
      _stable_shard_index, _get
 from ml.models.policy_consts import ACTION_VOCAB
-
+from ml.config.bet_menus import BET_SIZE_MENUS
 
 dotenv.load_dotenv()
+
+def _auto_focus(menu_id: str) -> str:
+    """Pick facing extraction per menu. Default: OOP vs IP root bet."""
+    if (menu_id or "").strip() == "srp_hu.Caller_OOP":
+        return FocusMode.IP_VS_OOP_DONK
+    return FocusMode.OOP_VS_IP_ROOT_BET
+
+def _normalize_s3_key(s3_key: Any) -> str:
+    # Unwrap dicts until we get a string
+    while isinstance(s3_key, dict):
+        if "path" in s3_key:
+            s3_key = s3_key["path"]
+        elif "key" in s3_key:
+            s3_key = s3_key["key"]
+        else:
+            # just take first value
+            s3_key = next(iter(s3_key.values()))
+    return str(s3_key)
 
 def build_postflop_policy(
     manifest_path: Path,
@@ -54,7 +70,7 @@ def build_postflop_policy(
         if dump_fh:
             dump_fh.write(json.dumps({"reason": reason, **base_row}) + "\n")
         if strict_mode == "fail":
-            raise RuntimeError(f"{reason}: {base_row.get('s3_key','?')}")
+            raise RuntimeError(f"{reason}: {str(base_row.get('s3_key', '?'))}")
         elif strict_mode in {"emit_sentinel", "skip"}:
             row = {**base_row, "valid": 0, "weight": 0.0, "action": "CHECK"}
             for a in ACTION_VOCAB:
@@ -81,21 +97,28 @@ def build_postflop_policy(
         parts_written += 1
         rows_buffer = []
 
-    def _load_solver_json(cfg: Mapping[str, Any], s3_key: str) -> dict:
-        local_path = _cache_path_for_key(cfg, s3_key)
-        if not local_path.is_file():
-            _retry(lambda: s3c.download_file_if_missing(s3_key, local_path))
-        b = local_path.read_bytes()
-        if local_path.suffix == ".gz" or (len(b) >= 2 and b[:2] == b"\x1f\x8b"):
-            with gzip.GzipFile(fileobj=io.BytesIO(b)) as gz:
-                return json.loads(gz.read().decode("utf-8"))
-        return json.loads(b.decode("utf-8"))
+    def _resolve_solver_path(cfg: Mapping[str, Any], s3_key: Any) -> Path:
+        """Return a local filesystem path for the given s3_key.
+        1) Try inputs.local_solver_dir + s3_key
+        2) Fall back to cache path (which may download if missing, depending on your cache impl)
+        """
+        s3_key = _normalize_s3_key(s3_key)
+        local_dir = _get(cfg, "inputs.local_solver_dir", None)
+        if local_dir:
+            p = Path(local_dir) / Path(s3_key)
+            if p.is_file():
+                return p
+            # Optional: warn once if not found locally
+            print(f"[warn] not found locally, will fall back to cache: {p}")
+
+        return _cache_path_for_key(cfg, s3_key)
 
     # === Loop rows ===
     for _, r in tqdm(df.iterrows(), total=len(df), desc="Building postflop policy"):
         base_row = None
         try:
-            s3_key = str(r["s3_key"])
+            raw_key = r["s3_key"]
+            s3_key = _normalize_s3_key(raw_key)
             node_key = str(r.get("node_key", "root"))
             ip_pos, oop_pos = _split_positions(str(r.get("positions", "")))
             stack_bb = float(r["effective_stack_bb"])
@@ -104,18 +127,50 @@ def build_postflop_policy(
             ctx = str(r["ctx"])
             menu_id = str(r.get("bet_sizing_id", ""))
 
-            js = _load_solver_json(cfg, s3_key)
+            solver_path = _resolve_solver_path(cfg, s3_key)
 
             base_row = {
-                "s3_key": s3_key, "node_key": node_key,
+                 "s3_key": _normalize_s3_key(s3_key), "node_key": node_key,
                 "stack_bb": int(round(stack_bb)), "pot_bb": pot_bb,
                 "ip_pos": ip_pos, "oop_pos": oop_pos,
                 "street": street, "ctx": ctx,
                 "bet_sizing_id": menu_id, "valid": 1,
             }
 
-            # ---- Parse with new parser ----
-            probs, meta = parse_solver_file(js, pot_bb=pot_bb, stack_bb=stack_bb)
+            # === inside the build loop, replace your current parse call ===
+            menu_id = str(r.get("bet_sizing_id", "") or "")
+            menu_pcts = tuple(BET_SIZE_MENUS.get(menu_id, (0.33,)))  # safe fallback
+
+            # Resolve local solver path as you already do -> solver_path
+            focus = _auto_focus(menu_id)
+
+            # Try facing extraction first (to surface FOLD); fallback to ROOT on any issue
+            try:
+                probs, meta = parse_solver_file(
+                    str(solver_path),
+                    pot_bb=pot_bb,
+                    stack_bb=stack_bb,
+                    menu_pcts=menu_pcts,
+                    focus=focus,  # facing mode (per-row)
+                )
+                # If facing extractor returned empty/zero (defensive), fallback to ROOT
+                if not probs or sum(probs.values()) <= 0:
+                    probs, meta = parse_solver_file(
+                        str(solver_path),
+                        pot_bb=pot_bb,
+                        stack_bb=stack_bb,
+                        menu_pcts=menu_pcts,
+                        focus=None,  # ROOT (baseline)
+                    )
+            except Exception:
+                # Hard fallback to ROOT if any parsing issue
+                probs, meta = parse_solver_file(
+                    str(solver_path),
+                    pot_bb=pot_bb,
+                    stack_bb=stack_bb,
+                    menu_pcts=menu_pcts,
+                    focus=None,  # ROOT (baseline)
+                )
 
             if not probs or sum(probs.values()) <= 0:
                 _emit_sentinel(base_row, "zero_mass")

@@ -3,7 +3,8 @@ from typing import Dict, List, Tuple, Optional, Literal
 # -------- Betting menus (unchanged bets; adjusted raises) --------
 # Aggressors get two bet sizes; OOP caller may donk one size.
 BET_SIZE_MENUS = {
-    # SRP
+
+   # SRP
     "srp_hu.PFR_IP":      [0.33, 0.66],
     "srp_hu.Caller_OOP":  [0.33],        # donk single size; OOP responses vs IP c-bet
 
@@ -19,7 +20,6 @@ BET_SIZE_MENUS = {
     "limped_single.SB_IP": [0.33],
     "limped_multi.Any":    [0.33],
 }
-
 DEFAULT_MENU = [0.33]
 
 # -------- Critical: legal flop raise ladder --------

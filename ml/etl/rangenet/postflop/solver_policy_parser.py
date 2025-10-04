@@ -1,17 +1,12 @@
-import gzip
-import json
 import math
-import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ml.models.policy_consts import VOCAB_INDEX, VOCAB_SIZE, ACTION_VOCAB
-
-# ---- Regexes ----
-BET_PCT_RE   = re.compile(r"\bbet\b\s*([0-9]+(?:\.[0-9]+)?)\s*%+", re.IGNORECASE)
-BET_NUM_RE   = re.compile(r"\bbet\b\s*([0-9]+(?:\.[0-9]+)?)\b", re.IGNORECASE)  # absolute bb (no %)
-RAISE_NUM_RE = re.compile(r"\braise(?:\s*to)?\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+from ml.etl.rangenet.postflop.utils import get_children, _extract_state_from_node, _bump, parse_bet_pct, \
+    parse_bet_amount_bb, _bucket_bet_pct, parse_raise_to_bb, _infer_facing, _bucket_raise, action_list, root_node, \
+    _first_label_containing, _compute_facing_from_label, _bump_vec, load_solver
+from ml.models.policy_consts import VOCAB_SIZE, ACTION_VOCAB
 
 FOLD_RE  = re.compile(r"\bfold\b", re.IGNORECASE)
 CALL_RE  = re.compile(r"\bcall\b", re.IGNORECASE)
@@ -22,134 +17,6 @@ ALLIN_RE = re.compile(r"\ball[-\s]*in\b|\bjam\b", re.IGNORECASE)
 
 Json = Dict[str, Any]
 
-# ---- IO ----
-def load_solver(path: str) -> Json:
-    if path.endswith(".gz"):
-        with gzip.open(path, "rb") as f:
-            return json.loads(f.read().decode("utf-8"))
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def root_node(payload: Json) -> Json:
-    for key in ("root","node","game_tree","tree","payload"):
-        v = payload.get(key)
-        if isinstance(v, dict): return v
-    return payload
-
-# ---- Tree utils ----
-def _child_container(node: Json):
-    for key in ("children","childrens","nodes"):
-        v = node.get(key)
-        if isinstance(v, list): return "list", v
-        if isinstance(v, dict): return "dict", v
-    return None, None
-
-def get_children(node: Json) -> Dict[str, Json]:
-    kind, cont = _child_container(node)
-    if kind == "list":
-        out: Dict[str, Json] = {}
-        for ch in cont:  # type: ignore
-            if isinstance(ch, dict):
-                lab = ch.get("action") or ch.get("label") or ch.get("name")
-                if isinstance(lab, str): out[lab] = ch
-        return out
-    if kind == "dict":
-        return {str(k):v for k,v in cont.items() if isinstance(v, dict)}  # type: ignore
-    return {}
-
-def action_list(node: Json) -> List[str]:
-    for key in ("actions","available_actions","menu"):
-        v = node.get(key)
-        if isinstance(v, list) and all(isinstance(x, str) for x in v):
-            return v  # type: ignore
-    return list(get_children(node).keys())
-
-# ---- Optional: extract pot/facing (not present in your dumps; harmless) ----
-_NUMERIC_KEYS_POT  = ["pot_bb","total_pot_bb","pot","total_pot","round_pot","potSize","pot_size","current_pot"]
-_NUMERIC_KEYS_FACE = ["to_call","call_amount","facing_bet_bb","facing_bet","amount_to_call","last_bet","bet_to_call"]
-
-def _pick_number(d: Dict[str, Any], keys: List[str]) -> Optional[float]:
-    for k in keys:
-        if k in d:
-            try:
-                v = float(d[k])
-                if math.isfinite(v): return v
-            except Exception:
-                pass
-    return None
-
-def _extract_state_from_node(node: Json) -> Tuple[Optional[float], Optional[float]]:
-    objs = [node]
-    for k in ("state","info","stats","meta","ctx","context"):
-        v = node.get(k)
-        if isinstance(v, dict): objs.append(v)
-    pot = face = None
-    for obj in objs:
-        pot  = pot  or _pick_number(obj, _NUMERIC_KEYS_POT)
-        face = face or _pick_number(obj, _NUMERIC_KEYS_FACE)
-    return pot, face
-
-# ---- Label parsing ----
-def parse_bet_pct(label: str) -> Optional[float]:
-    m = BET_PCT_RE.search(label);
-    if not m: return None
-    try: return float(m.group(1))
-    except ValueError: return None
-
-def parse_bet_amount_bb(label: str) -> Optional[float]:
-    if "%" in label: return None
-    m = BET_NUM_RE.search(label)
-    if not m: return None
-    try: return float(m.group(1))
-    except ValueError: return None
-
-def parse_raise_to_bb(label: str) -> Optional[float]:
-    m = RAISE_NUM_RE.search(label)
-    if not m: return None
-    try: return float(m.group(1))
-    except ValueError: return None
-
-# ---- Bucketing ----
-def _bucket_bet_pct(pct: Optional[float]) -> Optional[str]:
-    if pct is None: return None
-    p = round(pct)
-    if 22 <= p <= 28: return "BET_25"
-    if 29 <= p <= 37: return "BET_33"
-    if 45 <= p <= 55: return "BET_50"
-    if 60 <= p <= 70: return "BET_66"
-    if 71 <= p <= 80: return "BET_75"
-    if 90 <= p <= 110: return "BET_100"
-    return None
-
-_TARGETS = [1.5, 2.0, 3.0, 4.0, 5.0]
-
-def _nearest_raise_label(rb: float) -> str:
-    t = min(_TARGETS, key=lambda x: abs(rb - x))
-    if t == 1.5: return "RAISE_150"
-    if t == 2.0: return "RAISE_200"
-    if t == 3.0: return "RAISE_300"
-    if t == 4.0: return "RAISE_400"
-    return "RAISE_500"
-
-def _infer_facing(menu_pcts: Sequence[float], pot_before: float, raise_to_bb: Optional[float]) -> float:
-    if not menu_pcts or raise_to_bb is None or not math.isfinite(raise_to_bb):
-        return 0.33 * pot_before
-    best = None
-    for p in menu_pcts:
-        face = p * pot_before
-        rb = raise_to_bb / max(face, 1e-6)
-        score = min(abs(rb - t) for t in _TARGETS)
-        if best is None or score < best[0]:
-            best = (score, face)
-    return best[1] if best else 0.33 * pot_before
-
-def _bucket_raise(raise_to_bb: Optional[float], facing_bet_bb: float, pot_before: float, stack_bb: float) -> str:
-    if raise_to_bb is None or not math.isfinite(raise_to_bb): return "RAISE_200"
-    if raise_to_bb >= (stack_bb - 0.5): return "ALLIN"
-    rb = raise_to_bb / max(facing_bet_bb, 1e-6)
-    return _nearest_raise_label(rb)
-
-# ---- DFS ----
 @dataclass
 class State:
     pot_bb: float
@@ -157,9 +24,10 @@ class State:
     stack_bb: float
     menu_pcts: Sequence[float]
 
-def _bump(counts: List[float], tok: str, inc: float = 1.0) -> None:
-    i = VOCAB_INDEX.get(tok)
-    if i is not None: counts[i] += inc
+class FocusMode:
+    ROOT = "ROOT"
+    OOP_VS_IP_ROOT_BET = "OOP_VS_IP_ROOT_BET"
+    IP_VS_OOP_DONK     = "IP_VS_OOP_DONK"
 
 def _dfs(node: Json, counts: List[float], st: State, depth: int, max_depth: int,
          raises_log: List[Tuple[str, float, float, float, float]]) -> None:
@@ -173,6 +41,20 @@ def _dfs(node: Json, counts: List[float], st: State, depth: int, max_depth: int,
         stack_bb = st.stack_bb,
         menu_pcts = st.menu_pcts,
     )
+
+    # --- NEW: credit FOLD from node.actions/strategy when node HAS children ---
+    # (Many solver trees encode FOLD only in node.strategy, without a FOLD child.)
+    if kids:
+        try:
+            any_fold_child = any(FOLD_RE.search(str(l).lower()) for l in kids.keys())
+            if not any_fold_child:
+                acts, mix = actions_and_mix(node)  # robust helper you already have
+                for lab, p in zip(acts, mix):
+                    if p > 0 and FOLD_RE.search(str(lab).lower()):
+                        _bump(counts, "FOLD", p)  # bump only FOLD to avoid double counting
+        except Exception:
+            pass
+    # --- END NEW ---
 
     def handle(label: str, nxt: State, ch: Optional[Json]):
         al = label.lower()
@@ -222,7 +104,7 @@ def _dfs(node: Json, counts: List[float], st: State, depth: int, max_depth: int,
             else:
                 facing = _infer_facing(nxt.menu_pcts, pot_before, to_bb)
 
-            tok = _bucket_raise(to_bb, facing, pot_before, nxt.stack_bb)
+            tok = _bucket_raise(to_bb, facing, pot_before, nxt.stack_bb)  # keep your current signature
             _bump(counts, tok)
 
             rb = (to_bb / max(facing, 1e-6)) if to_bb else float("nan")
@@ -246,7 +128,6 @@ def _dfs(node: Json, counts: List[float], st: State, depth: int, max_depth: int,
         handle(lab, nxt, ch)
         _dfs(ch, counts, nxt, depth + 1, max_depth, raises_log)
 
-# ---- Public API ----
 def parse_solver_payload(payload: Json, *, pot_bb: float, stack_bb: float, menu_pcts: Sequence[float], max_depth: int = 18) -> Tuple[Dict[str,float], Dict[str,Any]]:
     root = root_node(payload)
     counts = [0.0] * VOCAB_SIZE
@@ -265,10 +146,6 @@ def parse_solver_payload(payload: Json, *, pot_bb: float, stack_bb: float, menu_
     }
     return probs, meta
 
-def parse_solver_file(path: str, *, pot_bb: float, stack_bb: float = 100.0, menu_pcts: Sequence[float] = (0.33,), max_depth: int = 18) -> Tuple[Dict[str,float], Dict[str,Any]]:
-    payload = load_solver(path)
-    return parse_solver_payload(payload, pot_bb=pot_bb, stack_bb=stack_bb, menu_pcts=menu_pcts, max_depth=max_depth)
-
 def default_pot_for_filename(name: str) -> float:
     n = name.lower()
     if "3bet_hu" in n: return 24.0
@@ -276,3 +153,133 @@ def default_pot_for_filename(name: str) -> float:
     if "srp_hu"  in n: return 28.0
     if "limped"  in n: return 3.5
     return 20.0
+
+def actions_and_mix(node: Dict[str, Any]) -> Tuple[List[str], List[float]]:
+    acts: List[str] = []
+    mix: List[float] = []
+    for k in ("actions", "action", "labels"):
+        v = node.get(k)
+        if isinstance(v, list) and v:
+            acts = [str(a) for a in v]
+            break
+    if not acts:
+        kids = get_children(node)
+        acts = list(kids.keys())
+    for k in ("strategy", "mix", "frequencies", "probs", "probabilities"):
+        v = node.get(k)
+        if isinstance(v, list) and len(v) == len(acts):
+            mix = [float(x) for x in v]
+            break
+    if not mix or len(mix) != len(acts):
+        p = 1.0 / max(1, len(acts))
+        mix = [p] * len(acts)
+    s = sum(mix) or 1.0
+    mix = [x / s for x in mix]
+    return acts, mix
+
+
+def parse_facing_distribution(
+    payload: Dict[str, Any],
+    *,
+    pot_bb: float,
+    stack_bb: float,
+    menu_pcts: Sequence[float],
+    focus: str,
+) -> Optional[Tuple[Dict[str, float], Dict[str, Any]]]:
+    root = root_node(payload)
+    kids = get_children(root)
+    bet_node = None
+    facing_bb = 0.0
+    path = "root"
+
+    if focus == FocusMode.OOP_VS_IP_ROOT_BET:
+        lab = _first_label_containing(kids, "bet")  # IP bets at root
+        if lab is None:
+            # OOP check -> IP bet
+            lab_chk = _first_label_containing(kids, "check")
+            if lab_chk:
+                kids2 = get_children(kids[lab_chk])
+                lab = _first_label_containing(kids2, "bet")
+                if lab:
+                    bet_node = kids2[lab]; facing_bb = _compute_facing_from_label(lab, pot_bb)
+                    path = f"root->CHECK->{lab}"
+        else:
+            bet_node = kids[lab]; facing_bb = _compute_facing_from_label(lab, pot_bb)
+            path = f"root->{lab}"
+
+    elif focus == FocusMode.IP_VS_OOP_DONK:
+        lab = _first_label_containing(kids, "bet")  # OOP donk at root
+        if lab:
+            bet_node = kids[lab]; facing_bb = _compute_facing_from_label(lab, pot_bb)
+            path = f"root->{lab}"
+
+    if bet_node is None:
+        return None
+
+    resp_children = get_children(bet_node)
+    if not resp_children:
+        return None
+
+    acts, mix = actions_and_mix(bet_node)
+    if not acts or len(acts) != len(resp_children):
+        acts = list(resp_children.keys())
+        mix = [1.0 / len(acts)] * len(acts)
+
+    probs = {a: 0.0 for a in ACTION_VOCAB}
+    st = State(pot_bb=pot_bb, facing_bet_bb=facing_bb, stack_bb=stack_bb, menu_pcts=tuple(menu_pcts) if menu_pcts else None)
+
+    for lab, p in zip(acts, mix):
+        if p <= 0: continue
+        al = str(lab).lower()
+        if FOLD_RE.search(al):
+            _bump_vec(probs, "FOLD", p)
+        elif CHECK_RE.search(al):
+            _bump_vec(probs, "CHECK", p)
+        elif CALL_RE.search(al):
+            _bump_vec(probs, "CALL", p)
+        elif BET_RE.search(al):
+            pct = parse_bet_pct(lab)
+            tok = _bucket_bet_pct(pct)
+            if tok: _bump_vec(probs, tok, p)
+        elif RAISE_RE.search(al) or ALLIN_RE.search(al):
+            to_bb = parse_raise_to_bb(lab)  # label-only parser in your codebase
+            facing = st.facing_bet_bb if st.facing_bet_bb > 0 else _infer_facing(st.menu_pcts, st.pot_bb, to_bb)
+            tok = _bucket_raise(to_bb, facing, st.stack_bb)  # your simplified version (no pot arg)
+            _bump_vec(probs, tok, p)
+        # else ignore
+
+    s = sum(probs.values())
+    if s <= 0:
+        return None
+    for k in probs: probs[k] = probs[k] / s
+    meta = {"focus": focus, "path": path, "facing_bet_bb": facing_bb}
+    return probs, meta
+
+
+def parse_solver_file(
+    path: str,
+    *,
+    pot_bb: float,
+    stack_bb: float = 100.0,
+    menu_pcts: Sequence[float] = (0.33,),
+    max_depth: int = 18,
+    focus: Optional[str] = None,  # NEW, default None = keep baseline
+) -> Tuple[Dict[str,float], Dict[str,Any]]:
+    payload = load_solver(path)
+
+    # SAFE optional path: try facing extraction, fallback to baseline
+    if focus and focus != FocusMode.ROOT:
+        try:
+            out = parse_facing_distribution(
+                payload, pot_bb=pot_bb, stack_bb=stack_bb, menu_pcts=menu_pcts, focus=focus
+            )
+            if out is not None:
+                return out
+        except Exception:
+            # hard fallback to baseline
+            pass
+
+    # Baseline untouched
+    return parse_solver_payload(
+        payload, pot_bb=pot_bb, stack_bb=stack_bb, menu_pcts=menu_pcts, max_depth=max_depth
+    )
