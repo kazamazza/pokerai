@@ -5,7 +5,7 @@
     "vendor_s3_prefix": "data/vendor",
     "manifest": "data/artifacts/rangenet_postflop_flop_manifest.parquet",
     "local_solver_dir": "/Users/antoniocasamassa/S3/",
-    "parquet": "data/datasets/postflop_policy_merged.parquet",
+    "parquet": "data/datasets/postflop_policy_with_seats.parquet",
     "policy_parts_dir": "data/datasets/postflop_policy_parts"
   },
   "outputs": {
@@ -340,7 +340,7 @@
       256
     ],
     "dropout": 0.15,
-    "lr": 0.0003,
+    "lr": 0.0005,
     "weight_decay": 0.0001,
     "label_smoothing": 0.05
   }

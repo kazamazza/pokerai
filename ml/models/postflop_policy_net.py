@@ -114,31 +114,18 @@ class PostflopPolicyLit(pl.LightningModule):
         return F.log_softmax(masked, dim=-1)
 
     def _side_loss(self, logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        # Validate shapes early
+        # validate
         B, V = logits.shape
-        assert V == VOCAB_SIZE, f"logits width {V} != VOCAB_SIZE {VOCAB_SIZE}"
-        assert target.shape == logits.shape, f"target shape {target.shape} != logits shape {logits.shape}"
-        assert mask.shape == logits.shape, f"mask shape {mask.shape} != logits shape {logits.shape}"
+        assert target.shape == (B, V) and mask.shape == (B, V)
 
-        # Mask and renormalize targets inside mask
-        mask = _ensure_nonempty_mask(mask)
+        # normalize targets within mask
         t = (target * mask)
-        t = t / (t.sum(dim=-1, keepdim=True).clamp_min(1e-8))
+        t = t / (t.sum(dim=-1, keepdim=True) + 1e-8)
 
-        # Optional label smoothing (on masked simplex)
-        if self.hparams.label_smoothing and self.hparams.label_smoothing > 0.0:
-            t = _label_smooth_onehot(t, float(self.hparams.label_smoothing))
-
-        logp = self._masked_log_softmax(logits, mask)  # [B,V]
-        kl = _safe_soft_kl(t, logp)                    # [B]
-
-        # Optional class weighting (per-class → per-sample)
-        if self.class_weights is not None:
-            # expected value of class weights under target t
-            cw = (t * self.class_weights.unsqueeze(0)).sum(dim=-1)  # [B]
-            kl = kl * cw
-
-        return kl  # [B]
+        # masked log-softmax then CE = -∑ t log p  (non-negative)
+        logp = self._masked_log_softmax(logits, mask)
+        ce = -(t * logp).sum(dim=-1)  # [B] >= 0
+        return ce
 
     # ---- training / validation ----
     def training_step(self, batch, _):

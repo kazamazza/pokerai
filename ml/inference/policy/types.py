@@ -21,36 +21,26 @@ class Action:
 # ---- Normalized request/response ----
 @dataclass
 class PolicyRequest:
-    """
-    Minimal, normalized inputs the policy layer needs.
-    Add fields as your models require; keep token forms (strings) here.
-    """
-    # core
-    street: int = 0                                 # 0=pre,1=flop,2=turn,3=river
-    hero_pos: Optional[str] = None                  # "UTG","HJ","CO","BTN","SB","BB"
+    street: int = 0
+    hero_pos: Optional[str] = None
     villain_pos: Optional[str] = None
-    ctx: Optional[str] = None                       # e.g., "SRP","VS_OPEN","VS_3BET"
+    # NEW: explicit IP/OOP seats for postflop policy
+    ip_pos: Optional[str] = None                  # e.g., "BTN","CO","SB","BB"
+    oop_pos: Optional[str] = None
+    ctx: Optional[str] = None
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
-    stack_bb: Optional[float] = None                # fallback if eff_stack_bb missing
+    stack_bb: Optional[float] = None
     facing_bet: bool = False
     facing_open: bool = False
-
-    # preflop specifics
     opener_pos: Optional[str] = None
-    opener_action: Optional[str] = None             # typically "RAISE" or "LIMP"
-
-    # optional cards/board
-    hero_hand: Optional[str] = None                 # "AsKs"
-    board: Optional[str] = None                     # e.g. "AhKd2c" (optional)
-
-    # optional ids for popnet / routing
+    opener_action: Optional[str] = None
+    hero_hand: Optional[str] = None
+    board: Optional[str] = None
     stakes_id: Optional[int] = None
     ctx_id: Optional[int] = None
     hero_pos_id: Optional[int] = None
     villain_pos_id: Optional[int] = None
-
-    # passthrough (seats/actions/etc.) for sub-models that need richer context
     raw: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass

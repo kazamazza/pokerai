@@ -1,6 +1,18 @@
 {
   "sidecar_version": 1,
   "model_name": "PostflopPolicy",
+  "feature_order": [
+    "ip_pos",
+    "oop_pos",
+    "ctx",
+    "street"
+  ],
+  "cards": {
+    "ip_pos": 5,
+    "oop_pos": 2,
+    "ctx": 5,
+    "street": 1
+  },
   "cat_feature_order": [
     "ip_pos",
     "oop_pos",
@@ -8,17 +20,22 @@
     "street"
   ],
   "card_sizes": {
-    "ip_pos": 1,
-    "oop_pos": 1,
+    "ip_pos": 5,
+    "oop_pos": 2,
     "ctx": 5,
     "street": 1
   },
   "id_maps": {
     "ip_pos": {
-      "IP": 0
+      "BTN": 0,
+      "CO": 1,
+      "HJ": 2,
+      "SB": 3,
+      "UTG": 4
     },
     "oop_pos": {
-      "OOP": 0
+      "BB": 0,
+      "SB": 1
     },
     "ctx": {
       "LIMPED_MULTI": 0,

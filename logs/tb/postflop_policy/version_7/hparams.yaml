@@ -1,0 +1,20 @@
+card_sizes:
+  ip_pos: 1
+  oop_pos: 1
+  ctx: 5
+  street: 1
+cat_feature_order:
+- ip_pos
+- oop_pos
+- ctx
+- street
+board_hidden: 64
+mlp_hidden:
+- 512
+- 512
+- 256
+dropout: 0.15
+lr: 0.0005
+weight_decay: 0.0001
+label_smoothing: 0.05
+class_weights_path: null

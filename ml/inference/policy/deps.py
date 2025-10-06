@@ -5,7 +5,7 @@ from ml.inference.equity import EquityNetInfer
 from ml.inference.exploit import ExploitNetInfer
 from ml.inference.population import PopulationNetInference
 from ml.inference.postflop import PostflopPolicyInfer
-from ml.inference.preflop import RangeNetPreflopInfer
+from ml.inference.preflop import PreflopPolicy
 
 
 @dataclass
@@ -16,7 +16,7 @@ class PolicyInferDeps:
     exploit: ExploitNetInfer | None = None
     equity: EquityNetInfer | None = None
     # rangenets
-    range_pre: RangeNetPreflopInfer | None = None
+    range_pre: PreflopPolicy | None = None
     # postflop policy
     policy_post: PostflopPolicyInfer | None = None
     # utils

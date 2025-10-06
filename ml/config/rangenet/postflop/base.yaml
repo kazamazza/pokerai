@@ -5,7 +5,7 @@ inputs:
   vendor_s3_prefix: data/vendor
   manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
   local_solver_dir: "/Users/antoniocasamassa/S3/"
-  parquet: data/datasets/postflop_policy_merged.parquet
+  parquet: data/datasets/postflop_policy_with_seats.parquet
 
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke
@@ -153,6 +153,6 @@ train:
 model:
   hidden_dims: [512, 512, 256]   # deeper/wider, postflop is richer
   dropout: 0.15                  # a touch more regularization
-  lr: 3e-4                       # slightly lower than preflop
+  lr: 5e-4                     # slightly lower than preflop
   weight_decay: 1e-4
   label_smoothing: 0.05          # softens overfitting

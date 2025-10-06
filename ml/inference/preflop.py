@@ -1,149 +1,142 @@
 from __future__ import annotations
-import json
-from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence, List, Union
-import torch
-import torch.nn.functional as F
-from ml.models.preflop_rangenet import RangeNetLit
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+from ml.features.hands import hand_to_169_label
+from ml.inference.policy.types import PolicyRequest, PolicyResponse, Action
 
 
-def _load_json(p: Union[str, Path]) -> Any:
-    return json.loads(Path(p).read_text())
+@dataclass
+class PreflopDeps:
+    range_pre: Any         # must expose .predict_proba([row]) -> Tensor/ndarray [1,169]
+    equity: Optional[Any] = None  # optional EquityNet, must expose .predict([{...}]) -> [(pwin,ptie,plose)]
 
-
-def _to_device(device: Optional[str | torch.device]) -> torch.device:
-    if device is None or device == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device)
-
-
-class RangeNetPreflopInfer:
+class PreflopPolicy:
     """
-    Inference wrapper for preflop RangeNet.
-    Expects a classification head with 169 outputs (one per canonical hand class).
-    Categorical features only (x_num empty).
+    Stateless facade around your preflop submodels.
+    Keeps the orchestration simple and returns normalized PolicyResponse.
     """
+    def __init__(self, deps: PreflopDeps):
+        if deps.range_pre is None:
+            raise ValueError("PreflopPolicy requires range_pre")
+        self.rng = deps.range_pre
+        self.eq  = deps.equity
 
-    def __init__(
-        self,
-        *,
-        model: RangeNetLit,
-        feature_order: Sequence[str],
-        id_maps: Dict[str, Dict[str, int]],
-        cards: Dict[str, int],
-        device: Optional[torch.device] = None,
-    ):
-        self.model = model.eval()
-        self.feature_order = list(feature_order)
-        # normalize id_maps to {col: {str(raw): int_id}}
-        self.id_maps = {c: {str(k): int(v) for k, v in (m or {}).items()} for c, m in (id_maps or {}).items()}
-        self.cards = {k: int(v) for k, v in (cards or {}).items()}
-        self.device = device or _to_device("auto")
-        self.model.to(self.device)
+    def _encode_action(self, a: Action) -> str:
+        """
+        Convert an Action object into a string token matching ACTION_VOCAB format.
+        This keeps output consistent across preflop/postflop models.
+        """
+        k = str(a.kind).upper()
 
-        # infer numeric input size from model hparams (should be 0 for this dataset)
-        try:
-            self.num_in_dim = int(getattr(self.model.hparams, "num_in_dim", 0))
-        except Exception:
-            self.num_in_dim = 0
+        # 1️⃣ simple atomic actions
+        if k in ("FOLD", "CHECK", "CALL", "ALLIN"):
+            return k
 
-    # ---------- construction helpers ----------
+        # 2️⃣ bets (by % or BB)
+        if k == "BET":
+            if a.size_pct is not None:
+                pct = int(round(a.size_pct))
+                if pct in (25, 33, 50, 66, 75, 100):
+                    return f"BET_{pct}"
+                # normalize arbitrary to closest common
+                nearest = min([25, 33, 50, 66, 75, 100], key=lambda x: abs(x - pct))
+                return f"BET_{nearest}"
+            elif a.size_bb is not None:
+                return "BET_50"  # generic fallback if absolute only
+            return "BET_33"
 
-    @classmethod
-    def from_checkpoint_dir(
-            cls,
-            ckpt_path: Union[str, Path],
-            ckpt_dir: Optional[Union[str, Path]] = None,
-            device: Optional[str | torch.device] = "auto",
-    ) -> "RangeNetPreflopInfer":
-        ckpt_path = Path(ckpt_path)
-        sidecar_dir = Path(ckpt_dir) if ckpt_dir else ckpt_path.parent
+        # 3️⃣ raises (by multiple or %)
+        if k == "RAISE":
+            if a.size_mult is not None:
+                mult = round(float(a.size_mult), 2)
+                # map common preflop multipliers to legacy bucket tokens
+                if abs(mult - 1.5) < 0.1: return "RAISE_150"
+                if abs(mult - 2.0) < 0.1: return "RAISE_200"
+                if abs(mult - 3.0) < 0.1: return "RAISE_300"
+                if abs(mult - 4.0) < 0.1: return "RAISE_400"
+                if abs(mult - 5.0) < 0.1: return "RAISE_500"
+                return "RAISE_200"
+            if a.size_pct is not None:
+                pct = int(round(a.size_pct))
+                return f"RAISE_{pct}"
+            return "RAISE_200"
 
-        # Load sidecar FIRST so we can pass required ctor args
-        feature_order = _load_json(sidecar_dir / "feature_order.json")
-        id_maps = _load_json(sidecar_dir / "id_maps.json")
-        cards = _load_json(sidecar_dir / "cards.json")
+        # 4️⃣ fallback (unknown)
+        return k
 
-        dev = _to_device(device)
+    def predict(self, req: PolicyRequest) -> PolicyResponse:
+        # ---- Build range-net row (tokens are fine; the infer handles id mapping) ----
+        row = {
+            "stack_bb": float(req.stack_bb or req.eff_stack_bb or 100.0),
+            "hero_pos": (req.hero_pos or "").upper(),
+            "opener_pos": (req.opener_pos or "").upper(),
+            "opener_action": (req.opener_action or "RAISE").upper(),
+            "ctx": (req.ctx or "SRP").upper(),
+        }
 
-        # Preferred: let Lightning restore and pass required args explicitly
-        try:
-            model = RangeNetLit.load_from_checkpoint(
-                str(ckpt_path),
-                map_location=dev,
-                cards=cards,
-                feature_order=feature_order,
-            )
-        except TypeError:
-            # Fallback: construct, then load state_dict manually (strict=False to be resilient to minor key diffs)
-            model = RangeNetLit(cards=cards, feature_order=feature_order)
-            ckpt_obj = torch.load(str(ckpt_path), map_location=dev)
-            state = ckpt_obj.get("state_dict", ckpt_obj)
-            missing, unexpected = model.load_state_dict(state, strict=False)
-            if missing or unexpected:
-                print(f"[warn] load_state_dict: missing={missing} unexpected={unexpected}")
+        rng = self.rng.predict_proba([row])  # [1,169] tensor/ndarray
+        if hasattr(rng, "detach"):
+            rng = rng.detach().cpu().numpy()
+        rng_169: List[float] = (rng[0].tolist() if len(rng) else [1.0 / 169.0] * 169)
 
-        model.eval().to(dev)
+        # Optional: how much mass the hero’s exact hand has in villain range
+        hero_mass = None
+        if req.hero_hand:
+            label = hand_to_169_label(req.hero_hand)
+            idx = getattr(self.rng, "hand_to_id", {}).get(label) if hasattr(self.rng, "hand_to_id") else None
+            if idx is not None and 0 <= idx < 169:
+                hero_mass = float(rng_169[idx])
 
-        return cls(
-            model=model,
-            feature_order=feature_order,
-            id_maps=id_maps,
-            cards=cards,
-            device=dev,
+        # ---- Simple action prior (stub) ----
+        facing_open = bool(req.facing_open) or (
+            row["opener_action"] == "RAISE" and row["hero_pos"] in ("BB", "SB")
         )
 
-    # ---------- encoding ----------
+        if facing_open:
+            # FOLD / CALL / 3-bet (as 3x last raise amount—use size_mult)
+            actions = [
+                Action("FOLD"),
+                Action("CALL"),
+                Action("RAISE", size_mult=3.0),
+            ]
+            probs = [0.35, 0.40, 0.25]
+        else:
+            # Open or fold (2.5x open size as absolute raise-to in bb)
+            actions = [
+                Action("FOLD"),
+                Action("RAISE", size_bb=2.5),
+            ]
+            probs = [0.30, 0.70]
 
-    def _unknown_idx(self, col: str) -> int:
-        """Return a safe 'unknown' bucket id = last index for that feature."""
-        C = int(self.cards.get(col, 0))
-        return max(C - 1, 0)
+        # ---- Optional equity call (neutral if not wired) ----
+        equity = {"p_win": 0.5, "p_tie": 0.0, "p_lose": 0.5}
+        if self.eq and req.hero_hand:
+            try:
+                out = self.eq.predict([{"street": 0, "hand_id": hand_to_169_label(req.hero_hand)}])
+                if out:
+                    p_win, p_tie, p_lose = out[0]
+                    equity = {"p_win": float(p_win), "p_tie": float(p_tie), "p_lose": float(p_lose)}
+            except Exception:
+                pass
 
-    def _encode_column(self, feat: str, values: List[Any]) -> torch.Tensor:
-        enc = self.id_maps.get(feat, {})
-        card = int(self.cards.get(feat, max(len(enc), 1)))
-        unk_idx = min(max(len(enc), 1) - 1, card - 1) if enc else self._unknown_idx(feat)
+        # actions may be List[Action]; convert to wire tokens (strings)
+        tokens = [
+            self._encode_action(a) if isinstance(a, Action) else str(a)
+            for a in actions
+        ]
 
-        ids: List[int] = []
-        for v in values:
-            key = str(v) if v is not None else "__NONE__"
-            idx = enc.get(key, unk_idx)
-            if idx >= card:
-                idx = card - 1
-            ids.append(int(idx))
-        return torch.tensor(ids, dtype=torch.long, device=self.device)
+        resp = PolicyResponse(
+            actions=tokens,  # List[str]
+            probs=[float(x) for x in probs],  # ensure plain floats
+            evs=[0.0] * len(tokens),  # keep stub EVs aligned with actions
+            notes=["preflop stub; villain 169-range included for downstream"],
+            debug={
+                "street": 0,
+                "villain_range_169": rng_169,
+                "hero_prior_mass_in_villain_range": hero_mass,
+                "equity": equity,
+            },
+        )
 
-    def _encode_batch(self, rows: Sequence[Mapping[str, Any]]) -> Dict[str, torch.Tensor]:
-        cols: Dict[str, List[Any]] = {k: [] for k in self.feature_order}
-        for r in rows:
-            for k in self.feature_order:
-                if k not in r:
-                    raise KeyError(f"Missing feature '{k}' in inference row: {list(r.keys())}")
-                cols[k].append(r[k])
-        return {k: self._encode_column(k, v) for k, v in cols.items()}
-
-    def _x_num_placeholder(self, batch_size: int) -> torch.Tensor:
-        if self.num_in_dim and self.num_in_dim > 0:
-            return torch.zeros((batch_size, self.num_in_dim), dtype=torch.float32, device=self.device)
-        return torch.empty((batch_size, 0), dtype=torch.float32, device=self.device)
-
-    # ---------- public API ----------
-
-    @torch.no_grad()
-    def predict_proba(self, rows: Sequence[Mapping[str, Any]]) -> torch.Tensor:
-        """
-        rows: list[dict] with keys exactly matching feature_order
-              e.g. {"stack_bb":100, "hero_pos":"BB", "opener_pos":"BTN", "opener_action":"RAISE", "ctx":"SRP"}
-        returns: FloatTensor [B,169] — probabilities over the 169 preflop hand classes (row sums = 1)
-        """
-        if not rows:
-            return torch.empty(0, 169, device=self.device)
-
-        x_dict = self._encode_batch(rows)  # already produces the dict of tensors
-        logits = self.model(x_dict)  # ✅ forward expects one arg
-        return F.softmax(logits, dim=-1)
-
-    @torch.no_grad()
-    def predict(self, rows: Sequence[Mapping[str, Any]]) -> List[List[float]]:
-        return self.predict_proba(rows).tolist()
+        return resp

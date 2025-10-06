@@ -19,14 +19,30 @@ def make_postflop_policy_sidecar(
     """
     Canonical, compact sidecar for postflop policy.
     Contains everything inference needs to rebuild encoders and tensors.
+
+    Emits BOTH the generic keys ('feature_order', 'cards') expected by
+    load_sidecar, and the legacy keys ('cat_feature_order', 'card_sizes')
+    for backwards compatibility.
     """
+    feature_order = list(feature_order)
+    cards_norm = {str(k): int(v) for k, v in cards.items()}
+    id_maps_norm = {str(k): {str(a): int(b) for a, b in m.items()} for k, m in id_maps.items()}
+
     sc: Dict[str, Any] = {
         "sidecar_version": SIDECAR_VERSION,
         "model_name": "PostflopPolicy",
-        "cat_feature_order": list(feature_order),     # order for x_cat dict
-        "card_sizes": {str(k): int(v) for k, v in cards.items()},
-        "id_maps": {str(k): {str(a): int(b) for a, b in m.items()} for k, m in id_maps.items()},
-        "cont_features": list(cont_features),         # names expected in x_cont
+
+        # NEW (generic) keys expected by load_sidecar
+        "feature_order": feature_order,
+        "cards": cards_norm,
+
+        # Legacy aliases kept for compatibility
+        "cat_feature_order": feature_order,
+        "card_sizes": cards_norm,
+
+        # Common fields
+        "id_maps": id_maps_norm,
+        "cont_features": list(cont_features),
         "action_vocab": list(action_vocab),
         "notes": "Categoricals are integer IDs via id_maps; cont features as-is.",
     }

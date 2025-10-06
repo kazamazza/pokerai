@@ -9,15 +9,11 @@ from typing import Dict, Any, List, Optional, Sequence, Tuple
 from ml.models.policy_consts import VOCAB_SIZE, VOCAB_INDEX, ACTION_VOCAB
 
 CAT_FEATURES_DEFAULT = ["hero_pos", "ip_pos", "oop_pos", "ctx", "street"]
+BET_BUCKETS   = {"BET_25","BET_33","BET_50","BET_66","BET_75","BET_100","DONK_33"}
+RAISE_BUCKETS = {"RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500","ALLIN"}
 
 
 class PostflopPolicyDatasetParquet(Dataset):
-    """
-    Loads postflop policy samples from a parquet:
-      - Soft labels: per-action columns matching ACTION_VOCAB (float probs).
-      - Hard labels: single 'action' column mapped to one-hot.
-    Emits (x_cat, x_cont, y_ip, y_oop, m_ip, m_oop, w).
-    """
     SOFT_Y_COLS: List[str] = []               # set from ACTION_VOCAB if empty
     CAT_FEATURES: List[str] = CAT_FEATURES_DEFAULT
 
@@ -194,8 +190,9 @@ class PostflopPolicyDatasetParquet(Dataset):
         if actor not in ("ip", "oop"):
             actor = "ip"
 
+        # target vector
         if self.has_soft:
-            y_vec = self.y_soft[idx]                         # [V]
+            y_vec = self.y_soft[idx]  # [V]
         else:
             y_vec = torch.zeros(VOCAB_SIZE, dtype=torch.float32)
             y_vec[int(self.action_idx[idx])] = 1.0
@@ -203,17 +200,60 @@ class PostflopPolicyDatasetParquet(Dataset):
         if y_vec.numel() != VOCAB_SIZE:
             raise RuntimeError(f"y width {y_vec.numel()} != VOCAB_SIZE {VOCAB_SIZE}")
 
+        # --- legality inputs from row (safe defaults) ---
+        facing_bet = int(row.get("facing_bet", 0) or 0)
+
+        bet_menu = None
+        if "bet_sizes" in self.df.columns:
+            try:
+                v = row["bet_sizes"]
+                if isinstance(v, str):
+                    import json
+                    bet_menu = json.loads(v)
+                elif isinstance(v, (list, tuple)):
+                    bet_menu = list(v)
+            except Exception:
+                bet_menu = None
+
+        # --- build legality for the acting side only ---
+        m_actor = torch.zeros(VOCAB_SIZE, dtype=torch.float32)
+        names = list(ACTION_VOCAB)
+
+        if facing_bet:
+            # Facing a bet → FOLD/CALL/RAISE*/ALLIN are legal
+            legal = {"FOLD", "CALL"} | RAISE_BUCKETS
+        else:
+            # Not facing → CHECK and BET_* legal (optionally restrict to menu sizes)
+            legal = {"CHECK"} | BET_BUCKETS
+            if bet_menu:
+                # whitelist BET_* according to available menu
+                want = set()
+                if 0.25 in bet_menu: want.add("BET_25")
+                if 0.33 in bet_menu: want.add("BET_33"); want.add("DONK_33")
+                if 0.50 in bet_menu: want.add("BET_50")
+                if 0.66 in bet_menu: want.add("BET_66")
+                if 0.75 in bet_menu: want.add("BET_75")
+                if 1.00 in bet_menu: want.add("BET_100")
+                # remove BET_* not in menu
+                for b in {"BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100"}:
+                    if b not in want and b in legal:
+                        legal.remove(b)
+                if "DONK_33" not in want and "DONK_33" in legal:
+                    legal.remove("DONK_33")
+
+        for i, a in enumerate(names):
+            if a in legal:
+                m_actor[i] = 1.0
+
+        # assign mask to the correct head
         if actor == "ip":
             y_ip, y_oop = y_vec, torch.zeros_like(y_vec)
-            m_ip = torch.ones(VOCAB_SIZE, dtype=torch.float32)
-            m_oop = torch.zeros(VOCAB_SIZE, dtype=torch.float32)
+            m_ip, m_oop = m_actor, torch.zeros_like(m_actor)
         else:
             y_ip, y_oop = torch.zeros_like(y_vec), y_vec
-            m_ip = torch.zeros(VOCAB_SIZE, dtype=torch.float32)
-            m_oop = torch.ones(VOCAB_SIZE, dtype=torch.float32)
+            m_ip, m_oop = torch.zeros_like(m_actor), m_actor
 
         w = self.weights[idx]
-
         return x_cat, x_cont, y_ip, y_oop, m_ip, m_oop, w
 
 

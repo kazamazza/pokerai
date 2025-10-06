@@ -43,9 +43,12 @@ class BoardBlock(nn.Module):
     def rank_histogram(board_mask_52: torch.Tensor) -> torch.Tensor:
         B = board_mask_52.size(0)
         return board_mask_52.view(B, 13, 4).sum(dim=2)  # [B,13]
+
     def forward(self, board_mask_52: torch.Tensor, pot_bb: torch.Tensor, eff_stack_bb: torch.Tensor) -> torch.Tensor:
         rh = self.rank_histogram(board_mask_52)
         h = torch.cat([board_mask_52, pot_bb, eff_stack_bb, rh], dim=-1)
+        # safety: ensure dtype matches layer weights (usually float32)
+        h = h.to(dtype=self.fc1.weight.dtype)
         h = F.relu(self.fc1(h))
         h = F.relu(self.fc2(h))
         return h
