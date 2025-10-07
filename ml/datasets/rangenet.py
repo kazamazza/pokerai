@@ -8,8 +8,10 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+from ml.models.constants import HAND_COUNT
+
+
 # Reuse your existing generic bits
-HAND_COUNT = 169
 
 @dataclass
 class CardsInfo:

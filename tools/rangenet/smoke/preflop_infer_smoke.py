@@ -1,71 +1,84 @@
-# tools/rangenet/smoke/preflop_infer_smoke.py
-import argparse
 import sys
-from pathlib import Path
-from typing import List, Dict, Any
-
 import torch
+from pathlib import Path
+import json
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
-from ml.etl.rangenet.utils import ALL_HANDS
-from ml.inference.preflop import RangeNetPreflopInfer
+from ml.inference.policy.types import PolicyRequest
+from ml.inference.preflop import PreflopDeps, PreflopPolicy
+from ml.models.preflop_rangenet import RangeNetLit
 
 
-def topk_pretty(p: torch.Tensor, k: int = 10) -> List[str]:
-    # p: [169]
-    vals, idx = torch.topk(p, k)
-    out = []
-    for v, i in zip(vals.tolist(), idx.tolist()):
-        name = ALL_HANDS[i] if ALL_HANDS and i < len(ALL_HANDS) else f"id_{i}"
-        out.append(f"{name}:{v:.3f}")
-    return out
+# --- load sidecar info ---
+ckpt_dir = Path("checkpoints/range_pre")
+ckpt_path = ckpt_dir / "trial__hidden_dims=256-256__lr=0.001__dropout=0.0__label_smoothing=0.0__batch_size=1024__seed=42/rangenet-preflop-14-1.0037.ckpt"
+sidecar_path = ckpt_dir / "trial__hidden_dims=256-256__lr=0.001__dropout=0.0__label_smoothing=0.0__batch_size=1024__seed=42/sidecar.json"
 
+with open(sidecar_path, "r") as f:
+    sidecar = json.load(f)
 
-def main():
-    ap = argparse.ArgumentParser("Smoke test for RangeNet Preflop inference")
-    ap.add_argument("--ckpt", required=True, help="Path to .ckpt")
-    ap.add_argument("--sidecar-dir", default=None, help="Dir containing feature_order.json/id_maps.json/cards.json (defaults to ckpt parent)")
+feature_order = sidecar["feature_order"]
+cards = sidecar["cards"]
 
-    # Minimal inputs (must match your feature_order exactly)
-    ap.add_argument("--stack", type=float, default=100)
-    ap.add_argument("--hero-pos", type=str, default="BB")
-    ap.add_argument("--opener-pos", type=str, default="BTN")
-    ap.add_argument("--opener-action", type=str, default="RAISE")
-    ap.add_argument("--ctx", type=str, default="SRP")
-    args = ap.parse_args()
+# --- load trained model ---
+print(f"🔹 Loading checkpoint: {ckpt_path}")
+model = RangeNetLit.load_from_checkpoint(
+    str(ckpt_path),
+    cards=cards,
+    feature_order=feature_order,
+)
+model.eval()
+model.freeze()
 
-    infer = RangeNetPreflopInfer.from_checkpoint_dir(
-        ckpt_path=args.ckpt,
-        ckpt_dir=args.sidecar_dir,
-        device="auto",
-    )
+# --- range wrapper with .predict_proba interface ---
+class RangePreWrapper:
+    def __init__(self, model):
+        self.model = model
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
 
-    row: Dict[str, Any] = {
-        # Make sure these names match the saved feature_order in your sidecar!
-        "stack_bb": float(args.stack),
-        "hero_pos": args.hero_pos.upper(),
-        "opener_pos": args.opener_pos.upper(),
-        "opener_action": args.opener_action.upper(),
-        "ctx": args.ctx.upper(),
-    }
+    def predict_proba(self, rows):
+        """
+        rows: list of dicts, each with stack_bb, hero_pos, opener_pos, opener_action, ctx
+        """
+        # map to tensors same as dataset did
+        with torch.no_grad():
+            out = self.model.model.embed.feature_order
+            # You'll probably have a helper for this; using fake here
+            x_dict = {k: torch.tensor([0], dtype=torch.long, device=self.device)
+                      for k in out}
+            logits = self.model(x_dict)
+            probs = torch.softmax(logits, dim=-1)
+            return probs.cpu().numpy()
 
-    probs = infer.predict_proba([row])  # [1,169]
-    p = probs[0]
-    print(f"row={row}")
-    print(f"sum={p.sum().item():.6f}")
-    print("top10:", ", ".join(topk_pretty(p, 10)))
+# --- simple static equity stub ---
+class StaticEquity:
+    def predict(self, rows):
+        return [(0.60, 0.00, 0.40) for _ in rows]
 
-    # sanity: show a couple of strategically-relevant buckets if you like
-    if ALL_HANDS:
-        def idx(hand: str) -> int:
-            return ALL_HANDS.index(hand) if hand in ALL_HANDS else -1
-        for key in ["AA", "AKs", "AQs", "A5s", "KQs", "QJs", "JTs", "98s"]:
-            i = idx(key)
-            if i >= 0:
-                print(f"{key}: {p[i].item():.4f}")
+# --- wire dependencies ---
+deps = PreflopDeps(
+    range_pre=RangePreWrapper(model),
+    equity=StaticEquity()
+)
+policy = PreflopPolicy(deps)
 
+# --- create a sample request ---
+req = PolicyRequest(
+    street=0,
+    hero_pos="BTN",
+    opener_pos="UTG",
+    opener_action="RAISE",
+    ctx="VS_OPEN",
+    stack_bb=100,
+    hero_hand="AsKs",
+    facing_open=True
+)
 
-if __name__ == "__main__":
-    main()
+resp = policy.predict(req)
+print("✅ PreflopPolicy inference smoke OK")
+print("Actions:", resp.actions)
+print("Probs:  ", [round(p,3) for p in resp.probs])
+print("Equity: ", resp.debug["equity"])

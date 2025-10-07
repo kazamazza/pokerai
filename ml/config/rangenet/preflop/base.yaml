@@ -30,8 +30,8 @@ dataset:
   ]
   weight_col: "weight"
   min_weight: 1
-  # IMPORTANT: the trainer reads dataset.stratify_keys (not stratify_by)
   stratify_keys: []
+  stack_bins: [25, 60, 100, 150]
 
 # ---- Model
 model:
@@ -58,8 +58,41 @@ train:
   # The trainer monitors "val_kl"
   monitor: val_kl
   mode: min
+  min_delta: 1.0e-4            # NEW: EarlyStopping tolerance
+  gradient_clip_val: 1.0       # NEW: gradient clipping
+  accumulate_grad_batches: 1    # optional; set >1 if memory bound
+
+  lr_scheduler:
+    name: reduce_on_plateau
+    monitor: val_kl
+    mode: min
+    factor: 0.5
+    patience: 2
+    min_lr: 1.0e-5
 
 # ---- Logging
 logging:
   logger: tensorboard
   tb_log_dir: logs/tb/range_pre
+
+sweep:
+  # capacity
+  model.hidden_dims:
+    - [256, 256]
+    - [384, 384]
+    - [256, 128]   # asymm option; sometimes regularizes better
+
+  # optimization
+  model.lr: [0.001, 0.0005]
+  train.batch_size: [1024, 2048]
+  model.weight_decay: [0.0001, 0.0003]
+
+  # regularization
+  model.dropout: [0.00, 0.10]   # include a no-dropout baseline
+  model.label_smoothing: [0.00, 0.02, 0.05]
+
+  # reproducibility / variance
+  seed: [42, 1337]
+
+  # optional limits
+  max_trials: 16

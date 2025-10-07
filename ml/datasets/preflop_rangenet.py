@@ -1,11 +1,9 @@
 import re
-from pathlib import Path
-from typing import Optional, Sequence
-
 import numpy as np
 import pandas as pd
 import torch
-
+from pathlib import Path
+from typing import Optional, Sequence
 from ml.datasets.rangenet import RangeNetDatasetParquet, canon_pos, canon_action, canon_ctx
 
 
@@ -24,7 +22,7 @@ class PreflopRangeDatasetParquet(RangeNetDatasetParquet):
         normalize_labels: bool = True,
         clip_labels: bool = True,
         eps: float = 1e-8,
-        debug: bool = True,            # <-- NEW
+        debug: bool = True,
     ):
         df = pd.read_parquet(str(parquet_path)).copy()
         n_in = len(df)
