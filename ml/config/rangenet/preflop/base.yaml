@@ -78,9 +78,10 @@ logging:
 sweep:
   # capacity
   model.hidden_dims:
-    - [256, 256]
-    - [384, 384]
-    - [256, 128]   # asymm option; sometimes regularizes better
+    - [ 256, 256 ]
+    - [ 384, 384 ]
+    - [ 512, 512 ]     # ⬅️ added higher capacity option
+    - [ 256, 128 ]
 
   # optimization
   model.lr: [0.001, 0.0005]

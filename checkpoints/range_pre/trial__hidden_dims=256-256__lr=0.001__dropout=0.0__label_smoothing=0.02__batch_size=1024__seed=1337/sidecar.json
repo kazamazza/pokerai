@@ -1,0 +1,50 @@
+{
+  "feature_order": [
+    "stack_bb",
+    "hero_pos",
+    "opener_pos",
+    "opener_action",
+    "ctx"
+  ],
+  "id_maps": {
+    "stack_bb": {
+      "25.0": 0,
+      "60.0": 1,
+      "100.0": 2,
+      "150.0": 3
+    },
+    "hero_pos": {
+      "BB": 0,
+      "BTN": 1,
+      "SB": 2
+    },
+    "opener_pos": {
+      "BB": 0,
+      "BTN": 1,
+      "CO": 2,
+      "HJ": 3,
+      "SB": 4,
+      "UTG": 5
+    },
+    "opener_action": {
+      "3BET": 0,
+      "4BET": 1,
+      "LIMP": 2,
+      "RAISE": 3
+    },
+    "ctx": {
+      "1": 0,
+      "2": 1,
+      "3": 2,
+      "5": 3,
+      "6": 4
+    }
+  },
+  "cards": {
+    "stack_bb": 4,
+    "hero_pos": 3,
+    "opener_pos": 6,
+    "opener_action": 4,
+    "ctx": 5
+  }
+}

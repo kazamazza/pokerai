@@ -16,6 +16,19 @@ outputs:
   s3_key:  datasets/rangenet_postflop.parquet
 
 
+sizes:
+  open_x: {"UTG": 3.0, "HJ": 2.5, "CO": 2.5, "BTN": 2.5, "SB": 3.0}
+  threebet_x: {"IP": 7.5, "OOP": 9.0}
+  fourbet_x: 24.0
+
+multiway:
+  enable: false            # ← stays false for NL10/NL25/NL50
+  max_players: 3           # future-proof; clamp to 3-way if you enable it later
+  default_menu_id: "limped_multi.Any"   # fallback bet menu for multiway
+  default_flop_pot_bb: 3.0 # safe default if you don’t compute exact preflop path
+  allow_in_scenarios: true # scenario-level override allowed
+
+
 board_clustering:
   type: kmeans
   artifact: data/artifacts/board_clusters_kmeans_128.json
