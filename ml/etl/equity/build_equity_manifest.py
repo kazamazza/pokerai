@@ -1,14 +1,18 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 import pandas as pd
 import sys
+
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
 from ml.utils.config import load_model_config
 from ml.etl.utils.hand import HAND_COUNT
+from ml.utils.board_mask import make_board_mask_52
+from ml.features.boards import load_board_clusterer, BoardClusterer
+from ml.features.boards.representatives import discover_representative_flops
 
 def _street_name_to_id(name: str) -> int:
     name = name.strip().lower()
@@ -49,27 +53,61 @@ def build_postflop_manifest(
     board_clusters_limit: int,
     samples_per_cluster: int,
     seed: int | None = None,
+    boards_per_cluster: int = 64,
+    clusterer: BoardClusterer,                 # pass your Rule/KMeans clusterer
+    default_ctx: str = "VS_OPEN",
+    default_ip_pos: str = "BTN",
+    default_oop_pos: str = "BB",
 ) -> pd.DataFrame:
+    """
+    Equity manifest (postflop part):
+    emits rows with (street, board_cluster_id, board, board_mask_52, hand_id, samples, weight, seed, ctx, ip_pos, oop_pos).
+    """
+
+    if clusterer is None:
+        raise ValueError("build_postflop_manifest requires a clusterer to materialize concrete boards")
+
     def _norm_street(s):
-        if isinstance(s, str):
-            s = s.lower()
-            if s in {"1", "flop"}: return 1
-            if s in {"2", "turn"}: return 2
-            if s in {"3", "river"}: return 3
-            raise ValueError(f"Unknown street: {s}")
+        s = str(s).lower()
+        if s in {"1","flop"}: return 1
+        if s in {"2","turn"}: return 2
+        if s in {"3","river"}: return 3
         return int(s)
 
     norm_streets = [_norm_street(s) for s in streets]
 
-    rows: List[Tuple[int, int, int, int, int]] = []
+    boards_by_cluster = discover_representative_flops(
+        clusterer=clusterer,
+        n_clusters_limit=board_clusters_limit,
+        boards_per_cluster=boards_per_cluster,
+        seed=(seed or 42),
+    )
+
+    rows: list[dict] = []
     for st in norm_streets:
         for bc in range(int(board_clusters_limit)):
-            for hand_id in range(HAND_COUNT):
-                rows.append((st, bc, hand_id, int(samples_per_cluster), int(seed) if seed is not None else -1))
+            boards = list(boards_by_cluster.get(int(bc), []))
+            for board in boards:
+                bm = make_board_mask_52(board)
+                for hand_id in range(HAND_COUNT):
+                    rows.append({
+                        "street": int(st),
+                        "board_cluster_id": int(bc),
+                        "board": board,
+                        "board_mask_52": bm,           # 52-d float list
+                        "hand_id": int(hand_id),
+                        "samples": int(samples_per_cluster),
+                        "weight": float(samples_per_cluster),
+                        "seed": int(seed) if seed is not None else -1,
+                        # lightweight context in case you later condition on villain priors
+                        "ctx": str(default_ctx).upper(),
+                        "ip_pos": str(default_ip_pos).upper(),
+                        "oop_pos": str(default_oop_pos).upper(),
+                    })
 
-    return pd.DataFrame(
-        rows, columns=["street", "board_cluster_id", "hand_id", "samples", "seed"]
-    )
+    cols = ["street","board_cluster_id","board","board_mask_52","hand_id",
+            "samples","weight","seed","ctx","ip_pos","oop_pos"]
+    return pd.DataFrame(rows, columns=cols)
 
 
 def _coerce_list(x):
@@ -116,6 +154,14 @@ def _plan_from_cfg(cfg, default_streets="flop,turn,river", default_clusters=128,
         plan.append({"street": street_int, "clusters": clusters, "samples": samples, "seed": seed})
     return plan
 
+def _get(cfg, path, default=None):
+    cur = cfg
+    for p in path.split("."):
+        if not isinstance(cur, dict) or p not in cur:
+            return default
+        cur = cur[p]
+    return cur
+
 def main():
     import argparse
     from pathlib import Path
@@ -151,16 +197,32 @@ def main():
             default_clusters=128,
             default_samples=64,
         )
+
+        # NEW: shared knobs for materializing concrete boards
+        boards_per_cluster = int(_get(cfg, "build.boards_per_cluster", 64))
+        clusterer = load_board_clusterer(cfg)
+
+        # Optional light context defaults (carried into rows for future conditioning)
+        default_ctx = str(_get(cfg, "build.default_ctx", "VS_OPEN"))
+        default_ip_pos = str(_get(cfg, "build.default_ip_pos", "BTN"))
+        default_oop_pos = str(_get(cfg, "build.default_oop_pos", "BB"))
+
         for step in plan:
-            street  = step["street"]
+            street = step["street"]
             clusters = step["clusters"]
-            samples  = step["samples"]
-            seed     = step["seed"]
+            samples = step["samples"]
+            seed = step["seed"]
+
             df_s = build_postflop_manifest(
                 streets=[street],
                 board_clusters_limit=int(clusters),
                 samples_per_cluster=int(samples),
-                seed=int(seed),               # accepts and may ignore internally
+                seed=int(seed),
+                boards_per_cluster=boards_per_cluster,  # <-- NEW
+                clusterer=clusterer,  # <-- NEW
+                default_ctx=default_ctx,  # <-- NEW
+                default_ip_pos=default_ip_pos,  # <-- NEW
+                default_oop_pos=default_oop_pos,  # <-- NEW
             )
             frames.append(df_s)
 

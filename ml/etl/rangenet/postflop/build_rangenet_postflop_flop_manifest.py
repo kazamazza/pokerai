@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -13,13 +12,13 @@ from ml.config.solver_profiles import profile_for
 from typing import List, Dict, Optional, Tuple
 from ml.range.solvers.utils.sanitize_pairs import sanitize_position_pairs
 from infra.storage.s3_client import S3Client
-from ml.features.boards.board_clusterers.utils import discover_representative_flops
 from ml.features.boards import load_board_clusterer
 from ml.utils.config import load_model_config
 from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
 from ml.range.solvers.keying import s3_key_for_solve, solve_sha1
 from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles, _compute_pot_bb, _menu_for, \
     _ctx_for_lookup
+from ml.features.boards.representatives import discover_representative_flops
 
 def build_manifest(cfg: dict) -> pd.DataFrame:
     mb = cfg.get("manifest_build", {}) or {}

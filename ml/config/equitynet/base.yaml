@@ -25,37 +25,39 @@ dataset:
 # -------------------------------------
 build:
   include:
-    preflop: true     # emit 169 preflop rows (street=0)
+    preflop: true
     postflop: true
 
-  # Streets included in the manifest for postflop
-  streets: [flop, turn, river]   # accepts ["flop","turn","river"] or [1,2,3]
+  # Streets included for postflop sampling
+  streets: [flop, turn, river]
 
-  # Number of clusters per street used to enumerate scenarios in the manifest
-  # (You’ll often override these in prod.)
+  # Clusters per street
   clusters:
     flop: 128
     turn: 128
     river: 128
 
-  # Rows per (street × cluster × hand_id) — i.e., MC sims placeholder
-  # (Final sims per row can be bounded in compute.mc.{min,max}.)
+  # Rows per (street × cluster × hand_id)
   samples_per_cluster:
     flop: 32
     turn: 32
     river: 32
 
-  # Optional when building representative board pools used by compute (sampler cap)
+  # How many concrete boards to materialize per cluster (used in manifest)
   boards_per_cluster: 64
 
+  # Optional lightweight context carried into rows
+  default_ctx: VS_OPEN
+  default_ip_pos: BTN
+  default_oop_pos: BB
+
 # --------------------------------------------------------
-# BOARD CLUSTERING (used by compute’s cluster-aware sampler)
+# BOARD CLUSTERING
 # --------------------------------------------------------
-# You can switch to "kmeans" and point to your JSON artifact in prod.
 board_clustering:
-  type: rule              # "rule" | "kmeans"
-  n_clusters: 128         # used by rule-based clustering; ignored if kmeans with artifact
-  artifact: ""            # e.g., data/artifacts/board_clusters_kmeans_512.json
+  type: rule            # "rule" | "kmeans"
+  n_clusters: 128       # used by "rule"; ignored if "kmeans" has artifact
+  artifact: ""          # e.g., data/artifacts/board_clusters_kmeans_512.json
 
 # ---------------------------------
 # COMPUTE (equity parquet producer)
@@ -66,11 +68,13 @@ compute:
   chunk_size: 4096        # rows per process batch submission
   log_every_n: 20000
   seed: 42
+  river_exact: true
 
   # MC sim clamps applied to POSTFLOP rows (street > 0)
   mc:
     min_samples: 64       # raise too-small rows up to this
     max_samples: 0        # 0 = no cap
+
 
   # Sims for PREFLOP rows (street == 0)
   preflop_samples: 20000
