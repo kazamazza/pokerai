@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 import pandas as pd
 import concurrent.futures as cf
-
 import eval7
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -14,8 +13,9 @@ from ml.config.types_hands import SUITS
 from ml.etl.utils.hand import RANKS, hand_id_to_combo
 from ml.features.boards import load_board_clusterer  # returns RuleBasedBoardClusterer or KMeansBoardClusterer
 from ml.utils.config import load_model_config
+from ml.utils.board_mask import make_board_mask_52
 
-# If you have representative discovery helpers, we’ll try to use them:
+
 try:
     from ml.features.boards.representatives import (
         discover_representative_flops,
@@ -27,11 +27,35 @@ except Exception:
     HAS_DISCOVERY = False
 
 
-# =====================================================================================
-# Card helpers
-# =====================================================================================
 ALL_CARDS: List[eval7.Card] = [eval7.Card(r + s) for r in RANKS for s in SUITS]
 
+def _equity_triplet_vs_random_1op_exact_river(
+    hero: Tuple[eval7.Card, eval7.Card],
+    board5: List[eval7.Card],
+) -> Tuple[int, int, int]:
+    """
+    Exact showdown enumeration on the river (5-card board).
+    Iterates all legal villain hole-card combos from remaining deck.
+    Returns (wins, ties, losses).
+    """
+    assert len(board5) == 5, "exact river requires a full 5-card board"
+    used = {hero[0], hero[1], *board5}
+    deck = [c for c in ALL_CARDS if c not in used]
+
+    wins = ties = losses = 0
+    h_val = eval7.evaluate([hero[0], hero[1], *board5])
+
+    # enumerate all villain 2-card combos
+    n = len(deck)
+    for i in range(n):
+        for j in range(i + 1, n):
+            v1, v2 = deck[i], deck[j]
+            v_val = eval7.evaluate([v1, v2, *board5])
+            if h_val > v_val: wins += 1
+            elif h_val == v_val: ties += 1
+            else: losses += 1
+
+    return wins, ties, losses
 
 def _norm_cluster_id(x) -> Optional[int]:
     if x is None:
@@ -44,10 +68,6 @@ def _norm_cluster_id(x) -> Optional[int]:
         return None
 
 
-# =====================================================================================
-# Cluster-aware board samplers
-# =====================================================================================
-
 class BoardSamplers:
     """
     Holds per-street (1/2/3) samplers: street -> {cluster_id -> [boards]}
@@ -57,17 +77,31 @@ class BoardSamplers:
     def __init__(self, samplers: Dict[int, Dict[int, List[List[eval7.Card]]]]):
         self.samplers = samplers  # {street: {cluster_id: [boards...] }}
 
-    def sample(self, street: int, cluster_id: Optional[int], rng: random.Random) -> List[eval7.Card]:
+    def sample(
+        self,
+        street: int,
+        cluster_id: Optional[int],
+        rng: random.Random,
+        used: Optional[Set[eval7.Card]] = None,   # NEW: cards to avoid (hero, previous streets)
+    ) -> List[eval7.Card]:
         if street == 0:
             return []
 
+        used = used or set()
+
         if cluster_id is not None:
             by_cluster = self.samplers.get(street, {})
-            pool = by_cluster.get(int(cluster_id))
+            pool = by_cluster.get(int(cluster_id)) or []
             if pool:
-                return list(rng.choice(pool))  # copy
-        # fallback
-        return _sample_board_random(street, used=set(), rng=rng)
+                # Try a few draws that don't intersect with `used`
+                for _ in range(16):
+                    cand = pool[rng.randrange(len(pool))]
+                    if not (set(cand) & used):
+                        return list(cand)  # copy
+                # If all candidates intersect, fall back to random below
+
+        # fallback (now also respects `used`)
+        return _sample_board_random(street, used=used, rng=rng)
 
 
 def _to_eval7_board_strs(raw: Iterable[str]) -> List[eval7.Card]:
@@ -160,11 +194,6 @@ def _build_board_samplers_from_clusterer(
 
     return BoardSamplers(samplers)
 
-
-# =====================================================================================
-# Core equity computation
-# =====================================================================================
-
 def _equity_triplet_vs_random_1op(
     hero: Tuple[eval7.Card, eval7.Card],
     base_board: List[eval7.Card],   # can be [], or 3/4/5 cards
@@ -205,37 +234,63 @@ def _equity_triplet_vs_random_1op(
     return wins, ties, losses
 
 
-# =====================================================================================
-# Row worker (pure function for process pool)
-# =====================================================================================
-
 def _row_worker(
     row: Tuple[int, int, int, int],   # (street, cluster_id or -1, hand_id, sims)
     seed: int,
-    board_sampler_blob: Dict[str, Any],  # JSON-serializable sampler spec (we’ll rebuild RNG each call)
-) -> Tuple[int, Optional[int], int, int, float, float, float, float]:
+    board_sampler_blob: Dict[str, Any],  # JSON-serializable sampler spec
+    river_exact: bool = False,           # whether to use exact enumeration on river
+) -> Tuple[int, Optional[int], int, int, float, float, float, float, str, List[float]]:
     """
-    Returns a result tuple:
-      (street, cluster_id or None, hand_id, sims, p_win, p_tie, p_lose, weight)
+    Returns:
+      (street, cluster_id, hand_id, sims, p_win, p_tie, p_lose, weight, board_str, board_mask_52)
     """
     street, cl_raw, hand_id, sims = row
     cluster_id = None if cl_raw < 0 else int(cl_raw)
 
-    # Per-row deterministic RNG
-    row_seed = int(seed) * 1_000_003 + int(street) * 10_007 + int(hand_id) * 101 + (cluster_id if cluster_id is not None else 0)
+    # Deterministic RNG
+    row_seed = (
+        int(seed) * 1_000_003
+        + int(street) * 10_007
+        + int(hand_id) * 101
+        + (cluster_id or 0)
+    )
     rng = random.Random(row_seed)
 
-    # Rehydrate board sampler (lightweight)
+    # Rehydrate board sampler
     sampler = _rehydrate_board_sampler(board_sampler_blob)
 
-    # Hero combo
+    # Hero and board
     hero = hand_id_to_combo(hand_id)  # -> (eval7.Card, eval7.Card)
     base_board = sampler.sample(street, cluster_id, rng) if street > 0 else []
 
-    w, t, l = _equity_triplet_vs_random_1op(hero, base_board, max(1, sims), rng)
+    # ---- Choose MC or Exact (for river) ----
+    if river_exact and street == 3 and len(base_board) == 5:
+        w, t, l = _equity_triplet_vs_random_1op_exact_river(hero, base_board)
+        sims_used = (len(ALL_CARDS) - 2 - 5)
+        sims_used = sims_used * (sims_used - 1) // 2  # all possible villain combos
+    else:
+        w, t, l = _equity_triplet_vs_random_1op(hero, base_board, max(1, sims), rng)
+        sims_used = max(1, sims)
+
     total = float(w + t + l) if (w + t + l) > 0 else 1.0
     p_win, p_tie, p_lose = w / total, t / total, l / total
-    return (street, cluster_id, hand_id, sims, p_win, p_tie, p_lose, float(sims))
+
+    # Serialize board and compute 52-bit mask
+    board_str = "".join(str(c) for c in base_board) if base_board else ""
+    mask_52 = make_board_mask_52(board_str)
+
+    return (
+        street,
+        cluster_id,
+        hand_id,
+        sims_used,
+        p_win,
+        p_tie,
+        p_lose,
+        float(sims_used),
+        board_str,
+        mask_52,
+    )
 
 
 def _rehydrate_board_sampler(blob: Dict[str, Any]) -> BoardSamplers:
@@ -276,10 +331,6 @@ def _safe_int(x, default: int = 0) -> int:
         return default
 
 
-# =====================================================================================
-# Main compute
-# =====================================================================================
-
 def compute_equity_from_manifest_cfg(cfg: Mapping[str, Any]) -> Path:
     """
     Read manifest & config → write equity parquet.
@@ -300,6 +351,7 @@ def compute_equity_from_manifest_cfg(cfg: Mapping[str, Any]) -> Path:
     mc_min     = int(comp.get("mc", {}).get("min_samples", 0))
     mc_max     = int(comp.get("mc", {}).get("max_samples", 0))
     preflop_sims = int(comp.get("preflop_samples", 20000))
+    river_exact = bool(comp.get("river_exact", False))
 
     # Optional: limit clusters if your artifact has more than manifest expects; else None
     n_clusters_limit = cfg.get("build", {}).get("clusters", {})
@@ -360,7 +412,7 @@ def compute_equity_from_manifest_cfg(cfg: Mapping[str, Any]) -> Path:
     processed = 0
     with cf.ProcessPoolExecutor(max_workers=workers) as ex:
         for batch in chunks(rows, chunk_size):
-            futs = [ex.submit(_row_worker, row, seed, sampler_blob) for row in batch]
+            futs = [ex.submit(_row_worker, row, seed, sampler_blob, river_exact) for row in batch]
             for fut in cf.as_completed(futs):
                 results.append(fut.result())
                 processed += 1
@@ -370,19 +422,27 @@ def compute_equity_from_manifest_cfg(cfg: Mapping[str, Any]) -> Path:
 
     # Assemble DataFrame
     out_rows = []
-    for (street, cluster_id, hand_id, sims, p_win, p_tie, p_lose, weight) in results:
+    for (street, cluster_id, hand_id, sims,
+         p_win, p_tie, p_lose, weight,
+         board_str, board_mask_52) in results:
         out_rows.append((
-            street,
+            int(street),
             (float('nan') if cluster_id is None else int(cluster_id)),
             int(hand_id),
             int(sims),
             float(p_win), float(p_tie), float(p_lose),
-            float(weight)
+            float(weight),
+            str(board_str or ""),
+            list(board_mask_52 or [])
         ))
 
     out_df = pd.DataFrame(
         out_rows,
-        columns=["street","board_cluster_id","hand_id","samples","p_win","p_tie","p_lose","weight"]
+        columns=[
+            "street", "board_cluster_id", "hand_id", "samples",
+            "p_win", "p_tie", "p_lose", "weight",
+            "board", "board_mask_52"
+        ]
     )
     out_parquet.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_parquet(out_parquet, index=False)
