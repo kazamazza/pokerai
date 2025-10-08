@@ -53,6 +53,43 @@ class EquityNetInfer:
                 f"feature_order ↔ model.emb_layers mismatch. "
                 f"Missing in model: {sorted(missing)}  Extra in model: {sorted(extra)}"
             )
+    @classmethod
+    def from_dir(
+        cls,
+        ckpt_dir: Union[str, Path],
+        ckpt_name: Optional[str] = None,
+        device: DeviceLike = "auto",
+    ) -> "EquityNetInfer":
+        """
+        Load {dir}/best.ckpt (or last.ckpt) + sidecar (best_sidecar.json|sidecar.json).
+        If ckpt_name is provided, load that exact file.
+        """
+        ckpt_dir = Path(ckpt_dir)
+
+        # Pick checkpoint
+        if ckpt_name:
+            ckpt_path = ckpt_dir / ckpt_name
+        else:
+            best = ckpt_dir / "best.ckpt"
+            last = ckpt_dir / "last.ckpt"
+            ckpt_path = best if best.exists() else last
+
+        if not ckpt_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found in {ckpt_dir} (looked for best.ckpt/last.ckpt).")
+
+        # Pick sidecar (prefer best_sidecar.json, else sidecar.json)
+        sidecar = ckpt_dir / "best_sidecar.json"
+        if not sidecar.exists():
+            sidecar = ckpt_dir / "sidecar.json"
+        if not sidecar.exists():
+            # Allow explicit <ckpt>.sidecar.json next to the ckpt
+            alt = ckpt_path.with_suffix(ckpt_path.suffix + ".sidecar.json")
+            if alt.exists():
+                sidecar = alt
+            else:
+                raise FileNotFoundError(f"Sidecar not found in {ckpt_dir} (expected best_sidecar.json or sidecar.json).")
+
+        return cls.from_checkpoint(ckpt_path, sidecar, device=device)
 
     @classmethod
     def from_checkpoint(
@@ -135,21 +172,31 @@ class EquityNetInfer:
                 cols[k].append(r[k])
         return {k: self._encode_column(k, v) for k, v in cols.items()}
 
-    # ---------- public API ----------
 
     @torch.no_grad()
     def predict_proba(self, rows: Sequence[Mapping[str, Any]]) -> torch.Tensor:
         """
-        rows: list of dicts with keys matching feature_order (board_cluster_id may be omitted for preflop).
-        returns: [B,3] probabilities (p_win, p_tie, p_lose)
+        Returns [B,3]: (p_win, p_tie, p_lose).
+        - If model.output_mode == "triplet": softmax over 3 logits.
+        - If model.output_mode == "scalar": sigmoid → p_win, p_tie:=0, p_lose:=1-p_win.
         """
         if not rows:
             return torch.empty(0, 3, device=self.device)
 
         x_cat = self._encode_batch(rows)
         x_num = self._x_num_placeholder(batch_size=len(rows))
-        logits = self.model(x_cat, x_num)
-        return F.softmax(logits, dim=-1)
+        logits = self.model(x_cat, x_num)  # [B,3] or [B,1]
+
+        mode = getattr(self.model.hparams, "output_mode", "triplet")
+        if mode == "triplet":
+            probs = F.softmax(logits, dim=-1)  # [B,3]
+            return probs
+        else:
+            # scalar → interpret as p_win; no explicit tie head
+            p_win = torch.sigmoid(logits.view(-1, 1))  # [B,1]
+            p_tie = torch.zeros_like(p_win)  # [B,1]
+            p_lose = 1.0 - p_win  # [B,1]
+            return torch.cat([p_win, p_tie, p_lose], dim=-1)
 
     @torch.no_grad()
     def predict(self, rows: Sequence[Mapping[str, Any]]) -> List[List[float]]:

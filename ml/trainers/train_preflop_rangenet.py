@@ -13,7 +13,7 @@ sys.path.append(str(ROOT_DIR))
 from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet
 from ml.models.preflop_rangenet import RangeNetLit, rangenet_preflop_collate_fn
 from ml.utils.config import load_model_config
-from ml.trainers.helpers import _get, _parse_val_kl_from_ckpt, _expand_grid, _set, _trial_dir
+from ml.trainers.helpers import _get, _expand_grid, _set, _trial_dir
 from ml.utils.rangenet_preflop_sidecar import write_preflop_policy_sidecar
 
 

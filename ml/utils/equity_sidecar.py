@@ -1,11 +1,6 @@
 from pathlib import Path
 from typing import Optional, Dict, Any, Sequence, Union
-
 from ml.utils.sidecar import save_sidecar_json
-
-
-# assume save_sidecar_json is already imported from your utils
-# from ml.utils.sidecar import save_sidecar_json
 
 def write_equity_sidecar(
     *,

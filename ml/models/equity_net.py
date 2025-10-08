@@ -12,187 +12,109 @@ def default_emb_dim(card: int) -> int:
 class EquityNetLit(pl.LightningModule):
     def __init__(
         self,
-        # categorical feature setup
-        cards: Dict[str, int],                     # e.g. {"hero_pos_id":6, "opener_action_id":4, "hand_id":169}
-        cat_order: Optional[List[str]] = None,     # order to read from x_cat
-        emb_dims: Optional[Dict[str, int]] = None, # per-feature embedding dims (optional)
-
-        # numeric feature setup
-        num_features: Optional[Sequence[str]] = None,  # purely informational; collate provides x_num
-        num_in_dim: int = 0,                            # dimension of x_num
-
-        # head / training
+        cards: Dict[str, int],
+        cat_order: Optional[List[str]] = None,
+        emb_dims: Optional[Dict[str, int]] = None,
+        num_features: Optional[Sequence[str]] = None,
+        num_in_dim: int = 0,
         hidden_dims: List[int] = [64, 64],
         dropout: float = 0.10,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
-        output_mode: str = "scalar",  # "scalar" or "triplet"
+        output_mode: str = "triplet",
     ):
         super().__init__()
         self.save_hyperparameters()
 
-        # ---- Inputs config ----
         self.cards = dict(cards)
         self.cat_order = cat_order or list(self.cards.keys())
         self.emb_dims = emb_dims or {k: default_emb_dim(v) for k, v in self.cards.items()}
         self.num_in_dim = int(num_in_dim)
         self.output_mode = output_mode
 
-        # ---- Embeddings for categorical features ----
+        # embeddings
         self.emb_layers = nn.ModuleDict({
-            name: nn.Embedding(num_embeddings=self.cards[name], embedding_dim=self.emb_dims[name])
-            for name in self.cat_order
+            n: nn.Embedding(self.cards[n], self.emb_dims[n]) for n in self.cat_order
         })
 
-        # ---- Optional numeric pre-projection (kept simple for now) ----
-        # You can replace with LayerNorm or a small MLP if you want.
-        self.num_proj = nn.Identity()
-        proj_num_dim = self.num_in_dim
-
-        # ---- MLP head ----
-        emb_total = sum(self.emb_dims[name] for name in self.cat_order)
-        in_dim = emb_total + proj_num_dim
-
-        layers: List[nn.Module] = []
-        last = in_dim
-        for h in hidden_dims:
-            layers += [nn.Linear(last, h), nn.ReLU(), nn.Dropout(dropout)]
-            last = h
-
-        if self.output_mode == "scalar":
-            out_dim = 1
-        elif self.output_mode == "triplet":
-            out_dim = 3
+        # numeric projection (for board_mask_52 etc.)
+        proj_dim = 0
+        if self.num_in_dim > 0:
+            self.num_proj = nn.Sequential(
+                nn.Linear(self.num_in_dim, 64),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            )
+            proj_dim = 64
         else:
-            raise ValueError("output_mode must be 'scalar' or 'triplet'")
+            self.num_proj = nn.Identity()
 
-        layers += [nn.Linear(last, out_dim)]
+        # MLP head
+        in_dim = sum(self.emb_dims.values()) + proj_dim
+        layers: List[nn.Module] = []
+        for h in hidden_dims:
+            layers += [nn.Linear(in_dim, h), nn.ReLU(), nn.Dropout(dropout)]
+            in_dim = h
+        out_dim = 1 if self.output_mode == "scalar" else 3
+        layers.append(nn.Linear(in_dim, out_dim))
         self.mlp = nn.Sequential(*layers)
 
-        # simple running metrics
-        self.train_n = 0.0
-        self.train_loss_sum = 0.0
-        self.val_n = 0.0
-        self.val_loss_sum = 0.0
+    # ---------- Forward ----------
+    def forward(self, x_cat: Dict[str, torch.Tensor], x_num: Optional[torch.Tensor] = None) -> torch.Tensor:
+        embs = [self.emb_layers[n](x_cat[n].long()) for n in self.cat_order]
+        h_cat = torch.cat(embs, dim=-1) if embs else None
 
-    def on_save_checkpoint(self, checkpoint: dict) -> None:
-        checkpoint["model_state_dict"] = self.model.state_dict()
-
-        trained_rows = {}
-        logical_cards = {}
-        emb_dims_map = {}
-
-        for name, emb in zip(self.model.cat_order, self.model.embs):
-            rows = int(getattr(emb, "num_embeddings", emb.weight.shape[0]))
-            dim = int(getattr(emb, "embedding_dim", emb.weight.shape[1]))
-            trained_rows[str(name)] = rows
-            logical_cards[str(name)] = rows - 1 if self.model.pad_at_zero and rows > 0 else rows
-            emb_dims_map[str(name)] = dim
-
-        meta = {
-            "model_name": "ExploitNet",
-            "cat_feats": list(self.model.cat_order),
-            "numeric_feats": list(self.numeric_feats),
-            "pad_at_zero": bool(self.model.pad_at_zero),
-            "cardinals_rows": trained_rows,  # <-- exact table rows (incl PAD)
-            "cardinals": logical_cards,  # <-- logical ID range
-            "emb_dims_map": emb_dims_map,
-            "num_proj_out": int(getattr(self.model, "num_proj_out", 32)),
-            "hidden_dims": list(self.hparams.hidden),
-            "dropout": float(self.hparams.dropout),
-        }
-        # (optional) numeric_stats...
-        checkpoint["exploit_meta"] = meta
-
-    # ---- Forward ----
-    def forward(
-            self,
-            x_cat: Dict[str, torch.Tensor],
-            x_num: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
-        """
-        x_cat: dict of {feature_name: LongTensor[B]}
-        x_num: FloatTensor[B, D] or None (if no numeric features)
-        returns logits:
-          - scalar: FloatTensor[B,1]
-          - triplet: FloatTensor[B,3]
-        """
-        embs = [self.emb_layers[name](x_cat[name].long()) for name in self.cat_order]
-        h_cat = torch.cat(embs, dim=-1) if len(embs) > 0 else None
-
-        if self.num_in_dim > 0:
-            # ensure x_num exists with correct shape
-            if x_num is None:
-                B = next(iter(x_cat.values())).shape[0] if x_cat else 0
-                x_num = torch.empty(B, self.num_in_dim, device=next(iter(x_cat.values())).device)
-            h_num = self.num_proj(x_num.float())
+        if self.num_in_dim > 0 and x_num is not None:
+            h_num = self.num_proj(x_num)
             h = torch.cat([h_cat, h_num], dim=-1) if h_cat is not None else h_num
         else:
-            # no numeric inputs expected; ignore x_num
             h = h_cat
 
-        logits = self.mlp(h)
-        return logits
+        return self.mlp(h)
 
-    # ---- Training step (handles scalar or triplet targets; soft/hard) ----
+    # ---------- Training ----------
     def _step(self, batch, stage: str):
         if len(batch) == 3:
             x_cat, y, w = batch
-            x_num = torch.empty((y.shape[0], 0), device=y.device)  # empty numeric
+            x_num = None
         else:
             x_cat, x_num, y, w = batch
+
         logits = self.forward(x_cat, x_num)
-
-        # Build loss depending on mode/labels
-        if self.output_mode == "scalar":
-            # Expect y in [0,1] floats; use BCEWithLogitsLoss
+        if self.output_mode == "triplet":
+            logp = F.log_softmax(logits, dim=-1)
+            loss_vec = F.kl_div(logp, y, reduction="none").sum(dim=-1)
+        else:
             y = y.float().view(-1, 1)
-            loss_vec = F.binary_cross_entropy_with_logits(logits, y, reduction='none').squeeze(-1)
-        else:
-            # triplet
-            if y.dtype in (torch.float32, torch.float64):  # soft labels
-                # y: [B,3], probabilities; use KLDiv between log_softmax and probs
-                logp = F.log_softmax(logits, dim=-1)
-                loss_vec = F.kl_div(logp, y, reduction='none').sum(dim=-1)
-            else:
-                # hard labels in {0,1,2}
-                loss_vec = F.cross_entropy(logits, y.long(), reduction='none')
+            loss_vec = F.binary_cross_entropy_with_logits(logits, y, reduction="none").squeeze(-1)
 
-        # sample weights (optional)
-        if w is None:
-            loss = loss_vec.mean()
-        else:
-            w = w.float()
-            w = w * (w.numel() / (w.sum().clamp_min(1e-8)))  # normalize weights
-            loss = (loss_vec * w).mean()
-
-        self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-
-        # track epoch avg
-        if stage == "train":
-            self.train_loss_sum += loss.item() * y.shape[0]
-            self.train_n += y.shape[0]
-        else:
-            self.val_loss_sum += loss.item() * y.shape[0]
-            self.val_n += y.shape[0]
-
+        w = w.float()
+        w = w * (w.numel() / w.sum().clamp_min(1e-8))
+        loss = (loss_vec * w).mean()
+        self.log(f"{stage}_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
-    def training_step(self, batch, batch_idx):
-        return self._step(batch, "train")
-
-    def validation_step(self, batch, batch_idx):
-        return self._step(batch, "val")
-
-    def on_train_epoch_end(self):
-        if self.train_n > 0:
-            self.log("train_loss_epoch_mean", self.train_loss_sum / self.train_n, prog_bar=True)
-        self.train_loss_sum = 0.0; self.train_n = 0.0
-
-    def on_validation_epoch_end(self):
-        if self.val_n > 0:
-            self.log("val_loss_epoch_mean", self.val_loss_sum / self.val_n, prog_bar=True)
-        self.val_loss_sum = 0.0; self.val_n = 0.0
+    def training_step(self, b, i): return self._step(b, "train")
+    def validation_step(self, b, i): return self._step(b, "val")
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        decay, no_decay = [], []
+        for n, p in self.named_parameters():
+            if not p.requires_grad: continue
+            (no_decay if n.endswith("bias") or "norm" in n else decay).append(p)
+        opt = torch.optim.AdamW([
+            {"params": decay, "weight_decay": self.hparams.weight_decay},
+            {"params": no_decay, "weight_decay": 0.0},
+        ], lr=self.hparams.lr)
+        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=10)
+        return [opt], [sch]
+
+    def on_save_checkpoint(self, ckpt: dict):
+        ckpt["equity_meta"] = {
+            "model_name": "EquityNet",
+            "cat_feats": self.cat_order,
+            "num_in_dim": self.num_in_dim,
+            "emb_dims": self.emb_dims,
+            "hidden_dims": self.hparams.hidden_dims,
+            "dropout": self.hparams.dropout,
+        }

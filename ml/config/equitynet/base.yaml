@@ -19,6 +19,7 @@ dataset:
   min_weight: null
   # Optional: stratified split keys (keeps per-key distribution stable across train/val)
   stratify_keys: ["street", "board_cluster_id"]
+  cont_cols: ["board_mask_52"]
 
 # -------------------------------------
 # BUILD (manifest generation controls)
@@ -141,3 +142,14 @@ train:
 # --------------
 logging:
   tb_log_dir: logs/tb
+
+
+sweep:
+  model.hidden_dims:
+    - [128, 128]
+    - [256, 256]
+  model.dropout: [0.10, 0.20]
+  model.lr: [0.001, 0.0005]
+  train.batch_size: [1024, 2048]
+  seed: [42, 1337]
+  max_trials: 10
