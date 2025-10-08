@@ -1,11 +1,14 @@
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union, Callable
 
 import torch
 import torch.nn.functional as F
 
+from ml.features.boards import BoardClusterer
+from ml.inference.policy.types import PolicyResponse, PolicyRequest
 from ml.models.policy_consts import ACTION_VOCAB as DEFAULT_VOCAB
 from ml.models.postflop_policy_net import PostflopPolicyLit
+from ml.utils.board_mask import make_board_mask_52
 from ml.utils.sidecar import load_sidecar
 
 DeviceLike = Union[str, torch.device]
@@ -38,34 +41,105 @@ class PostflopPolicyInfer:
         cont_features: Sequence[str] = ("board_mask_52", "pot_bb", "eff_stack_bb"),
         action_vocab: Sequence[str] = None,
         device: Optional[torch.device] = None,
+        clusterer: Optional[BoardClusterer] = None
     ):
         self.model = model.eval()
         self.device = device or _to_device("auto")
         self.model.to(self.device)
-
-        # Categorical setup
         self.feature_order = [str(c) for c in (feature_order or [])]
         if not self.feature_order:
             raise ValueError("Sidecar missing 'feature_order' (categorical feature order).")
         self.cards = {str(k): int(v) for k, v in (cards or {}).items()}
+        self.clusterer = clusterer
+        self.board_cluster_feat = "board_cluster" if "board_cluster" in self.feature_order \
+            else ("board_cluster_id" if "board_cluster_id" in self.feature_order else None)
         missing = [c for c in self.feature_order if c not in self.cards]
         if missing:
             raise ValueError(f"Sidecar/cards missing entries for categorical features: {missing}")
 
-        # Optional id maps (string -> int ids used in training)
         self.id_maps = {str(k): {str(a): int(b) for a, b in (m or {}).items()}
                         for k, m in (id_maps or {}).items()}
-
-        # Continuous features (in forward we always provide board_mask_52, pot_bb, eff_stack_bb)
         self.cont_features = [str(c) for c in (cont_features or ["board_mask_52", "pot_bb", "eff_stack_bb"])]
-
-        # Action vocab
-
         self.action_vocab = list(action_vocab) if action_vocab is not None else list(DEFAULT_VOCAB)
         self.vocab_size = len(self.action_vocab)
 
         # Sanity: verify head sizes match vocab
         self._assert_model_heads_match_vocab()
+
+    def _legal_mask(self, *, facing_bet: bool, actor: str, bet_menu: Optional[Sequence[float]]) -> torch.Tensor:
+        """
+        Recreate the dataset’s legality rules, producing [V] mask on the same device.
+        """
+        names = self.action_vocab
+        legal = set()
+        BET_BUCKETS = {"BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100", "DONK_33"}
+        RAISE_BUCKETS = {"RAISE_150", "RAISE_200", "RAISE_300", "RAISE_400", "RAISE_500", "ALLIN"}
+        if facing_bet:
+            legal = {"FOLD", "CALL"} | RAISE_BUCKETS
+        else:
+            legal = {"CHECK"} | BET_BUCKETS
+            # DONK only OOP
+            if actor.lower() != "oop" and "DONK_33" in legal:
+                legal.remove("DONK_33")
+            if bet_menu:
+                want = set()
+                # normalize menu → buckets
+                if 0.25 in bet_menu: want.add("BET_25")
+                if 0.33 in bet_menu: want.add("BET_33"); want.add("DONK_33")
+                if 0.50 in bet_menu: want.add("BET_50")
+                if 0.66 in bet_menu: want.add("BET_66")
+                if 0.75 in bet_menu: want.add("BET_75")
+                if 1.00 in bet_menu: want.add("BET_100")
+                for b in {"BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100"}:
+                    if b not in want and b in legal:
+                        legal.remove(b)
+                if "DONK_33" not in want and "DONK_33" in legal:
+                    legal.remove("DONK_33")
+
+        m = torch.zeros(self.vocab_size, dtype=torch.float32, device=self.device)
+        for i, a in enumerate(names):
+            if a in legal:
+                m[i] = 1.0
+        return m
+
+    def _build_row_dict(self, req: "PolicyRequest") -> Dict[str, Any]:
+        """
+        Convert PolicyRequest → model row dict with all features present
+        (categoricals in raw tokens, cont as floats; cluster id if available).
+        """
+        # categoricals (strings; encoded later via id_maps)
+        row = {
+            "hero_pos": (req.hero_pos or "").upper(),
+            "ip_pos": (req.ip_pos or req.hero_pos or "").upper(),
+            "oop_pos": (req.oop_pos or req.villain_pos or "").upper(),
+            "ctx": (req.ctx or "VS_OPEN").upper(),
+            "street": 1,  # flop
+        }
+
+        # board → mask + optional cluster
+        if "board_mask_52" in self.cont_features and req.board:
+            mask_52: list[float] = make_board_mask_52(req.board)
+            row["board_mask_52"] = mask_52  # type: ignore[assignment]
+
+        if self.board_cluster_feat:
+            cid = None
+            if self.clusterer and req.board:
+                try:
+                    cid = int(self.clusterer.predict_one(req.board))
+                except Exception:
+                    cid = None
+            # if present in feature_order, insert a value (0 fallback)
+            row[self.board_cluster_feat] = 0 if cid is None else cid
+
+        # continuous
+        stack = float(req.stack_bb or req.eff_stack_bb or 100.0)
+        row["pot_bb"] = float(req.pot_bb or 0.0)
+        row["eff_stack_bb"] = stack
+
+        # optional menu sizes (if you have them at inference time)
+        if isinstance(req.raw, dict) and "bet_sizes" in req.raw:
+            row["bet_sizes"] = list(req.raw["bet_sizes"])
+        return row
 
     @classmethod
     def from_checkpoint(
@@ -83,7 +157,6 @@ class PostflopPolicyInfer:
         """
         dev = _to_device(device)
 
-        # Try the strict global loader first; if it rejects, fall back to raw JSON.
         try:
             sc_raw = load_sidecar(sidecar_path)  # may raise if keys differ
         except Exception:
@@ -96,7 +169,6 @@ class PostflopPolicyInfer:
             except Exception as e:
                 raise ValueError(f"Failed to parse sidecar JSON at {p}: {e}")
 
-        # Normalize keys (support both naming variants)
         feature_order = sc_raw.get("feature_order") or sc_raw.get("cat_feature_order") or []
         cards_raw = sc_raw.get("cards") or sc_raw.get("card_sizes") or {}
 
@@ -109,19 +181,16 @@ class PostflopPolicyInfer:
                 f"Sidecar {sidecar_path} missing 'cards'/'card_sizes' dict"
             )
 
-        # Cast to the shapes the model expects
         cards = {str(k): int(v) for k, v in cards_raw.items()}
         id_maps = sc_raw.get("id_maps") or {}
         cont_features = sc_raw.get("cont_features") or ["board_mask_52", "pot_bb", "eff_stack_bb"]
 
-        # Action vocab: prefer sidecar, else model default
         try:
             from ml.models.postflop_policy_net import ACTION_VOCAB as DEFAULT_VOCAB
         except Exception:
             DEFAULT_VOCAB = None
         action_vocab = sc_raw.get("action_vocab") or DEFAULT_VOCAB
 
-        # Load Lightning model
         lit = PostflopPolicyLit.load_from_checkpoint(str(checkpoint_path), map_location=dev)
         lit.eval().to(dev)
 
@@ -153,8 +222,6 @@ class PostflopPolicyInfer:
         sidecar_path = ckpt_dir / "sidecar.json"
         return cls.from_checkpoint(checkpoint_path, sidecar_path, device=device)
 
-    # -------- private helpers --------
-
     def _assert_model_heads_match_vocab(self) -> None:
         """Quick forward with zeros to verify head widths == action vocab."""
         # minimal fake batch B=1
@@ -173,12 +240,15 @@ class PostflopPolicyInfer:
             )
 
     def _encode_cat_value(self, col: str, v: Any) -> int:
-        """Encode one categorical value using id_maps if present; else int-cast fallback."""
         mapping = self.id_maps.get(col) or {}
         if mapping:
             key = "__NA__" if v is None else str(v)
-            # unknown categories map to last bucket (stable fallback)
-            return mapping.get(key, max(mapping.values()) if mapping else 0)
+            if key in mapping:
+                return mapping[key]
+            # Map unknowns to the reserved last id if available
+            vocab = int(self.cards.get(col, 0))
+            return vocab - 1 if vocab > 0 else 0
+        # If no mapping present, fall back to int-cast (assumes caller already encoded)
         try:
             return int(v) if v is not None else 0
         except Exception:
@@ -186,11 +256,26 @@ class PostflopPolicyInfer:
 
     def _encode_x_cat(self, rows: Sequence[Mapping[str, Any]]) -> Dict[str, torch.Tensor]:
         out: Dict[str, List[int]] = {c: [] for c in self.feature_order}
+
+        need_cluster = ("board_cluster_id" in self.feature_order)
         for r in rows:
+            # If the model expects board_cluster_id but the row doesn't have it,
+            # try to compute it from 'board' via cluster_fn if provided.
+            r_local = dict(r)
+            if need_cluster and "board_cluster_id" not in r_local:
+                if self.cluster_fn and "board" in r_local and r_local["board"]:
+                    try:
+                        cid = int(self.cluster_fn(str(r_local["board"])))
+                        r_local["board_cluster_id"] = cid
+                    except Exception:
+                        # leave missing; _encode_cat_value will map to unknown bucket
+                        pass
+
             for c in self.feature_order:
-                if c not in r:
+                if c not in r_local:
                     raise KeyError(f"Missing categorical feature '{c}' in row keys {list(r.keys())}")
-                out[c].append(self._encode_cat_value(c, r[c]))
+                out[c].append(self._encode_cat_value(c, r_local[c]))
+
         return {k: torch.tensor(v, dtype=torch.long, device=self.device) for k, v in out.items()}
 
     def _as_52_mask(self, v: Any) -> torch.Tensor:
@@ -249,8 +334,6 @@ class PostflopPolicyInfer:
                 mo = mo if mo is not None else ones
         return mi, mo
 
-    # -------- public API --------
-
     @torch.no_grad()
     def predict_proba(
         self,
@@ -303,26 +386,49 @@ class PostflopPolicyInfer:
             out["logits_ip"], out["logits_oop"] = li, lo
         return out
 
+
     @torch.no_grad()
-    def predict_one(
-        self,
-        row: Mapping[str, Any],
-        *,
-        actor: str = "ip",
-        mask_ip: Optional[torch.Tensor] = None,
-        mask_oop: Optional[torch.Tensor] = None,
-        temperature: float = 1.0,
-    ) -> Dict[str, List[float]]:
-        res = self.predict_proba(
-            [row],
-            actor=actor,
-            mask_ip=mask_ip,
-            mask_oop=mask_oop,
-            temperature=temperature,
-            return_logits=False,
+    def predict(self,
+                req: PolicyRequest,
+                *,
+                actor: str = "ip",
+                temperature: float = 1.0) -> "PolicyResponse":
+        """
+        High-level: takes PolicyRequest, resolves board→mask/cluster, builds legal mask from
+        actor & menu, and returns a PolicyResponse (actions/probs for the active side).
+        """
+        row = self._build_row_dict(req)
+
+        # encode cats/conts for a batch of 1
+        x_cat = self._encode_x_cat([row])
+        x_cont = self._encode_x_cont([row])
+
+        # legal mask (vector [V]); expand to [1,V]
+        bet_menu = None
+        if isinstance(row.get("bet_sizes"), (list, tuple)):
+            bet_menu = [float(x) for x in row["bet_sizes"]]
+        facing_bet = bool(req.facing_bet)
+        m_side = self._legal_mask(facing_bet=facing_bet, actor=actor, bet_menu=bet_menu).view(1, -1)
+        li, lo = self.model(x_cat, x_cont)
+        logits = li if actor.lower() == "ip" else lo
+        big_neg = torch.finfo(logits.dtype).min / 4
+        masked = torch.where(m_side > 0.5, logits, big_neg)
+        if temperature and temperature != 1.0:
+            masked = masked / float(temperature)
+
+        probs = torch.softmax(masked, dim=-1)[0]  # [V]
+        actions = list(self.action_vocab)
+        probs_np = [float(p) for p in probs.tolist()]
+
+        return PolicyResponse(
+            actions=actions,
+            probs=probs_np,
+            evs=[0.0] * len(actions),
+            notes=[f"postflop policy; actor={actor}, temp={temperature}"],
+            debug={
+                "input_row": row,
+                "actor": actor,
+                "facing_bet": facing_bet,
+                "mask_nonzero": int(m_side.sum().item()),
+            },
         )
-        return {
-            "actions": self.action_vocab,
-            "probs_ip":  res["probs_ip"][0].tolist(),
-            "probs_oop": res["probs_oop"][0].tolist(),
-        }

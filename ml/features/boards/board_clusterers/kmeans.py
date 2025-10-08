@@ -38,9 +38,6 @@ class KMeansBoardClusterer:
     def _predict_nearest_centroid(self, X: np.ndarray) -> List[int]:
         if self.centroids is None:
             raise RuntimeError("No centroids available for prediction")
-        # X: [N, D], centroids: [K, D] → argmin over K
-        # Use squared Euclidean distance for speed (no sqrt needed)
-        # dist^2 = ||X||^2 - 2 X·C^T + ||C||^2
         X2 = (X ** 2).sum(axis=1, keepdims=True)         # [N,1]
         C2 = (self.centroids ** 2).sum(axis=1, keepdims=True).T  # [1,K]
         XC = X @ self.centroids.T                        # [N,K]

@@ -5,11 +5,13 @@ inputs:
   vendor_s3_prefix: data/vendor
   manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
   local_solver_dir: "/Users/antoniocasamassa/S3/"
-  parquet: data/datasets/postflop_policy_with_seats.parquet
+  parquet: data/datasets/postflop_policy_with_seats+manifest.parquet
 
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke
 
+dataset:
+  stratify_keys: ["ctx", "ip_pos", "oop_pos", "board_cluster_id"]
 
 outputs:
   # for the builder stage if you still emit a merged parquet; otherwise you can drop these
@@ -54,7 +56,6 @@ manifest_build:
         - [ "HJ",  "BB" ]
         - [ "CO",  "BB" ]
         - [ "BTN", "BB" ]
-      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "srp_ip" ]
 
     - name: SRP_OOP
@@ -72,7 +73,6 @@ manifest_build:
         - [ "UTG", "SB" ]
         - [ "HJ",  "SB" ]
         - [ "CO",  "SB" ]
-      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "srp_oop" ]   # must map to srp_hu.Caller_OOP
 
     # --- Blind vs steal (treated like SRP) ---
@@ -84,7 +84,6 @@ manifest_build:
         - [ "BTN", "SB" ]
         - [ "CO",  "BB" ]   # NEW
         - [ "CO",  "SB" ]   # Optional if you have data/menus
-      pots_bb: [ 18, 28, 40 ]
       bet_menus: [ "bvs" ]
 
     # --- 3-bet pots ---
@@ -96,7 +95,6 @@ manifest_build:
         - [ "BTN", "SB" ]
         - [ "CO",  "BB" ]   # NEW
         - [ "CO",  "SB" ]   # NEW
-      pots_bb: [ 20, 24, 28 ]
       bet_menus: [ "3bet_ip" ]
 
     - name: VS_3BET_OOP
@@ -107,7 +105,6 @@ manifest_build:
         - [ "SB",  "BTN" ]
         - [ "BB",  "CO" ]   # NEW
         - [ "SB",  "CO" ]   # NEW
-      pots_bb: [ 20, 24, 28 ]
       bet_menus: [ "3bet_oop" ]
 
     # --- 4-bet pots (lean) ---
@@ -119,7 +116,6 @@ manifest_build:
         - [ "BB",  "BTN" ]
         - [ "BTN", "SB" ]   # NEW
         - [ "SB",  "BTN" ]  # NEW
-      pots_bb: [ 38, 48, 60 ]
       bet_menus: [ "4bet" ]
 
     # --- Limped pots ---
@@ -128,7 +124,6 @@ manifest_build:
       stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "SB", "BB" ]    # single limp HU → (IP,OOP)=(SB,BB)
-      pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
     - name: LIMPED_MULTI
@@ -138,7 +133,6 @@ manifest_build:
         - [ "SB",  "BB" ]   # SB leads multiway; we model HU heads-up derived from it
         - [ "BTN", "SB" ]
         - [ "BTN", "BB" ]
-      pots_bb: [ 3, 4 ]
       bet_menus: [ "limp" ]
 
 solver:
@@ -169,3 +163,18 @@ model:
   lr: 5e-4                     # slightly lower than preflop
   weight_decay: 1e-4
   label_smoothing: 0.05          # softens overfitting
+  use_board_cluster: true
+
+sweep:
+  model.hidden_dims:
+    - [128, 128]
+    - [256, 256]
+  model.dropout: [0.10, 0.20]
+  model.lr: [0.001, 0.0005]
+  model.weight_decay: [0.0001, 0.00005]   # NEW
+  model.label_smoothing: [0.0, 0.02]
+  model.board_hidden: [64, 96]
+  model.use_board_cluster: [true, false]
+  train.batch_size: [1024, 2048]
+  seed: [42, 1337]
+  max_trials: 12

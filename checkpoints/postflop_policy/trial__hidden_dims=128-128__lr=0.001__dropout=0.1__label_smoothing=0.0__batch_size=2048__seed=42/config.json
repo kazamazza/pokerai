@@ -1,0 +1,386 @@
+{
+  "inputs": {
+    "monker_manifest": "data/artifacts/monker_manifest.parquet",
+    "sph_manifest": "data/artifacts/sph_manifest.parquet",
+    "vendor_s3_prefix": "data/vendor",
+    "manifest": "data/artifacts/rangenet_postflop_flop_manifest.parquet",
+    "local_solver_dir": "/Users/antoniocasamassa/S3/",
+    "parquet": "data/datasets/postflop_policy_with_seats+manifest.parquet",
+    "policy_parts_dir": "data/datasets/postflop_policy_parts"
+  },
+  "dataset": {
+    "stratify_keys": [
+      "ctx",
+      "ip_pos",
+      "oop_pos",
+      "board_cluster_id"
+    ]
+  },
+  "outputs": {
+    "s3_key": "datasets/rangenet_postflop.parquet"
+  },
+  "sizes": {
+    "open_x": {
+      "UTG": 3.0,
+      "HJ": 2.5,
+      "CO": 2.5,
+      "BTN": 2.5,
+      "SB": 3.0
+    },
+    "threebet_x": {
+      "IP": 7.5,
+      "OOP": 9.0
+    },
+    "fourbet_x": 24.0
+  },
+  "multiway": {
+    "enable": false,
+    "max_players": 3,
+    "default_menu_id": "limped_multi.Any",
+    "default_flop_pot_bb": 3.0,
+    "allow_in_scenarios": true
+  },
+  "board_clustering": {
+    "type": "kmeans",
+    "artifact": "data/artifacts/board_clusters_kmeans_128.json",
+    "n_clusters": 128
+  },
+  "manifest_build": {
+    "include_missing": false,
+    "allow_pair_subs": true,
+    "lookup_max_stack_delta": 200,
+    "board_clusters_limit": 128,
+    "boards_per_cluster": 2,
+    "sample_pool": 50000,
+    "seed": 42,
+    "scenarios": [
+      {
+        "name": "SRP_IP",
+        "ctx": "VS_OPEN",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "UTG",
+            "BB"
+          ],
+          [
+            "HJ",
+            "BB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ]
+        ],
+        "bet_menus": [
+          "srp_ip"
+        ]
+      },
+      {
+        "name": "SRP_OOP",
+        "ctx": "VS_OPEN",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "UTG",
+            "BB"
+          ],
+          [
+            "HJ",
+            "BB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "UTG",
+            "SB"
+          ],
+          [
+            "HJ",
+            "SB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "srp_oop"
+        ]
+      },
+      {
+        "name": "BLIND_VS_STEAL",
+        "ctx": "BLIND_VS_STEAL",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "bvs"
+        ]
+      },
+      {
+        "name": "VS_3BET_IP",
+        "ctx": "VS_3BET",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "3bet_ip"
+        ]
+      },
+      {
+        "name": "VS_3BET_OOP",
+        "ctx": "VS_3BET",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BB",
+            "BTN"
+          ],
+          [
+            "SB",
+            "BTN"
+          ],
+          [
+            "BB",
+            "CO"
+          ],
+          [
+            "SB",
+            "CO"
+          ]
+        ],
+        "bet_menus": [
+          "3bet_oop"
+        ]
+      },
+      {
+        "name": "VS_4BET",
+        "ctx": "VS_4BET",
+        "stacks_bb": [
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BB",
+            "BTN"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "SB",
+            "BTN"
+          ]
+        ],
+        "bet_menus": [
+          "4bet"
+        ]
+      },
+      {
+        "name": "LIMPED_SINGLE",
+        "ctx": "LIMPED_SINGLE",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "SB",
+            "BB"
+          ]
+        ],
+        "bet_menus": [
+          "limp"
+        ]
+      },
+      {
+        "name": "LIMPED_MULTI",
+        "ctx": "LIMPED_MULTI",
+        "stacks_bb": [
+          25,
+          60,
+          100,
+          150
+        ],
+        "position_pairs": [
+          [
+            "SB",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ]
+        ],
+        "bet_menus": [
+          "limp"
+        ]
+      }
+    ]
+  },
+  "solver": {
+    "accuracy": 0.01,
+    "max_iterations": 15000,
+    "threads": 1,
+    "allin_threshold": 0.67,
+    "s3_prefix": "solver/outputs/v1",
+    "local_cache_dir": "data/solver_cache"
+  },
+  "train": {
+    "seed": 42,
+    "max_epochs": 15,
+    "patience": 4,
+    "batch_size": 2048,
+    "devices": "auto",
+    "accelerator": "auto",
+    "precision": "16-mixed",
+    "grad_clip": 1.0,
+    "monitor": "val_loss",
+    "mode": "min",
+    "pin_memory": true,
+    "checkpoints_dir": "checkpoints/postflop_policy/trial__hidden_dims=128-128__lr=0.001__dropout=0.1__label_smoothing=0.0__batch_size=2048__seed=42"
+  },
+  "model": {
+    "hidden_dims": [
+      128,
+      128
+    ],
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.0,
+    "use_board_cluster": true,
+    "board_hidden": 96
+  },
+  "sweep": {
+    "model.hidden_dims": [
+      [
+        128,
+        128
+      ],
+      [
+        256,
+        256
+      ]
+    ],
+    "model.dropout": [
+      0.1,
+      0.2
+    ],
+    "model.lr": [
+      0.001,
+      0.0005
+    ],
+    "model.weight_decay": [
+      0.0001,
+      5e-05
+    ],
+    "model.label_smoothing": [
+      0.0,
+      0.02
+    ],
+    "model.board_hidden": [
+      64,
+      96
+    ],
+    "model.use_board_cluster": [
+      true,
+      false
+    ],
+    "train.batch_size": [
+      1024,
+      2048
+    ],
+    "seed": [
+      42,
+      1337
+    ],
+    "max_trials": 12
+  },
+  "seed": 42
+}

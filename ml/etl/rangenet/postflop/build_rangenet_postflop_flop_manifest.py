@@ -36,7 +36,6 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     multiway_default_pot = float(mw_cfg.get("default_flop_pot_bb", 3.0))
     multiway_allow_scen = bool(mw_cfg.get("allow_in_scenarios", True))
 
-
     # Scenarios (config-driven)
     scenarios = mb.get("scenarios") or []
     if not scenarios:
@@ -74,7 +73,6 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
         max_stack_delta=max_stack_delta,
     )
 
-    # Flop board sampling (deterministic)
     clusterer = load_board_clusterer(cfg)
     boards_by_cluster = discover_representative_flops(
         clusterer=clusterer,
@@ -92,8 +90,6 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     for sc in scenarios:
         scenario_name = str(sc.get("name") or sc.get("ctx") or "SCENARIO").upper()
         ctx = str(sc.get("ctx") or scenario_name).upper()
-
-        # Stacks + Pairs
         stacks = [float(x) for x in sc.get("stacks_bb", [100])]
         raw_pairs: List[Tuple[str, str]] = [(str(a), str(b)) for (a, b) in sc.get("position_pairs", [("BTN", "BB")])]
         ctx_up = str(ctx).upper()
@@ -144,8 +140,6 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                 for cluster_id in cluster_ids_sorted:
                     for board_tuple in boards_by_cluster[cluster_id]:
                         board_str = "".join(board_tuple)
-
-                        # ⬇️ contextual solver knobs based on this menu/context
                         knobs = profile_for(menu_id)  # {"accuracy", "max_iter", "allin_threshold"}
 
                         params = {

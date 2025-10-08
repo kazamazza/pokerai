@@ -33,22 +33,27 @@ class CatEmbedBlock(nn.Module):
         return torch.cat([self.embs[n](x_cat[n]) for n in self.feature_order], dim=-1)
 
 class BoardBlock(nn.Module):
-    """Encodes board via 52-bit mask + rank histogram; also uses pot_bb & eff_stack_bb."""
-    def __init__(self, hidden: int = 64):
+    def __init__(self, hidden: int = 64, n_clusters: int | None = None, cluster_dim: int = 8):
         super().__init__()
-        self.fc1 = nn.Linear(52 + 2 + 13, hidden)  # 52 + (pot, stack) + 13 ranks
+        self.use_cluster = bool(n_clusters and n_clusters > 0)
+        if self.use_cluster:
+            self.cluster_emb = nn.Embedding(n_clusters, cluster_dim)
+        in_dim = 52 + 2 + 13 + (cluster_dim if self.use_cluster else 0)
+        self.fc1 = nn.Linear(in_dim, hidden)
         self.fc2 = nn.Linear(hidden, hidden)
         self.out_dim = hidden
+
     @staticmethod
     def rank_histogram(board_mask_52: torch.Tensor) -> torch.Tensor:
         B = board_mask_52.size(0)
         return board_mask_52.view(B, 13, 4).sum(dim=2)  # [B,13]
 
-    def forward(self, board_mask_52: torch.Tensor, pot_bb: torch.Tensor, eff_stack_bb: torch.Tensor) -> torch.Tensor:
+    def forward(self, board_mask_52, pot_bb, eff_stack_bb, cluster_id: torch.Tensor | None = None):
         rh = self.rank_histogram(board_mask_52)
-        h = torch.cat([board_mask_52, pot_bb, eff_stack_bb, rh], dim=-1)
-        # safety: ensure dtype matches layer weights (usually float32)
-        h = h.to(dtype=self.fc1.weight.dtype)
+        parts = [board_mask_52, pot_bb, eff_stack_bb, rh]
+        if self.use_cluster and cluster_id is not None:
+            parts.append(self.cluster_emb(cluster_id.view(-1)))  # [B, cluster_dim]
+        h = torch.cat(parts, dim=-1)
         h = F.relu(self.fc1(h))
         h = F.relu(self.fc2(h))
         return h

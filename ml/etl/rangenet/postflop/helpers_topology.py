@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Mapping, Any
 
 from ml.config.bet_menus import BET_SIZE_MENUS
 from ml.etl.utils.positions import canon_pos
@@ -15,6 +15,7 @@ MENU_TAG_TO_ID = {
     "4bet_oop":  "4bet_hu.Aggressor_OOP",
     "limp":      "limped_single.SB_IP",
     "limp_multi":"limped_multi.Any",
+    "bvs": "srp_hu.PFR_IP",
 }
 
 def _ctx_for_lookup(ctx: str) -> str:

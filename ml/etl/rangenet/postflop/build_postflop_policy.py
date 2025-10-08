@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -19,7 +18,8 @@ from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
      _stable_shard_index, _get
 from ml.models.policy_consts import ACTION_VOCAB
-from ml.config.bet_menus import BET_SIZE_MENUS
+from ml.config.bet_menus import BET_SIZE_MENUS, DEFAULT_MENU
+from ml.utils.board_mask import make_board_mask_52
 
 dotenv.load_dotenv()
 
@@ -40,6 +40,28 @@ def _normalize_s3_key(s3_key: Any) -> str:
             # just take first value
             s3_key = next(iter(s3_key.values()))
     return str(s3_key)
+
+def _ensure_float_list(v) -> list[float]:
+    # Accept: list/tuple of ints or floats, JSON string, or single number
+    import json
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [float(x) for x in v]
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, (list, tuple)):
+                return [float(x) for x in parsed]
+            if isinstance(parsed, (int, float)):
+                return [float(parsed)]
+        except Exception:
+            pass
+        # fallback: unknown string → empty
+        return []
+    if isinstance(v, (int, float)):
+        return [float(v)]
+    return []
 
 def build_postflop_policy(
     manifest_path: Path,
@@ -129,57 +151,105 @@ def build_postflop_policy(
 
             solver_path = _resolve_solver_path(cfg, s3_key)
 
+            board = str(r.get("board", "") or "")
+            cluster_id = r.get("board_cluster_id", None)
+            # derive hero_pos at root → IP acts first in your dataset unless facing-bet focus overrides
+            hero_pos = ip_pos
+
             base_row = {
-                 "s3_key": _normalize_s3_key(s3_key), "node_key": node_key,
-                "stack_bb": int(round(stack_bb)), "pot_bb": pot_bb,
-                "ip_pos": ip_pos, "oop_pos": oop_pos,
-                "street": street, "ctx": ctx,
-                "bet_sizing_id": menu_id, "valid": 1,
+                "s3_key": _normalize_s3_key(s3_key),
+                "node_key": node_key,
+                "stack_bb": int(round(stack_bb)),  # keep original int field (for schema compat)
+                "effective_stack_bb": float(stack_bb),  # add explicit eff stack (trainer expects this)
+                "pot_bb": float(pot_bb),
+
+                "ip_pos": ip_pos,
+                "oop_pos": oop_pos,
+                "hero_pos": hero_pos,
+
+                "street": int(street),
+                "ctx": ctx,
+
+                "board": board,
+                "board_cluster_id": int(cluster_id) if pd.notna(cluster_id) else None,
+                "board_mask_52": make_board_mask_52(board),
+
+                "bet_sizing_id": menu_id,
+                "bet_sizes": list(menu_pcts),  # ensure floats list in parquet
+
+                "valid": 1,
             }
 
             # === inside the build loop, replace your current parse call ===
             menu_id = str(r.get("bet_sizing_id", "") or "")
-            menu_pcts = tuple(BET_SIZE_MENUS.get(menu_id, (0.33,)))  # safe fallback
+            # Prefer manifest bet_sizes if present → cast to floats; else fallback to table
+            raw_sizes = r.get("bet_sizes", None)
+            sizes_manifest = _ensure_float_list(raw_sizes)
+            menu_pcts = tuple(sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU))
 
+            # Resolve local solver path as you already do -> solver_path
             # Resolve local solver path as you already do -> solver_path
             focus = _auto_focus(menu_id)
 
-            # Try facing extraction first (to surface FOLD); fallback to ROOT on any issue
             try:
+                # 1) Try facing mode first (surfaces FOLD/CALL when appropriate)
                 probs, meta = parse_solver_file(
                     str(solver_path),
                     pot_bb=pot_bb,
                     stack_bb=stack_bb,
-                    menu_pcts=menu_pcts,
-                    focus=focus,  # facing mode (per-row)
+                    menu_pcts=menu_pcts,  # tuple/list of floats like (0.33, 0.66)
+                    focus=focus,  # e.g., "facing_ip", "facing_oop", or None
                 )
-                # If facing extractor returned empty/zero (defensive), fallback to ROOT
+
+                # 2) If empty/zero mass, fall back to ROOT (baseline)
                 if not probs or sum(probs.values()) <= 0:
                     probs, meta = parse_solver_file(
                         str(solver_path),
                         pot_bb=pot_bb,
                         stack_bb=stack_bb,
                         menu_pcts=menu_pcts,
-                        focus=None,  # ROOT (baseline)
+                        focus=None,  # ROOT
                     )
             except Exception:
-                # Hard fallback to ROOT if any parsing issue
+                # 3) Hard fallback to ROOT on any parsing error
                 probs, meta = parse_solver_file(
                     str(solver_path),
                     pot_bb=pot_bb,
                     stack_bb=stack_bb,
                     menu_pcts=menu_pcts,
-                    focus=None,  # ROOT (baseline)
+                    focus=None,
                 )
 
             if not probs or sum(probs.values()) <= 0:
                 _emit_sentinel(base_row, "zero_mass")
                 continue
 
+            actor = "ip"
+            facing_bet = 0
+            if isinstance(meta, dict):
+                a = str(meta.get("actor", "ip")).lower()
+                actor = a if a in ("ip", "oop") else "ip"
+                try:
+                    facing_bet = int(meta.get("facing_bet", 0) or 0)
+                except Exception:
+                    facing_bet = 0
+
             vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
+            mass = float(vec.sum())
+            if mass <= 1e-12:
+                _emit_sentinel(base_row, "zero_mass")
+                continue
+            vec /= mass  # ensure soft labels sum to 1
+
             argmax_action = ACTION_VOCAB[int(vec.argmax())]
 
-            out_row = {**base_row, "action": argmax_action, "weight": 1.0}
+            out_row = {
+                **base_row,
+                "actor": actor,
+                "facing_bet": int(facing_bet),
+                "action": argmax_action,
+                "weight": 1.0,
+            }
             for a, p in zip(ACTION_VOCAB, vec.tolist()):
                 out_row[a] = float(p)
 
@@ -272,7 +342,6 @@ if __name__ == "__main__":
 
     args = ap.parse_args()
     cfg = load_model_config(args.config)
-
 
     try:
         run_from_config(

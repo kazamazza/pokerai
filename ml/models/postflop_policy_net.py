@@ -73,7 +73,10 @@ class PostflopPolicyLit(pl.LightningModule):
         self.cards = {k: int(v) for k, v in card_sizes.items()}
 
         self.embed = CatEmbedBlock(self.cards, self.cat_order)
-        self.board = BoardBlock(hidden=board_hidden)
+        use_cluster = int(self.cards.get("board_cluster", 0)) > 0
+        self.board = BoardBlock(hidden=board_hidden,
+                                n_clusters=(int(self.cards["board_cluster"]) if use_cluster else None),
+                                cluster_dim=8)
 
         in_dim = self.embed.out_dim + self.board.out_dim
         layers: List[nn.Module] = []
@@ -101,7 +104,13 @@ class PostflopPolicyLit(pl.LightningModule):
     # ---- forward ----
     def forward(self, x_cat: Dict[str, torch.Tensor], x_cont: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         z_cat = self.embed(x_cat)
-        z_brd = self.board(x_cont["board_mask_52"], x_cont["pot_bb"], x_cont["eff_stack_bb"])
+        cluster_id = x_cat.get("board_cluster", None) if hasattr(x_cat, "get") else None
+        z_brd = self.board(
+            x_cont["board_mask_52"],
+            x_cont["pot_bb"],
+            x_cont["eff_stack_bb"],
+            cluster_id=cluster_id
+        )
         h = self.trunk(torch.cat([z_cat, z_brd], dim=-1))
         return self.head_ip(h), self.head_oop(h)
 
@@ -160,7 +169,18 @@ class PostflopPolicyLit(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        opt = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            opt, mode="min", factor=0.5, patience=2, min_lr=1e-5
+        )
+        return {
+            "optimizer": opt,
+            "lr_scheduler": {
+                "scheduler": sched,
+                "monitor": "val_loss",  # we log val_loss already
+                "strict": False,
+            },
+        }
 
     # ---- convenience inference ----
     @torch.no_grad()

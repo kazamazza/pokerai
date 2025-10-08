@@ -1,14 +1,13 @@
 from __future__ import annotations
 from typing import Any, Dict
-
-import torch
-
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.types import Action, PolicyRequest, PolicyResponse
 from ml.inference.preflop import PreflopPolicy, PreflopDeps
 import torch
 import torch.nn.functional as F
+
+from ml.utils.board_mask import make_board_mask_52
 
 
 class PolicyInfer:
@@ -46,7 +45,6 @@ class PolicyInfer:
                                  "DONK_33","RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500","ALLIN"]
             self._vocab_index = {a:i for i,a in enumerate(self.action_vocab)}
 
-    # --- tiny encoder to keep your existing string action wire-format ---
     def _encode_action(self, a: Action) -> str:
         k = a.kind.upper()
         if k in ("FOLD", "CHECK", "CALL", "ALLIN"):
@@ -61,7 +59,6 @@ class PolicyInfer:
             return "RAISE_200"
         return k
 
-    # --- inverse: turn model token -> Action() ---
     @staticmethod
     def _decode_action(token: str) -> Action:
         t = token.upper()
@@ -88,47 +85,39 @@ class PolicyInfer:
         ip = (getattr(req, "ip_pos", None) or req.raw.get("ip_pos") or "IP").upper()
         oop = (getattr(req, "oop_pos", None) or req.raw.get("oop_pos") or "OOP").upper()
 
-        # Context + street
+        # Context + street (keep as integer)
         ctx = (getattr(req, "ctx", None) or req.raw.get("ctx") or "VS_OPEN").upper()
         s = int(getattr(req, "street", 1) or 1)
-        st = "FLOP" if s <= 1 else {2: "TURN", 3: "RIVER"}.get(s, "FLOP")
 
         # Numbers
         pot = float(getattr(req, "pot_bb", None) or req.raw.get("pot_bb") or 0.0)
         stack = float(
-            getattr(req, "eff_stack_bb", None) or req.raw.get("eff_stack_bb") or getattr(req, "stack_bb", 0.0) or 0.0)
+            getattr(req, "eff_stack_bb", None) or req.raw.get("eff_stack_bb") or getattr(req, "stack_bb", 0.0) or 0.0
+        )
 
-        # Board mask if provided upstream
-        bm = req.raw.get("board_mask_52") or [0.0] * 52
+        # Board mask
+        board = getattr(req, "board", None) or req.raw.get("board")
+        bm = req.raw.get("board_mask_52") or (make_board_mask_52(board) if board else [0.0] * 52)
 
-        return {
+        row = {
             "ip_pos": ip,
             "oop_pos": oop,
             "ctx": ctx,
-            "street": st,
+            "street": s,  # ✅ integer street
             "board_mask_52": bm,
             "pot_bb": pot,
             "eff_stack_bb": stack,
         }
 
-    # minimal helper; put inside the same class or as a @staticmethod
-    def _board_to_mask_52(self, board: str) -> list[float]:
-        # Accept like "Jh8d8c" or "J h 8 d 8 c"
-        if not board:
-            return [0.0] * 52
-        ranks = "23456789TJQKA"
-        suits = "CDHS"
-        s = board.replace(" ", "")
-        mask = [0.0] * 52
-        for i in range(0, len(s), 2):
-            r, u = s[i].upper(), s[i + 1].upper()
-            if r in ranks and u in suits:
-                idx = ranks.index(r) * 4 + suits.index(u)
-                mask[idx] = 1.0
-        return mask
+        # ✅ Optional board cluster id (if model expects it)
+        if hasattr(self, "clusterer") and "board_cluster_id" in getattr(self.pol_post, "feature_order", []):
+            try:
+                cid = int(self.clusterer.predict_one(board)) if board else 0
+            except Exception:
+                cid = 0
+            row["board_cluster_id"] = cid
 
-    import torch
-    import torch.nn.functional as F
+        return row
 
     def _as_batch(self, x: torch.Tensor) -> torch.Tensor:
         return x if x.dim() == 2 else x.view(1, -1)
@@ -205,114 +194,6 @@ class PolicyInfer:
         p = p / p.sum(dim=-1, keepdim=True).clamp_min(1e-8)
         return p
 
-    def _legal_mask_from_context(self, row: dict, actor: str = "ip"):
-        """
-        Return (m_ip, m_oop) masks of shape [1,V].
-        You can make this smarter by checking pot/stack/ctx and forbidding
-        actions not present in a given menu.
-        For now we allow everything in vocab.
-        """
-        V = len(self.action_vocab)
-        ones = torch.ones(1, V, dtype=torch.float32)
-        zeros = torch.zeros(1, V, dtype=torch.float32)
-        if actor == "ip":
-            return ones, ones  # both available; the caller selects which to use
-        elif actor == "oop":
-            return ones, ones
-        else:
-            return ones, ones
-
-    # --- core: postflop prediction path ---
-    def _predict_postflop(self, req_dict: Dict[str, Any]) -> Dict[str, Any]:
-        req = PolicyRequest(**req_dict)
-
-        # Decide actor: trust request if present, else default to 'ip'
-        actor = (getattr(req, "actor", None) or getattr(req, "to_act", None) or "ip").lower()
-        if actor not in ("ip","oop"):
-            actor = "ip"
-
-        row = self._build_postflop_row(req)
-
-        # Optional legality mask (role-only by default)
-        # If you later add finer legality, pass a [V] vector here.
-        mask = None
-
-        # Call the postflop model
-        kwargs = {"actor": actor, "return_logits": False}
-
-        # If you have a single mask and a single-actor request, route it to the right side.
-        # If actor == "both", send the same mask to both sides (or prepare two different masks if you have them).
-        if mask is not None:
-            if str(actor).lower() == "ip":
-                kwargs["mask_ip"] = mask
-            elif str(actor).lower() == "oop":
-                kwargs["mask_oop"] = mask
-            else:  # "both"
-                kwargs["mask_ip"] = mask
-                kwargs["mask_oop"] = mask
-
-        mask_ip, mask_oop = self._build_legality_masks(
-            req=req,
-            vocab=self.action_vocab,
-            actor=actor,
-        )
-        out = self.pol_post.predict_proba([row], actor=actor, return_logits=True)
-
-        # logits [1,V]; masks [1,V]
-        li, lo = out["logits_ip"], out["logits_oop"]
-        pi, po = out["probs_ip"], out["probs_oop"]
-
-        # Build legality masks from the row + context
-        m_ip, m_oop = self._legal_mask_from_context(row, actor=actor)
-
-        # Start from model logits
-        z_ip, z_oop = li.clone(), lo.clone()
-
-        # (Optional) add deltas from other models here (placeholders)
-        delta_eq_ip, delta_eq_oop = 0.0 * z_ip, 0.0 * z_oop
-        delta_pop_ip, delta_pop_oop = 0.0 * z_ip, 0.0 * z_oop
-        delta_ex_ip, delta_ex_oop = 0.0 * z_ip, 0.0 * z_oop
-        delta_risk_ip, delta_risk_oop = 0.0 * z_ip, 0.0 * z_oop
-
-        # Blend (weighted sum of logits)
-        blend = self.blend
-        z_ip = z_ip + blend.lambda_eq * delta_eq_ip + blend.lambda_pop * delta_pop_ip \
-               + blend.lambda_expl * delta_ex_ip + blend.lambda_risk * delta_risk_ip
-        z_oop = z_oop + blend.lambda_eq * delta_eq_oop + blend.lambda_pop * delta_pop_oop \
-                + blend.lambda_expl * delta_ex_oop + blend.lambda_risk * delta_risk_oop
-
-        # Apply legality & temperature and get probs
-        p_ip = self._masked_softmax(z_ip, m_ip, T=blend.temperature, eps=blend.min_legal_prob)
-        p_oop = self._masked_softmax(z_oop, m_oop, T=blend.temperature, eps=blend.min_legal_prob)
-
-        # Tie-mix if top-2 are too close
-        p_ip = self._mix_ties_if_close(p_ip, blend.tie_mix_threshold)
-        p_oop = self._mix_ties_if_close(p_oop, blend.tie_mix_threshold)
-
-        # Small exploration
-        p_ip = self._epsilon_explore(p_ip, blend.epsilon_explore, m_ip)
-        p_oop = self._epsilon_explore(p_oop, blend.epsilon_explore, m_oop)
-
-        # Optional risk cap on ALLIN (example)
-        p_ip = self._cap_allins(p_ip, row, m_ip, blend)
-        p_oop = self._cap_allins(p_oop, row, m_oop, blend)
-
-        # Choose which side to return based on actor
-        if actor == "ip":
-            probs = p_ip[0].tolist()
-        elif actor == "oop":
-            probs = p_oop[0].tolist()
-        else:
-            # both: concatenate or return dict — keep your current behavior
-            probs = p_ip[0].tolist()  # or custom return that includes both
-
-        actions = self.action_vocab
-        return {
-            "actions": actions,
-            "probs": probs,
-            "dense": dict(zip(actions, probs))
-        }
-
     def _build_legality_masks(
             self,
             *,
@@ -333,7 +214,6 @@ class PolicyInfer:
                 A = a.upper()
                 legal = False
                 if not facing_bet:
-                    # Opening actions
                     if A == "CHECK":
                         legal = True
                     elif A.startswith("BET_"):
@@ -343,15 +223,12 @@ class PolicyInfer:
                     elif A == "ALLIN":
                         legal = True  # allow shove
                 else:
-                    # Facing a bet
                     if A in ("FOLD", "CALL", "ALLIN"):
                         legal = True
                     elif A.startswith("RAISE_"):
                         legal = True
-                    # Note: CHECK/BET_* illegal when facing a bet
                 if legal:
                     m[i] = 1.0
-            # Safety: if we somehow masked out everything, fall back to all-ones
             if m.sum().item() == 0:
                 m.fill_(1.0)
             return m
@@ -366,30 +243,73 @@ class PolicyInfer:
             # both: same facing flag applied to both (simple; you can refine later)
             return mask_for_side("ip", facing), mask_for_side("oop", facing)
 
-    def predict(self, req_dict: Dict[str, Any]) -> Dict[str, Any]:
-        # Normalize inbound to a PolicyRequest once
+    def _predict_postflop(self, req_dict: Dict[str, Any]) -> PolicyResponse:
+        req = PolicyRequest(**req_dict)
+        actor = (getattr(req, "actor", None) or getattr(req, "to_act", None) or "ip").lower()
+        if actor not in ("ip", "oop"):
+            actor = "ip"
+
+        # Build input row and legality masks
+        row = self._build_postflop_row(req)
+        mask_ip, mask_oop = self._build_legality_masks(req=req, vocab=self.action_vocab, actor=actor)
+
+        # Run model inference
+        out = self.pol_post.predict_proba([row], actor=actor, return_logits=False)
+        pi, po = out["probs_ip"], out["probs_oop"]
+
+        blend = self.blend
+
+        # Apply blending corrections
+        p_ip = self._mix_ties_if_close(pi, blend.tie_mix_threshold)
+        p_oop = self._mix_ties_if_close(po, blend.tie_mix_threshold)
+
+        p_ip = self._epsilon_explore(p_ip, blend.epsilon_explore, mask_ip)
+        p_oop = self._epsilon_explore(p_oop, blend.epsilon_explore, mask_oop)
+
+        p_ip = self._cap_allins(p_ip, row, mask_ip, blend)
+        p_oop = self._cap_allins(p_oop, row, mask_oop, blend)
+
+        # Select actor-specific probabilities
+        if actor == "ip":
+            probs = p_ip[0].tolist()
+        else:  # "oop"
+            probs = p_oop[0].tolist()
+
+        # ✅ Return a proper PolicyResponse
+        return PolicyResponse(
+            actions=self.action_vocab,
+            probs=probs,
+            evs=[0.0] * len(self.action_vocab),
+            notes=[f"Postflop policy; actor={actor}, temp={blend.temperature:.2f}"],
+            debug={
+                "actor": actor,
+                "ctx": row.get("ctx"),
+                "street": row.get("street"),
+                "board_cluster_id": row.get("board_cluster_id"),
+                "blend_cfg": blend.to_dict(),
+            },
+        )
+
+    def predict(self, req_dict: Dict[str, Any]) -> PolicyResponse:
+        """Unified entrypoint for both preflop and postflop policies."""
         req = PolicyRequest(**req_dict)
 
-        # Best-effort street inference if missing / malformed
+        # Infer street if missing
         try:
             street = int(req.street or 0)
         except Exception:
             street = 0
+
         if street not in (0, 1, 2, 3):
             board = (req.board or "").strip()
             n = len(board)
             street = 3 if n >= 10 else 2 if n >= 8 else 1 if n >= 6 else 0
 
+        # === Preflop ===
         if street == 0:
-            # ---- Preflop path ----
             out: PolicyResponse = self._preflop.predict(req)
-            return {
-                "actions": [self._encode_action(a) for a in out.actions],
-                "probs": out.probs,
-                "evs": out.evs,
-                "debug": out.debug,
-                "notes": out.notes,
-            }
+            # Already returns a PolicyResponse
+            return out
 
-        # ---- Postflop path ----
+        # === Postflop ===
         return self._predict_postflop(dict(req_dict, street=street))

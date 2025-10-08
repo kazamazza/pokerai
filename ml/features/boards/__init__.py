@@ -18,7 +18,6 @@ def load_board_clusterer(cfg: Dict[str, Any]) -> BoardClusterer:
 
     if kind == "kmeans":
         art = bc.get("artifact")
-        print(art)
         if not art:
             raise ValueError("kmeans clusterer requires 'artifact' path")
         return KMeansBoardClusterer.load(art)

@@ -24,8 +24,7 @@ class PolicyRequest:
     street: int = 0
     hero_pos: Optional[str] = None
     villain_pos: Optional[str] = None
-    # NEW: explicit IP/OOP seats for postflop policy
-    ip_pos: Optional[str] = None                  # e.g., "BTN","CO","SB","BB"
+    ip_pos: Optional[str] = None
     oop_pos: Optional[str] = None
     ctx: Optional[str] = None
     pot_bb: float = 0.0

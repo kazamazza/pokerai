@@ -4,15 +4,19 @@ from typing import Sequence, Mapping, Optional, Any, Dict
 
 from ml.models.policy_consts import ACTION_VOCAB
 
-SIDECAR_FILENAME = "postflop_policy_sidecar.json"
-SIDECAR_VERSION  = 1
+SIDECAR_FILENAME = "sidecar.json"
 
 def make_postflop_policy_sidecar(
     *,
     feature_order: Sequence[str],
     cards: Mapping[str, int],
     id_maps: Mapping[str, Mapping[str, int]],
-    cont_features: Sequence[str] = ("board_mask_52", "pot_bb", "eff_stack_bb"),
+    cont_features: Sequence[str] = (
+        "board_mask_52",
+        "pot_bb",
+        "eff_stack_bb",
+        "board_cluster_id",   # ✅ added for board texture embedding
+    ),
     action_vocab: Sequence[str] = ACTION_VOCAB,
     extras: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -26,17 +30,17 @@ def make_postflop_policy_sidecar(
     """
     feature_order = list(feature_order)
     cards_norm = {str(k): int(v) for k, v in cards.items()}
-    id_maps_norm = {str(k): {str(a): int(b) for a, b in m.items()} for k, m in id_maps.items()}
+    id_maps_norm = {
+        str(k): {str(a): int(b) for a, b in m.items()}
+        for k, m in id_maps.items()
+    }
 
     sc: Dict[str, Any] = {
-        "sidecar_version": SIDECAR_VERSION,
         "model_name": "PostflopPolicy",
 
-        # NEW (generic) keys expected by load_sidecar
+        # Generic + legacy keys
         "feature_order": feature_order,
         "cards": cards_norm,
-
-        # Legacy aliases kept for compatibility
         "cat_feature_order": feature_order,
         "card_sizes": cards_norm,
 
@@ -46,8 +50,19 @@ def make_postflop_policy_sidecar(
         "action_vocab": list(action_vocab),
         "notes": "Categoricals are integer IDs via id_maps; cont features as-is.",
     }
+
+    # ✅ Embed board clustering info (if available)
     if extras:
         sc["extras"] = dict(extras)
+    else:
+        sc["extras"] = {
+            "board_cluster": {
+                "type": "kmeans",
+                "artifact": "data/artifacts/board_clusters_kmeans_128.json",
+                "n_clusters": 128,
+            }
+        }
+
     return sc
 
 
