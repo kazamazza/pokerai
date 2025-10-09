@@ -3,6 +3,10 @@ import argparse, json
 import sys
 from pathlib import Path
 
+from ml.inference.equity import EquityNetInfer
+from ml.inference.exploit import ExploitNetInfer
+from ml.inference.population import PopulationNetInference
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
@@ -18,16 +22,12 @@ from ml.inference.preflop import PreflopPolicy
 def main():
     print("🚀 PolicyInfer smoke test starting...")
 
-    # === 1️⃣ Load dependencies ===
-    ckpt_dir = Path("checkpoints/postflop_policy")
-    cluster_path = "data/artifacts/board_clusters_kmeans_128.json"
-
-    postflop = PostflopPolicyInfer.from_dir(ckpt_dir)
+    postflop = PostflopPolicyInfer.from_dir("checkpoints/postflop_policy")
     preflop = PreflopPolicy.from_dir("checkpoints/range_preflop")
-    equity = EquityInfer.load_default()        # stub or trained model
-    exploit = ExploitInfer.load_default()      # stub or trained model
-    pop = PopInfer.load_default()              # stub or trained model
-    clusterer = KMeansBoardClusterer.load(cluster_path)
+    equity = EquityNetInfer.from_dir("checkpoints/equitynet")        # stub or trained model
+    exploit = ExploitNetInfer.from_dir()      # stub or trained model
+    pop = PopulationNetInference.from_dir()              # stub or trained model
+    clusterer = KMeansBoardClusterer.load("data/artifacts/board_clusters_kmeans_128.json")
 
     deps = PolicyInferDeps(
         policy_post=postflop,

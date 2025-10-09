@@ -5,7 +5,6 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Subset
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
@@ -14,99 +13,24 @@ from ml.utils.equity_sidecar import write_equity_sidecar
 from ml.datasets.equitynet import EquityDatasetParquet, equity_collate_fn
 from ml.datasets.utils_dataset import stratified_indices
 from ml.utils.config import load_model_config
-from ml.trainers.helpers import _trial_dir, _expand_grid
-
-def _get(cfg: Mapping[str, Any], path: str, default=None):
-    cur = cfg
-    for p in path.split("."):
-        if not isinstance(cur, Mapping) or p not in cur:
-            return default
-        cur = cur[p]
-    return cur
+from ml.trainers.sweep import finalize_best_artifacts, parse_scalar_from_ckpt, run_sweep
+from ml.trainers.helpers import _get
 
 
-def _parse_metric_from_ckpt(ckpt_path: str) -> float:
-    """
-    Extract the trailing float from filenames like:
-      equitynet-{epoch:02d}-{val_loss:.4f}.ckpt
-    Returns +inf on failure so worse trials don't overwrite best.
-    """
-    import re
-    from pathlib import Path
-    p = Path(ckpt_path)
-    m = re.search(r"-([0-9]+\.[0-9]+)\.ckpt$", p.name)
-    try:
-        return float(m.group(1)) if m else float("inf")
-    except Exception:
-        return float("inf")
-
-
-def run_train_equity_sweep(cfg: dict) -> dict:
-    import copy, json, shutil
-    import pandas as pd
-    from pathlib import Path
-
-    sweep = cfg.get("sweep")
-    if not isinstance(sweep, dict) or not sweep:
-        raise ValueError("No 'sweep' block in config.")
-
-    trials = _expand_grid(sweep)
-    base_ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/equitynet"))
-    base_ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    monitor = _get(cfg, "train.monitor", "val_loss")  # equity uses val_loss
-    results = []
-    best = {"score": float("inf"), "ckpt": None, "params": None}
-
-    for i, params in enumerate(trials, 1):
-        trial_cfg = copy.deepcopy(cfg)
-        # apply dotted keys, e.g. "model.lr"
-        for k, v in params.items():
-            cur = trial_cfg
-            parts = k.split(".")
-            for p in parts[:-1]:
-                cur = cur.setdefault(p, {})
-            cur[parts[-1]] = v
-
-        tdir = _trial_dir(base_ckpt_dir, params)
-        trial_cfg.setdefault("train", {})["checkpoints_dir"] = str(tdir)
-        Path(tdir).mkdir(parents=True, exist_ok=True)
-
-        print(f"\n🧪 Trial {i}/{len(trials)} → {json.dumps(params)}")
-        ckpt_path = run_train(trial_cfg)  # your equity trainer
-        score = _parse_metric_from_ckpt(ckpt_path)
-
-        results.append({"trial": i, "score": score, "ckpt": ckpt_path, **params})
-        pd.DataFrame(results).to_csv(base_ckpt_dir / "sweep_results.csv", index=False)
-
-        if score < best["score"]:
-            best = {"score": score, "ckpt": ckpt_path, "params": params}
-
-        print(f"   ⮑ {monitor}={score:.6f}  best_so_far={best['score']:.6f}")
-
-    print("\n🏁 Sweep complete.")
-    print(f"Best {monitor}: {best['score']:.6f}")
-    print(f"Checkpoint: {best['ckpt']}")
-    print(f"Params: {json.dumps(best['params'])}")
-
-    # copy best artifacts to root dir
-    if best["ckpt"]:
-        best_ckpt = Path(best["ckpt"])
-        trial_dir = best_ckpt.parent
-        # ckpt
-        shutil.copy2(best_ckpt, base_ckpt_dir / "best.ckpt")
-        # sidecar
-        for name in ("equitynet_sidecar.json", "sidecar.json"):
-            src = trial_dir / name
-            if src.exists():
-                shutil.copy2(src, base_ckpt_dir / "best_sidecar.json")
-                break
-        # config snapshot
-        cfg_src = trial_dir / "config.json"
-        if cfg_src.exists():
-            shutil.copy2(cfg_src, base_ckpt_dir / "best_config.json")
-
-    return {"best": best, "results": results}
+def run_equity_sweep(cfg: dict):
+    base_dir = Path(cfg.get("train", {}).get("checkpoints_dir", "checkpoints/equitynet"))
+    res = run_sweep(
+        base_cfg=cfg,
+        sweep=cfg["sweep"],
+        run_fn=run_train,
+        score_fn=parse_scalar_from_ckpt,   # or a custom parser
+        base_ckpt_dir=base_dir,
+        monitor=cfg.get("train", {}).get("monitor", "val_loss"),
+        max_trials=cfg.get("sweep", {}).get("max_trials"),
+    )
+    if res["best"]["ckpt"]:
+        finalize_best_artifacts(Path(res["best"]["ckpt"]), base_dir)
+    return res
 
 
 def run_train(cfg: Mapping[str, Any]) -> str:
@@ -253,6 +177,6 @@ if __name__ == "__main__":
 
     # If --sweep passed OR config contains a 'sweep' block → run sweep
     if args.sweep or ("sweep" in cfg and isinstance(cfg["sweep"], dict) and cfg["sweep"]):
-        run_train_equity_sweep(cfg)
+        run_equity_sweep(cfg)
     else:
         run_train(cfg)

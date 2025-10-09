@@ -8,6 +8,9 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 from pytorch_lightning.loggers import TensorBoardLogger
 
+from ml.trainers.helpers import _get
+from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
@@ -16,82 +19,22 @@ from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPo
 from ml.utils.config import load_model_config
 from ml.utils.rangenet_postflop_sidecar import write_postflop_policy_sidecar
 from ml.models.postflop_policy_net import PostflopPolicyLit
-from ml.trainers.helpers import _trial_dir, _expand_grid, _parse_val_kl_from_ckpt
 
-# ----------------- small helpers -----------------
-def _get(cfg: Mapping[str, Any], path: str, default=None):
-    cur = cfg
-    for p in path.split("."):
-        if not isinstance(cur, Mapping) or p not in cur:
-            return default
-        cur = cur[p]
-    return cur
 
-def run_train_postflop_sweep(cfg: dict) -> dict:
-    import copy, json, shutil
-    import pandas as pd
-
-    sweep = cfg.get("sweep", None)
-    if not sweep or not isinstance(sweep, dict):
-        raise ValueError("No 'sweep' block in config.")
-
-    trials = _expand_grid(sweep)
-    base_ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/postflop_policy"))
-    base_ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    monitor = _get(cfg, "train.monitor", "val_loss")
-    results = []
-    best = {"score": float("inf"), "ckpt": None, "params": None}
-
-    for i, params in enumerate(trials, 1):
-        trial_cfg = copy.deepcopy(cfg)
-        # apply trial params (supports dotted keys like "model.lr")
-        for k, v in params.items():
-            cur = trial_cfg
-            parts = k.split(".")
-            for p in parts[:-1]:
-                cur = cur.setdefault(p, {})
-            cur[parts[-1]] = v
-
-        tdir = _trial_dir(base_ckpt_dir, params)
-        trial_cfg.setdefault("train", {})["checkpoints_dir"] = str(tdir)
-        Path(tdir).mkdir(parents=True, exist_ok=True)
-
-        print(f"\n🧪 Trial {i}/{len(trials)} → {json.dumps(params)}")
-        ckpt_path = run_train_postflop(trial_cfg)
-        score = _parse_val_kl_from_ckpt(ckpt_path) or float("inf")
-
-        results.append({"trial": i, "score": score, "ckpt": ckpt_path, **params})
-        pd.DataFrame(results).to_csv(base_ckpt_dir / "sweep_results.csv", index=False)
-
-        if score < best["score"]:
-            best = {"score": score, "ckpt": ckpt_path, "params": params}
-
-        print(f"   ⮑ {monitor}={score:.6f}  best_so_far={best['score']:.6f}")
-
-    print("\n🏁 Sweep complete.")
-    print(f"Best {monitor}: {best['score']:.6f}")
-    print(f"Checkpoint: {best['ckpt']}")
-    print(f"Params: {json.dumps(best['params'])}")
-
-    # copy best artifacts to root
-    if best["ckpt"]:
-        best_ckpt = Path(best["ckpt"])
-        trial_dir = best_ckpt.parent
-        # ckpt
-        shutil.copy2(best_ckpt, base_ckpt_dir / "best.ckpt")
-        # sidecar
-        for name in ("postflop_policy_sidecar.json", "sidecar.json"):
-            src = trial_dir / name
-            if src.exists():
-                shutil.copy2(src, base_ckpt_dir / "best_sidecar.json")
-                break
-        # config
-        cfg_src = trial_dir / "config.json"
-        if cfg_src.exists():
-            shutil.copy2(cfg_src, base_ckpt_dir / "best_config.json")
-
-    return {"best": best, "results": results}
+def run_postflop_sweep(cfg: dict):
+    base_dir = Path(cfg.get("train", {}).get("checkpoints_dir", "checkpoints/postflop_policy"))
+    res = run_sweep(
+        base_cfg=cfg,
+        sweep=cfg["sweep"],
+        run_fn=run_train_postflop,
+        score_fn=parse_scalar_from_ckpt,   # if your ckpt filename encodes val metric
+        base_ckpt_dir=base_dir,
+        monitor=cfg.get("train", {}).get("monitor", "val_loss"),
+        max_trials=cfg.get("sweep", {}).get("max_trials"),
+    )
+    if res["best"]["ckpt"]:
+        finalize_best_artifacts(Path(res["best"]["ckpt"]), base_dir)
+    return res
 
 def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
@@ -273,7 +216,7 @@ if __name__ == "__main__":
 
     if args.sweep or has_sweep_block:
         # You should have run_train_postflop_sweep(cfg) implemented
-        summary = run_train_postflop_sweep(cfg)
+        summary = run_postflop_sweep(cfg)
         # optional: print best
         best = summary.get("best", {})
         print("\n🏁 Sweep best:")

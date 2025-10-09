@@ -1,6 +1,4 @@
-# ml/infer/equity_infer.py
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Union, List
 import torch

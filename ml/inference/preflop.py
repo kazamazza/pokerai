@@ -44,8 +44,6 @@ class PreflopPolicy:
         - Optionally loads equity model if provided
         Returns an initialized PreflopPolicy ready for inference.
         """
-
-
         range_dir = Path(range_dir)
         if not range_dir.exists():
             raise FileNotFoundError(f"Preflop range model dir not found: {range_dir}")

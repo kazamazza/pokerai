@@ -6,7 +6,6 @@ from ml.inference.policy.types import Action, PolicyRequest, PolicyResponse
 from ml.inference.preflop import PreflopPolicy, PreflopDeps
 import torch
 import torch.nn.functional as F
-
 from ml.utils.board_mask import make_board_mask_52
 
 
@@ -243,6 +242,50 @@ class PolicyInfer:
             # both: same facing flag applied to both (simple; you can refine later)
             return mask_for_side("ip", facing), mask_for_side("oop", facing)
 
+    def _apply_exploit_adjustment(self, z: torch.Tensor, exploit_signal: Any) -> torch.Tensor:
+        """
+        z: [B, V] logits
+        exploit_signal:
+          - None -> no change
+          - torch.Tensor / ndarray / list length V -> added elementwise
+          - dict[action_token -> delta] -> map tokens -> idx using self._vocab_index and add
+        """
+        if exploit_signal is None:
+            return z
+        if isinstance(exploit_signal, torch.Tensor):
+            delta = exploit_signal.to(z.device).view(1, -1)
+            if delta.size(-1) == z.size(-1):
+                return z + delta
+            # else ignore if shape mismatch
+            return z
+
+        # ndarray / list-like
+        try:
+            import numpy as np
+            if isinstance(exploit_signal, (list, tuple, np.ndarray)):
+                arr = np.asarray(exploit_signal, dtype=np.float32)
+                if arr.ndim == 1 and arr.shape[0] == z.size(-1):
+                    delta = torch.tensor(arr, dtype=z.dtype, device=z.device).view(1, -1)
+                    return z + delta
+        except Exception:
+            pass
+
+        # dict mapping token -> delta
+        if isinstance(exploit_signal, dict):
+            delta = torch.zeros_like(z)
+            for tok, val in exploit_signal.items():
+                idx = self._vocab_index.get(str(tok).upper())
+                if idx is None:
+                    continue
+                try:
+                    delta[0, int(idx)] = float(val)
+                except Exception:
+                    continue
+            return z + delta
+
+        # fallback: no change
+        return z
+
     def _predict_postflop(self, req_dict: Dict[str, Any]) -> PolicyResponse:
         req = PolicyRequest(**req_dict)
         actor = (getattr(req, "actor", None) or getattr(req, "to_act", None) or "ip").lower()
@@ -253,15 +296,113 @@ class PolicyInfer:
         row = self._build_postflop_row(req)
         mask_ip, mask_oop = self._build_legality_masks(req=req, vocab=self.action_vocab, actor=actor)
 
-        # Run model inference
-        out = self.pol_post.predict_proba([row], actor=actor, return_logits=False)
-        pi, po = out["probs_ip"], out["probs_oop"]
+        # Run model inference (ask for logits so we can apply exploit deltas pre-softmax)
+        out = self.pol_post.predict_proba([row], actor=actor, return_logits=True)
+        li, lo = out["logits_ip"], out["logits_oop"]  # [1, V]
+        # start from model logits
+        z_ip, z_oop = li.clone(), lo.clone()
+
+        # --- Exploit signal integration (if available) ---
+        exploit_debug = None
+        try:
+            if self.expl and getattr(req, "villain_id", None):
+                vid = str(req.villain_id)
+
+                # Build a simple scenario key that matches how observations are keyed in live usage.
+                scenario_key = f"{row.get('street')}:{row.get('ctx') or ''}:{row.get('ip_pos') or ''}:{row.get('oop_pos') or ''}"
+
+                # Try a couple of calling conventions to be tolerant to small API differences:
+                # 1) get_signal(player_id, scenario_key, pop_probs=None)
+                # 2) get_signal(player_id, row)  (legacy)
+                exploit_signal_raw = None
+                pop_probs = None  # optional: if you have population probs, plug them here
+
+                try:
+                    # preferred form (player_id, scenario, pop_probs)
+                    exploit_signal_raw = self.expl.get_signal(vid, scenario_key, pop_probs)
+                except TypeError:
+                    # fallback to legacy signature (player_id, row)
+                    try:
+                        exploit_signal_raw = self.expl.get_signal(vid, row)
+                    except Exception:
+                        exploit_signal_raw = None
+                except Exception:
+                    exploit_signal_raw = None
+
+                # No signal → skip
+                if exploit_signal_raw is None:
+                    exploit_debug = {"signal": None}
+                else:
+                    # Normalize returned signal to a length-V numpy array
+                    V = z_ip.shape[-1]
+                    sig_vec = None
+
+                    # dict mapping token/index -> delta
+                    if isinstance(exploit_signal_raw, dict):
+                        # If keys are tokens, map to indices if possible
+                        sig = np.zeros(V, dtype=float)
+                        for k, v in exploit_signal_raw.items():
+                            try:
+                                # token -> index via vocab index if available
+                                if isinstance(k, str) and hasattr(self, "_vocab_index"):
+                                    idx = int(self._vocab_index.get(k, -1))
+                                else:
+                                    idx = int(k)
+                                if 0 <= idx < V:
+                                    sig[idx] = float(v)
+                            except Exception:
+                                continue
+                        sig_vec = sig
+                    else:
+                        # list/ndarray-like
+                        try:
+                            arr = np.asarray(exploit_signal_raw, dtype=float).reshape(-1)
+                            if arr.shape[0] == V:
+                                sig_vec = arr
+                            else:
+                                # mismatched length -> ignore
+                                sig_vec = None
+                        except Exception:
+                            sig_vec = None
+
+                    if sig_vec is None:
+                        exploit_debug = {"signal_parsed": None, "raw": exploit_signal_raw}
+                    else:
+                        # Convert to torch [1, V] with same dtype/device as logits
+                        dev = z_ip.device
+                        dtype = z_ip.dtype
+                        t_signal = torch.tensor(sig_vec, dtype=dtype, device=dev).view(1, -1)
+
+                        # scale by blend.lambda_expl (blend weight)
+                        scale = float(self.blend.lambda_expl)
+
+                        # Add the deltas to logits (additive logit-space adjustment)
+                        z_ip = z_ip + scale * t_signal
+                        z_oop = z_oop + scale * t_signal
+
+                        exploit_debug = {
+                            "applied": True,
+                            "scale": scale,
+                            "signal_shape": list(t_signal.shape),
+                            "signal_norm": float(t_signal.abs().sum().cpu().item()),
+                        }
+        except Exception as e:
+            # don't break inference on exploit errors; keep a debug note
+            exploit_debug = {"error": str(e)}
 
         blend = self.blend
 
-        # Apply blending corrections
-        p_ip = self._mix_ties_if_close(pi, blend.tie_mix_threshold)
-        p_oop = self._mix_ties_if_close(po, blend.tie_mix_threshold)
+        # Apply other component deltas placeholders (EQ/POP/RISK) if/when you compute them
+        # For now those are zero tensors (kept for clarity)
+        # z_ip/z_oop already contain model logits + exploit deltas
+
+        # Masked softmax (respects legality and temperature)
+        p_ip = self._masked_softmax(z_ip, mask_ip, T=blend.temperature, eps=blend.min_legal_prob)
+        p_oop = self._masked_softmax(z_oop, mask_oop, T=blend.temperature, eps=blend.min_legal_prob)
+
+        # Tie-mix, exploration, all-in capping
+        p_ip = self._mix_ties_if_close(p_ip, blend.tie_mix_threshold)
+        p_oop = self._mix_ties_if_close(p_oop, blend.tie_mix_threshold)
 
         p_ip = self._epsilon_explore(p_ip, blend.epsilon_explore, mask_ip)
         p_oop = self._epsilon_explore(p_oop, blend.epsilon_explore, mask_oop)
@@ -270,12 +411,8 @@ class PolicyInfer:
         p_oop = self._cap_allins(p_oop, row, mask_oop, blend)
 
         # Select actor-specific probabilities
-        if actor == "ip":
-            probs = p_ip[0].tolist()
-        else:  # "oop"
-            probs = p_oop[0].tolist()
+        probs = p_ip[0].tolist() if actor == "ip" else p_oop[0].tolist()
 
-        # ✅ Return a proper PolicyResponse
         return PolicyResponse(
             actions=self.action_vocab,
             probs=probs,
@@ -287,6 +424,7 @@ class PolicyInfer:
                 "street": row.get("street"),
                 "board_cluster_id": row.get("board_cluster_id"),
                 "blend_cfg": blend.to_dict(),
+                "exploit_debug": exploit_debug,
             },
         )
 
@@ -294,7 +432,6 @@ class PolicyInfer:
         """Unified entrypoint for both preflop and postflop policies."""
         req = PolicyRequest(**req_dict)
 
-        # Infer street if missing
         try:
             street = int(req.street or 0)
         except Exception:
@@ -308,7 +445,6 @@ class PolicyInfer:
         # === Preflop ===
         if street == 0:
             out: PolicyResponse = self._preflop.predict(req)
-            # Already returns a PolicyResponse
             return out
 
         # === Postflop ===

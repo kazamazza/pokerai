@@ -1,11 +1,9 @@
 from __future__ import annotations
-import copy
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Dict
 import json
 import pandas as pd
 import sys
-
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
@@ -13,152 +11,34 @@ sys.path.append(str(ROOT_DIR))
 from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet
 from ml.models.preflop_rangenet import RangeNetLit, rangenet_preflop_collate_fn
 from ml.utils.config import load_model_config
-from ml.trainers.helpers import _get, _expand_grid, _set, _trial_dir
+from ml.trainers.helpers import _get
 from ml.utils.rangenet_preflop_sidecar import write_preflop_policy_sidecar
+from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
 
 
-def run_train_preflop_sweep(cfg: dict) -> dict:
-    """
-    Expand a small grid from cfg['sweep'], run multiple trainings (sequential),
-    record best checkpoint by val_kl, and copy best artifacts to sweep root.
-    Returns {"best": {...}, "results": [...] }.
-    """
-    import copy
-    import json
-    import shutil
-    from pathlib import Path
-    import pandas as pd
+def run_preflop_sweep(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    sweep = cfg.get("sweep") or {}
+    if not isinstance(sweep, dict) or not sweep:
+        raise ValueError("No 'sweep' block in config.")
 
-    # ---- helpers ----
-    def _read_best_meta(trial_dir: Path) -> dict | None:
-        """Read trial_dir/best_meta.json if present."""
-        m = trial_dir / "best_meta.json"
-        if m.exists():
-            try:
-                return json.loads(m.read_text())
-            except Exception:
-                return None
-        return None
+    base_dir = Path(cfg.get("train", {}).get("checkpoints_dir", "checkpoints/preflop_policy"))
+    monitor = cfg.get("train", {}).get("monitor", "val_kl")  # preflop usually monitored on KL
+    max_trials = sweep.get("max_trials", None)
 
-    def _extract_metric(ckpt_path: str) -> float | None:
-        """Prefer best_meta.json; fallback to filename parse."""
-        from pathlib import Path
-        import re
-        p = Path(ckpt_path)
-        meta = _read_best_meta(p.parent)
-        if meta and (meta.get("best_val_kl") is not None):
-            try:
-                return float(meta["best_val_kl"])
-            except Exception:
-                pass
-        # filename fallback: ...-<float>.ckpt
-        m = re.search(r"-([0-9]*\.[0-9]+)\.ckpt$", p.name)
-        if m:
-            try:
-                return float(m.group(1))
-            except Exception:
-                return None
-        return None
+    res = run_sweep(
+        base_cfg=cfg,
+        sweep=sweep,
+        run_fn=run_train_preflop,          # runs one trial; returns ckpt path
+        score_fn=parse_scalar_from_ckpt,   # parses metric from ckpt/metrics
+        base_ckpt_dir=base_dir,
+        monitor=monitor,
+        max_trials=max_trials,
+    )
 
-    # ---- config & grid ----
-    sweep = _get(cfg, "sweep", None)
-    if not sweep or not isinstance(sweep, dict):
-        raise ValueError("No sweep block in config (cfg['sweep']).")
+    if res["best"]["ckpt"]:
+        finalize_best_artifacts(Path(res["best"]["ckpt"]), base_dir)
 
-    trials = _expand_grid(sweep)
-    if not trials:
-        raise ValueError("Sweep produced 0 trials. Provide lists under 'sweep:'.")
-
-    # optional cap
-    max_trials = int(_get(sweep, "max_trials", len(trials)))
-    trials = trials[:max_trials]
-
-    base_ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/range_pre"))
-    base_ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    results: list[dict] = []
-    best: dict = {"val_kl": float("inf"), "ckpt": None, "params": None, "trial_dir": None}
-
-    # ---- run trials ----
-    for i, params in enumerate(trials, 1):
-        trial_cfg = copy.deepcopy(cfg)
-        # apply trial params to nested keys
-        for k, v in params.items():
-            _set(trial_cfg, k, v)
-
-        # each trial → its own subdir
-        tdir = _trial_dir(base_ckpt_dir, params)
-        _set(trial_cfg, "train.checkpoints_dir", str(tdir))
-        Path(tdir).mkdir(parents=True, exist_ok=True)
-
-        print(f"\n🧪 Trial {i}/{len(trials)} → {json.dumps(params)}")
-        ckpt_path = run_train_preflop(trial_cfg)  # trains & returns ckpt path
-
-        val_kl = _extract_metric(ckpt_path)
-        if val_kl is None:
-            val_kl = float("nan")
-
-        row = {"trial": i, "val_kl": val_kl, "ckpt": ckpt_path, **params}
-        results.append(row)
-
-        # track best
-        if (val_kl == val_kl) and (val_kl < best["val_kl"]):
-            best = {"val_kl": val_kl, "ckpt": ckpt_path, "params": params, "trial_dir": str(Path(ckpt_path).parent)}
-
-        # rolling CSV
-        pd.DataFrame(results).to_csv(base_ckpt_dir / "sweep_results.csv", index=False)
-        print(f"   ⮑ val_kl={val_kl:.6f}  best_so_far={best['val_kl']:.6f}")
-
-    # ---- finalize: copy best artifacts to root ----
-    print("\n🏁 Sweep complete.")
-    print(f"Best trial: val_kl={best['val_kl']:.6f}")
-    print(f"Checkpoint: {best['ckpt']}")
-    print(f"Params: {json.dumps(best['params'])}")
-
-    if best["ckpt"]:
-        best_ckpt = Path(best["ckpt"])
-        best_trial_dir = best_ckpt.parent
-
-        # 1) best.ckpt at root
-        root_best_ckpt = base_ckpt_dir / "best.ckpt"
-        shutil.copy2(best_ckpt, root_best_ckpt)
-        print(f"📦 Copied best checkpoint → {root_best_ckpt}")
-
-        # 2) sidecar at root (normalize name)
-        sidecar_src = None
-        for name in ("preflop_sidecar.json", "sidecar.json"):
-            cand = best_trial_dir / name
-            if cand.exists():
-                sidecar_src = cand
-                break
-        if sidecar_src:
-            dst = base_ckpt_dir / "best_sidecar.json"
-            shutil.copy2(sidecar_src, dst)
-            print(f"📎 Copied sidecar → {dst}")
-
-        # 3) best_meta.json at root (if present in trial)
-        meta_src = best_trial_dir / "best_meta.json"
-        if meta_src.exists():
-            meta_dst = base_ckpt_dir / "best_meta.json"
-            shutil.copy2(meta_src, meta_dst)
-            print(f"🧪 Copied best_meta → {meta_dst}")
-
-        # 4) config snapshot at root
-        cfg_src = best_trial_dir / "config.json"
-        if cfg_src.exists():
-            cfg_dst = base_ckpt_dir / "best_config.json"
-            shutil.copy2(cfg_src, cfg_dst)
-            print(f"🧾 Copied config → {cfg_dst}")
-
-        # 5) compact best.json summary
-        (base_ckpt_dir / "best.json").write_text(json.dumps({
-            "ckpt": str(root_best_ckpt),
-            "val_kl": best["val_kl"],
-            "params": best["params"],
-            "trial_dir": best["trial_dir"],
-        }, indent=2))
-
-    return {"best": {k: v for k, v in best.items() if k != "trial_dir"}, "results": results}
+    return res
 
 def run_train_preflop(cfg: Mapping[str, Any]) -> str:
     import random, numpy as np, torch
@@ -458,7 +338,7 @@ if __name__ == "__main__":
     if args.patience is not None:   train_cfg["patience"]   = int(args.patience)
 
     if args.sweep:
-        run_train_preflop_sweep(cfg)
+        run_preflop_sweep(cfg)
 
     else:
         run_train_preflop(cfg)

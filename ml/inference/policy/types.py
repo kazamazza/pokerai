@@ -1,8 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Literal, Any
+from typing import Any, Dict, List, Optional, Literal
+import numpy as np
 
-# ---- Normalized action model ----
 ActionKind = Literal["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALLIN"]
 
 @dataclass(frozen=True)
@@ -18,34 +18,50 @@ class Action:
     size_pct: Optional[float] = None
     size_mult: Optional[float] = None
 
-# ---- Normalized request/response ----
 @dataclass
 class PolicyRequest:
     street: int = 0
-    hero_pos: Optional[str] = None
-    villain_pos: Optional[str] = None
     ip_pos: Optional[str] = None
     oop_pos: Optional[str] = None
-    ctx: Optional[str] = None
-    pot_bb: float = 0.0
-    eff_stack_bb: float = 100.0
-    stack_bb: Optional[float] = None
-    facing_bet: bool = False
-    facing_open: bool = False
-    opener_pos: Optional[str] = None
-    opener_action: Optional[str] = None
+    hero_pos: Optional[str] = None
+    villain_pos: Optional[str] = None
     hero_hand: Optional[str] = None
     board: Optional[str] = None
-    stakes_id: Optional[int] = None
-    ctx_id: Optional[int] = None
-    hero_pos_id: Optional[int] = None
-    villain_pos_id: Optional[int] = None
+    pot_bb: float = 0.0
+    eff_stack_bb: float = 100.0
+    facing_bet: bool = False
+    villain_id: Optional[str] = None
+    actions_hist: Optional[List[str]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class PolicyResponse:
     actions: List[str]
     probs: List[float]
     evs: List[float]
-    debug: Dict[str, Any] = field(default_factory=dict)  # <- Any so you can stuff nested dicts here
     notes: List[str] = field(default_factory=list)
+    debug: Optional[Dict[str, Any]] = field(default_factory=dict)
+
+    def top_action(self) -> str:
+        """Return the action with the highest probability."""
+        if not self.actions or not self.probs:
+            return "NONE"
+        idx = int(np.argmax(self.probs))
+        return self.actions[idx]
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Serialize to a plain dict for logging or JSON output."""
+        return {
+            "actions": self.actions,
+            "probs": self.probs,
+            "evs": self.evs,
+            "notes": self.notes,
+            "debug": self.debug,
+            "top_action": self.top_action(),
+        }
+
+    def __repr__(self) -> str:
+        top = self.top_action()
+        top_p = max(self.probs) if self.probs else 0.0
+        return f"<PolicyResponse top={top} ({top_p:.2f}), len={len(self.actions)}>"
