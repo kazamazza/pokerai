@@ -1,5 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict
+
+import numpy as np
+
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.types import Action, PolicyRequest, PolicyResponse
