@@ -54,7 +54,7 @@ def build_postflop_manifest(
     samples_per_cluster: int,
     seed: int | None = None,
     boards_per_cluster: int = 64,
-    clusterer: BoardClusterer,                 # pass your Rule/KMeans clusterer
+    clusterer: BoardClusterer,
     default_ctx: str = "VS_OPEN",
     default_ip_pos: str = "BTN",
     default_oop_pos: str = "BB",

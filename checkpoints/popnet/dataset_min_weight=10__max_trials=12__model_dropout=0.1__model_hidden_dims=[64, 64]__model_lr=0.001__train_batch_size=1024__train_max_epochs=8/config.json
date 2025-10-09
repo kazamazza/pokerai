@@ -1,0 +1,127 @@
+{
+  "inputs": {
+    "parquet": "data/datasets/populationnet_nl10.parquet"
+  },
+  "dataset": {
+    "x_cols": [
+      "stakes_id",
+      "street_id",
+      "ctx_id",
+      "hero_pos_id",
+      "facing_id",
+      "spr_bin",
+      "bet_size_bucket"
+    ],
+    "y_cols": [
+      "p_fold",
+      "p_call",
+      "p_raise"
+    ],
+    "weight_col": "w",
+    "filters": {
+      "keep_ctx_ids": null,
+      "keep_street_ids": null,
+      "min_weight": 20
+    },
+    "stratify_keys": [
+      "ctx_id",
+      "street_id"
+    ],
+    "train_frac": 0.8,
+    "min_weight": 10
+  },
+  "board_clustering": {
+    "type": "kmeans",
+    "artifact": "data/artifacts/board_clusters_kmeans_128.json",
+    "n_clusters": 128
+  },
+  "coverage": {
+    "enabled": true,
+    "output": "reports/coverage/populationnet_nl10.json",
+    "group_by": [
+      "stakes_id",
+      "street_id",
+      "ctx_id",
+      "hero_pos_id",
+      "villain_pos_id"
+    ],
+    "min_rows_per_cell": 50,
+    "min_cells_per_ctx": 10,
+    "alpha": 1.0,
+    "input_decisions": null
+  },
+  "model": {
+    "hidden_dims": [
+      64,
+      64
+    ],
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "warmup_steps": 0,
+    "max_steps": 0,
+    "min_lr_scale": 0.05
+  },
+  "train": {
+    "seed": 42,
+    "batch_size": 1024,
+    "max_epochs": 8,
+    "patience": 3,
+    "checkpoints_dir": "checkpoints/popnet/dataset_min_weight=10__max_trials=12__model_dropout=0.1__model_hidden_dims=[64, 64]__model_lr=0.001__train_batch_size=1024__train_max_epochs=8",
+    "monitor": "val_loss",
+    "mode": "min",
+    "accelerator": "auto",
+    "devices": "auto",
+    "precision": "16-mixed",
+    "resume_from": null
+  },
+  "eval": {
+    "use_best_ckpt": true,
+    "output_dir": "reports/eval/populationnet",
+    "filters": {}
+  },
+  "logging": {
+    "logger": "tensorboard",
+    "tb_log_dir": "logs/tb/popnet",
+    "csv_log_dir": "logs/csv/popnet"
+  },
+  "build": {
+    "out_parquet": "data/datasets/populationnet_nl10.parquet",
+    "weight_mode": "count",
+    "min_rows": 20
+  },
+  "sweep": {
+    "model.lr": [
+      0.001,
+      0.0005
+    ],
+    "model.hidden_dims": [
+      [
+        64,
+        64
+      ],
+      [
+        128,
+        64
+      ]
+    ],
+    "model.dropout": [
+      0.05,
+      0.1
+    ],
+    "train.batch_size": [
+      1024,
+      2048
+    ],
+    "train.max_epochs": [
+      8,
+      12
+    ],
+    "dataset.min_weight": [
+      5,
+      10
+    ],
+    "max_trials": 12
+  },
+  "max_trials": 12
+}

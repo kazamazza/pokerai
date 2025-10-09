@@ -21,11 +21,10 @@ class PolicyInfer:
         if deps.equity is None:
             raise ValueError("equity infer is required")
         if deps.range_pre is None:
-            raise ValueError("range_pre (RangeNetPreflopInfer) is required")
+            raise ValueError("range_pre (PreflopPolicy) is required")
         if deps.policy_post is None:
             raise ValueError("policy_post (PostflopPolicyInfer) is required")
 
-        # deps
         self.pol_post   = deps.policy_post
         self.pop        = deps.pop
         self.expl       = deps.exploit
@@ -245,49 +244,52 @@ class PolicyInfer:
             # both: same facing flag applied to both (simple; you can refine later)
             return mask_for_side("ip", facing), mask_for_side("oop", facing)
 
-    def _apply_exploit_adjustment(self, z: torch.Tensor, exploit_signal: Any) -> torch.Tensor:
+    def _build_fcr_projection(self) -> torch.Tensor:
         """
-        z: [B, V] logits
-        exploit_signal:
-          - None -> no change
-          - torch.Tensor / ndarray / list length V -> added elementwise
-          - dict[action_token -> delta] -> map tokens -> idx using self._vocab_index and add
+        Returns P [3, V] that maps deltas over F/C/R into your action vocab logits.
+        Row 0 -> FOLD bucket(s), Row 1 -> CALL bucket(s), Row 2 -> RAISE-family (bet/raise/donk/all-in).
+        We spread raise-delta uniformly across all raise-like tokens that are legal in the vocab.
         """
-        if exploit_signal is None:
-            return z
-        if isinstance(exploit_signal, torch.Tensor):
-            delta = exploit_signal.to(z.device).view(1, -1)
-            if delta.size(-1) == z.size(-1):
-                return z + delta
-            # else ignore if shape mismatch
-            return z
+        V = len(self.action_vocab)
+        P = torch.zeros(3, V, dtype=torch.float32)
 
-        # ndarray / list-like
-        try:
-            import numpy as np
-            if isinstance(exploit_signal, (list, tuple, np.ndarray)):
-                arr = np.asarray(exploit_signal, dtype=np.float32)
-                if arr.ndim == 1 and arr.shape[0] == z.size(-1):
-                    delta = torch.tensor(arr, dtype=z.dtype, device=z.device).view(1, -1)
-                    return z + delta
-        except Exception:
-            pass
+        # Indices for exact tokens if they exist
+        idx_fold = self._vocab_index.get("FOLD")
+        idx_call = self._vocab_index.get("CALL")
 
-        # dict mapping token -> delta
-        if isinstance(exploit_signal, dict):
-            delta = torch.zeros_like(z)
-            for tok, val in exploit_signal.items():
-                idx = self._vocab_index.get(str(tok).upper())
-                if idx is None:
-                    continue
-                try:
-                    delta[0, int(idx)] = float(val)
-                except Exception:
-                    continue
-            return z + delta
+        if idx_fold is not None:
+            P[0, idx_fold] = 1.0
+        if idx_call is not None:
+            P[1, idx_call] = 1.0
 
-        # fallback: no change
-        return z
+        # Anything that represents aggression goes into the R row
+        raise_like = []
+        for i, tok in enumerate(self.action_vocab):
+            T = tok.upper()
+            if T.startswith("BET_") or T.startswith("RAISE_") or T.startswith("DONK_") or T == "ALLIN":
+                raise_like.append(i)
+
+        if raise_like:
+            w = 1.0 / float(len(raise_like))
+            for i in raise_like:
+                P[2, i] = w
+
+        return P
+
+    def _lift_exploit_signal(self, sig_fcr: "np.ndarray | torch.Tensor",
+                             device, dtype) -> torch.Tensor:
+        """
+        sig_fcr: shape (3,) in logit space for [FOLD, CALL, RAISE]
+        returns: [1, V] vocab-aligned deltas
+        """
+        if not hasattr(self, "_P_fcr"):
+            self._P_fcr = self._build_fcr_projection().to(device)
+        if not isinstance(sig_fcr, torch.Tensor):
+            sig_fcr = torch.tensor(sig_fcr, dtype=dtype, device=device)
+        sig_fcr = sig_fcr.view(3)
+        # [3] @ [3,V] -> [V]
+        delta_v = torch.matmul(sig_fcr, self._P_fcr)  # [V]
+        return delta_v.view(1, -1)
 
     def _predict_postflop(self, req_dict: Dict[str, Any]) -> PolicyResponse:
         req = PolicyRequest(**req_dict)
@@ -306,91 +308,26 @@ class PolicyInfer:
         z_ip, z_oop = li.clone(), lo.clone()
 
         # --- Exploit signal integration (if available) ---
+        # --- Exploit signal integration (request-native; uses PopulationNet prior) ---
         exploit_debug = None
         try:
-            if self.expl and getattr(req, "villain_id", None):
-                vid = str(req.villain_id)
-
-                # Build a simple scenario key that matches how observations are keyed in live usage.
-                scenario_key = f"{row.get('street')}:{row.get('ctx') or ''}:{row.get('ip_pos') or ''}:{row.get('oop_pos') or ''}"
-
-                # Try a couple of calling conventions to be tolerant to small API differences:
-                # 1) get_signal(player_id, scenario_key, pop_probs=None)
-                # 2) get_signal(player_id, row)  (legacy)
-                exploit_signal_raw = None
-                pop_probs = None  # optional: if you have population probs, plug them here
-
-                try:
-                    # preferred form (player_id, scenario, pop_probs)
-                    exploit_signal_raw = self.expl.get_signal(vid, scenario_key, pop_probs)
-                except TypeError:
-                    # fallback to legacy signature (player_id, row)
-                    try:
-                        exploit_signal_raw = self.expl.get_signal(vid, row)
-                    except Exception:
-                        exploit_signal_raw = None
-                except Exception:
-                    exploit_signal_raw = None
-
-                # No signal → skip
-                if exploit_signal_raw is None:
-                    exploit_debug = {"signal": None}
+            if self.expl is not None and getattr(req, "villain_id", None) and (self.pop is not None):
+                sig3 = self.expl.get_signal_from_request(str(req.villain_id), req, self.pop)  # -> np.ndarray | None
+                if sig3 is not None:
+                    t_delta = self._lift_exploit_signal(sig3, device=z_ip.device, dtype=z_ip.dtype)  # [1,V]
+                    scale = float(self.blend.lambda_expl)
+                    if actor == "ip":
+                        z_ip = z_ip + scale * t_delta
+                    else:
+                        z_oop = z_oop + scale * t_delta
+                    exploit_debug = {
+                        "applied": True,
+                        "scale": scale,
+                        "sum_abs": float(t_delta.abs().sum().item()),
+                    }
                 else:
-                    # Normalize returned signal to a length-V numpy array
-                    V = z_ip.shape[-1]
-                    sig_vec = None
-
-                    # dict mapping token/index -> delta
-                    if isinstance(exploit_signal_raw, dict):
-                        # If keys are tokens, map to indices if possible
-                        sig = np.zeros(V, dtype=float)
-                        for k, v in exploit_signal_raw.items():
-                            try:
-                                # token -> index via vocab index if available
-                                if isinstance(k, str) and hasattr(self, "_vocab_index"):
-                                    idx = int(self._vocab_index.get(k, -1))
-                                else:
-                                    idx = int(k)
-                                if 0 <= idx < V:
-                                    sig[idx] = float(v)
-                            except Exception:
-                                continue
-                        sig_vec = sig
-                    else:
-                        # list/ndarray-like
-                        try:
-                            arr = np.asarray(exploit_signal_raw, dtype=float).reshape(-1)
-                            if arr.shape[0] == V:
-                                sig_vec = arr
-                            else:
-                                # mismatched length -> ignore
-                                sig_vec = None
-                        except Exception:
-                            sig_vec = None
-
-                    if sig_vec is None:
-                        exploit_debug = {"signal_parsed": None, "raw": exploit_signal_raw}
-                    else:
-                        # Convert to torch [1, V] with same dtype/device as logits
-                        dev = z_ip.device
-                        dtype = z_ip.dtype
-                        t_signal = torch.tensor(sig_vec, dtype=dtype, device=dev).view(1, -1)
-
-                        # scale by blend.lambda_expl (blend weight)
-                        scale = float(self.blend.lambda_expl)
-
-                        # Add the deltas to logits (additive logit-space adjustment)
-                        z_ip = z_ip + scale * t_signal
-                        z_oop = z_oop + scale * t_signal
-
-                        exploit_debug = {
-                            "applied": True,
-                            "scale": scale,
-                            "signal_shape": list(t_signal.shape),
-                            "signal_norm": float(t_signal.abs().sum().cpu().item()),
-                        }
+                    exploit_debug = {"applied": False, "reason": "insufficient_data_or_small_kl"}
         except Exception as e:
-            # don't break inference on exploit errors; keep a debug note
             exploit_debug = {"error": str(e)}
 
         blend = self.blend

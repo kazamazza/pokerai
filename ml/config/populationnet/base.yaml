@@ -4,7 +4,7 @@
 
 # -------- Inputs --------
 inputs:
-  parquet: data/datasets/populationnet_nl10.parquet   # final training parquet
+  parquet: data/artifacts/decisions_enriched_nl10.parquet   # <- enriched decisions
 
 # -------- Dataset --------
 dataset:
@@ -13,11 +13,9 @@ dataset:
     - street_id
     - ctx_id
     - hero_pos_id
-    - villain_pos_id
     - facing_id
     - spr_bin
     - bet_size_bucket
-    - board_cluster_id   # keep this, skip board_mask_52
 
   # Soft-label target columns (must sum to 1 per row post-normalization)
   y_cols: ["p_fold", "p_call", "p_raise"]
@@ -53,25 +51,27 @@ coverage:
 
 # -------- Model --------
 model:
-  hidden_dims: [128, 64]        # small, fast, usually plenty for this task
+  hidden_dims: [64, 64]
   dropout: 0.10
-  lr: 3e-4                      # conservative; AdamW
-  weight_decay: 1.0e-4
-  soft_labels: true             # keep true (uses KL on soft targets)
+  lr: 0.001
+  weight_decay: 0.0001
+  # optional scheduler knobs (model implements them)
+  warmup_steps: 0
+  max_steps: 0
+  min_lr_scale: 0.05
 
 # -------- Training --------
 train:
-  batch_size: 4096              # scale by GPU RAM; 4096 is efficient on 16GB+
-  max_epochs: 12
-  patience: 3                   # early stop on val_loss
-  num_workers: 4                # <= CPU cores; 0 if you’ve seen dataloader issues
-  accelerator: "auto"
-  devices: "auto"
-  precision: "16-mixed"         # AMP for speed
   seed: 42
-  monitor: "val_loss"
-  mode: "min"
+  batch_size: 2048
+  max_epochs: 10
+  patience: 3
   checkpoints_dir: checkpoints/popnet
+  monitor: val_loss
+  mode: min
+  accelerator: auto
+  devices: auto
+  precision: 16-mixed
 
   # Optional resume
   resume_from: ~                # path/to/ckpt if resuming
@@ -88,10 +88,17 @@ logging:
   tb_log_dir: logs/tb/popnet
   csv_log_dir: logs/csv/popnet
 
-# -------- Build (builder stage; used by your NDJSON->Parquet job) --------
+
 build:
-  stake: 10
-  decisions_in: data/processed/nl10/decisions.jsonl.gz   # or s3://bucket/parsed/nl10/decisions.jsonl.gz
   out_parquet: data/datasets/populationnet_nl10.parquet
-  weight_mode: "sqrt"            # "count" | "sqrt" | "log1p"
-  # Optional: coverage_json: reports/coverage/populationnet_nl10.json
+  weight_mode: count         # count | sqrt | log1p
+  min_rows: 20               # drop ultra-sparse cells
+
+sweep:
+  model.lr: [0.001, 0.0005]
+  model.hidden_dims: [[64,64], [128,64]]
+  model.dropout: [0.05, 0.10]
+  train.batch_size: [1024, 2048]
+  train.max_epochs: [8, 12]
+  dataset.min_weight: [5, 10]
+  max_trials: 12   # optional cap

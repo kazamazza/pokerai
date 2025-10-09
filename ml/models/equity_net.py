@@ -5,9 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-def default_emb_dim(card: int) -> int:
-    # sublinear, small-safe rule
-    return int(min(32, max(4, round(1.6 * math.sqrt(card)))))
+from ml.models.policy_consts import default_emb_dim
+
 
 class EquityNetLit(pl.LightningModule):
     def __init__(

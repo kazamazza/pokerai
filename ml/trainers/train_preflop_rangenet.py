@@ -8,8 +8,8 @@ import sys
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet
-from ml.models.preflop_rangenet import RangeNetLit, rangenet_preflop_collate_fn
+from ml.datasets.preflop_rangenet import PreflopRangeDatasetParquet, rangenet_preflop_collate_fn
+from ml.models.preflop_rangenet import RangeNetLit
 from ml.utils.config import load_model_config
 from ml.trainers.helpers import _get
 from ml.utils.rangenet_preflop_sidecar import write_preflop_policy_sidecar

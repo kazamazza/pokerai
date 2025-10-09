@@ -1,16 +1,22 @@
 from __future__ import annotations
-
 from pathlib import Path
-
+import torch
 from ml.features.hands import hand_to_169_label
 from ml.inference.equity import EquityNetInfer
 from ml.inference.policy.types import PolicyRequest, PolicyResponse, Action
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Union
 import numpy as np
-
 from ml.models.preflop_rangenet import RangeNetLit
+from ml.utils.device import DeviceLike
+from ml.utils.sidecar import load_sidecar
 
+def _to_device(device: str | torch.device = "auto") -> torch.device:
+    if isinstance(device, torch.device):
+        return device
+    if isinstance(device, str) and device == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(device)
 
 @dataclass
 class PreflopDeps:
@@ -31,38 +37,83 @@ class PreflopPolicy:
         self.eq  = deps.equity
 
     @classmethod
-    def from_dir(
-        cls,
-        range_dir: str | Path,
-        *,
-        equity_dir: str | Path | None = None,
-        device: str = "auto",
+    def from_checkpoint(
+            cls,
+            checkpoint_path: str | Path,
+            sidecar_path: str | Path,
+            *,
+            equity_dir: str | Path | None = None,
+            device: str = "auto",
     ) -> "PreflopPolicy":
-        """
-        Convenience loader for preflop policy inference.
-        - Loads range_pre (RangeNetPreflopInfer) from a directory
-        - Optionally loads equity model if provided
-        Returns an initialized PreflopPolicy ready for inference.
-        """
-        range_dir = Path(range_dir)
-        if not range_dir.exists():
-            raise FileNotFoundError(f"Preflop range model dir not found: {range_dir}")
+        dev = _to_device(device)
+        sc = load_sidecar(sidecar_path)
+        cards = {str(k): int(v) for k, v in sc["cards"].items()}
+        feature_order = list(sc["feature_order"])
 
-        # Load the preflop range network
-        range_pre = RangeNetLit.from_dir(range_dir, device=device)
+        model = RangeNetLit.load_from_checkpoint(
+            str(checkpoint_path),
+            map_location=dev,
+            cards=cards,
+            feature_order=feature_order,
+        )
+        model.eval().to(dev)
 
-        # Optionally load equity model
         eq = None
         if equity_dir:
-            equity_dir = Path(equity_dir)
-            if equity_dir.exists():
-                try:
-                    eq = EquityNetInfer.from_dir(equity_dir, device=device)
-                except Exception as e:
-                    print(f"[warn] Failed to load equity model: {e}")
+            try:
+                eq = EquityNetInfer.from_dir(equity_dir, device=dev.type)
+            except Exception as e:
+                print(f"[warn] failed to load EquityNet from {equity_dir}: {e}")
 
-        deps = PreflopDeps(range_pre=range_pre, equity=eq)
-        return cls(deps)
+        return cls(PreflopDeps(range_pre=model, equity=eq))
+
+    @classmethod
+    def from_dir(
+            cls,
+            range_dir: Union[str, Path],
+            *,
+            equity_dir: Union[str, Path, None] = None,
+            device: DeviceLike = "auto",
+    ) -> "PreflopPolicy":
+        """
+        Discover best/last checkpoint + sidecar in range_dir, then delegate to from_checkpoint.
+        Mirrors the Postflop loader behavior.
+        """
+        rdir = Path(range_dir)
+        if not rdir.exists():
+            raise FileNotFoundError(f"Preflop range model dir not found: {rdir}")
+
+        # Prefer pattern, then best/last, else any .ckpt
+        cands = sorted(rdir.glob("range_preflop-*-*.ckpt"))
+        if cands:
+            ckpt_path = cands[0]
+        elif (rdir / "best.ckpt").exists():
+            ckpt_path = rdir / "best.ckpt"
+        elif (rdir / "last.ckpt").exists():
+            ckpt_path = rdir / "last.ckpt"
+        else:
+            any_ckpt = sorted(rdir.glob("*.ckpt"))
+            if not any_ckpt:
+                raise FileNotFoundError(f"No checkpoint found in {rdir}")
+            ckpt_path = any_ckpt[0]
+
+        # Sidecar preference: best_sidecar.json → sidecar.json → <ckpt>.sidecar.json
+        sidecar_path = (
+            rdir / "best_sidecar.json"
+            if (rdir / "best_sidecar.json").exists()
+            else (rdir / "sidecar.json"
+                  if (rdir / "sidecar.json").exists()
+                  else ckpt_path.with_suffix(ckpt_path.suffix + ".sidecar.json"))
+        )
+        if not sidecar_path.exists():
+            raise FileNotFoundError(f"Sidecar JSON not found: {sidecar_path}")
+
+        return cls.from_checkpoint(
+            ckpt_path,
+            sidecar_path,
+            equity_dir=equity_dir,
+            device=device,
+        )
 
 
     def _encode_action(self, a: Action) -> str:

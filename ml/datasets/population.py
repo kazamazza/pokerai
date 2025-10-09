@@ -7,10 +7,10 @@ import torch
 from torch.utils.data import Dataset
 
 # --- Stable defaults matching the parquet builder ---
-POP_X_COLS        = ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
-POP_Y_COLS_SOFT   = ["p_fold", "p_call", "p_raise"]  # soft label columns
-POP_Y_COL_HARD    = "y"                              # hard label column (argmax of probs)
-POP_W_COL         = "w"                              # weight column (e.g., n_rows or clipped)
+POP_X_COLS        = ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "spr_bin", "bet_size_bucket"]
+POP_Y_COLS_SOFT   = ["p_fold", "p_call", "p_raise"]
+POP_Y_COL_HARD    = "y"
+POP_W_COL         = "w"
 
 FeatureVector = torch.LongTensor
 LabelVector   = torch.FloatTensor
@@ -57,11 +57,16 @@ class PopulationDatasetParquet(Dataset):
         df = pd.read_parquet(self.parquet_path)
 
         # --- Required columns check ---
-        required = set(self.x_cols) | {self.weight_col}
-        required |= set(self.y_cols_soft) if self.use_soft_labels else {self.y_col_hard}
+        required = set(x_cols) | {weight_col}
+        required |= set(y_cols_soft) if use_soft_labels else {y_col_hard}
         missing = [c for c in required if c not in df.columns]
         if missing:
             raise ValueError(f"Parquet missing required columns: {missing}")
+
+        # ensure categorical columns are integers (builder already emits ints; this is just guardrail)
+        for c in x_cols:
+            if not np.issubdtype(df[c].dtype, np.integer):
+                df[c] = df[c].astype("int64")
 
         # --- Optional filtering ---
         if keep_ctx_ids is not None:

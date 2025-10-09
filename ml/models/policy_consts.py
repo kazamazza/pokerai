@@ -1,3 +1,4 @@
+import math
 from typing import Dict, Sequence
 import torch.nn.functional as F
 import torch
@@ -12,6 +13,12 @@ ACTION_VOCAB = [
 ]
 VOCAB_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}
 VOCAB_SIZE  = len(ACTION_VOCAB)
+
+def default_emb_dim(card: int) -> int:
+    """
+    Small, safe rule for embedding dim: sublinear growth with cap.
+    """
+    return int(min(32, max(4, round(1.6 * math.sqrt(int(card or 1))))))
 
 def soft_kl(y_true: torch.Tensor, log_probs: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """KL(y || p) = sum y * (log y - log p). y_true must be row-normalized."""

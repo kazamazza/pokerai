@@ -216,10 +216,10 @@ class PostflopPolicyInfer:
         if ckpt_name is None:
             # Try best (pattern), else last.ckpt
             cands = sorted(ckpt_dir.glob("postflop_policy-*-*.ckpt"))
-            checkpoint_path = cands[0] if cands else ckpt_dir / "last.ckpt"
+            checkpoint_path = cands[0] if cands else ckpt_dir / "best.ckpt"
         else:
             checkpoint_path = ckpt_dir / ckpt_name
-        sidecar_path = ckpt_dir / "sidecar.json"
+        sidecar_path = ckpt_dir / "best_sidecar.json"
         return cls.from_checkpoint(checkpoint_path, sidecar_path, device=device)
 
     def _assert_model_heads_match_vocab(self) -> None:

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, List, Tuple, Dict, Any
 from ml.datasets.rangenet import RangeNetDatasetParquet, canon_pos, canon_action, canon_ctx
 
 
@@ -139,3 +139,51 @@ class PreflopRangeDatasetParquet(RangeNetDatasetParquet):
             device=device,
             min_weight=min_weight,
         )
+
+
+def rangenet_preflop_collate_fn(
+    batch: List[Tuple[Dict[str, Any], torch.Tensor, torch.Tensor]]
+) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
+    """
+    Custom collate function for RangeNetPreflop datasets.
+    Combines a batch of tuples (x_dict, y, w) into tensors suitable for Lightning.
+
+    Each x_dict maps feature_name → 1D LongTensor[B].
+    The collate function stacks each feature across the batch to produce
+    x_out[feature_name] = LongTensor[B], where B = batch size.
+
+    Args:
+        batch: list of (x_dict, y, w)
+               x_dict: dict[str, Tensor]  (categorical inputs)
+               y: FloatTensor[169]        (target range probabilities)
+               w: FloatTensor[]           (per-sample weight)
+
+    Returns:
+        (x_out, y_out, w_out)
+        - x_out: dict[str, LongTensor[B]]
+        - y_out: FloatTensor[B, 169]
+        - w_out: FloatTensor[B]
+    """
+    x_list, y_list, w_list = zip(*batch)
+
+    # Collect all feature names
+    all_keys = set()
+    for x in x_list:
+        all_keys.update(x.keys())
+
+    # Stack features
+    x_out: Dict[str, torch.Tensor] = {}
+    for k in all_keys:
+        vals = []
+        for x in x_list:
+            v = x.get(k)
+            if not isinstance(v, torch.Tensor):
+                v = torch.as_tensor(v, dtype=torch.long)
+            vals.append(v.view(-1))
+        x_out[k] = torch.cat(vals, dim=0) if vals[0].dim() == 1 else torch.stack(vals, dim=0)
+
+    # Stack targets (y) and weights (w)
+    y_out = torch.stack([torch.as_tensor(y, dtype=torch.float32) for y in y_list], dim=0)
+    w_out = torch.as_tensor([float(w) for w in w_list], dtype=torch.float32).view(-1)
+
+    return x_out, y_out, w_out
