@@ -8,8 +8,16 @@ inputs:
 
 # -------- Dataset --------
 dataset:
-  # Categorical feature columns (ORDER MATTERS for embedding tables)
-  x_cols: ["stakes_id", "street_id", "ctx_id", "hero_pos_id", "villain_pos_id"]
+  x_cols:
+    - stakes_id
+    - street_id
+    - ctx_id
+    - hero_pos_id
+    - villain_pos_id
+    - facing_id
+    - spr_bin
+    - bet_size_bucket
+    - board_cluster_id   # keep this, skip board_mask_52
 
   # Soft-label target columns (must sum to 1 per row post-normalization)
   y_cols: ["p_fold", "p_call", "p_raise"]
@@ -26,6 +34,12 @@ dataset:
   # Train/val split
   stratify_keys: ["ctx_id", "street_id"]  # preserves distribution across contexts/streets
   train_frac: 0.80
+
+
+board_clustering:
+  type: kmeans
+  artifact: data/artifacts/board_clusters_kmeans_128.json
+  n_clusters: 128
 
 # -------- Coverage (optional but recommended pre-train audit) --------
 coverage:

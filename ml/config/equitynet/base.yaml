@@ -56,9 +56,9 @@ build:
 # BOARD CLUSTERING
 # --------------------------------------------------------
 board_clustering:
-  type: rule            # "rule" | "kmeans"
-  n_clusters: 128       # used by "rule"; ignored if "kmeans" has artifact
-  artifact: ""          # e.g., data/artifacts/board_clusters_kmeans_512.json
+  type: kmeans
+  artifact: data/artifacts/board_clusters_kmeans_128.json
+  n_clusters: 128
 
 # ---------------------------------
 # COMPUTE (equity parquet producer)
