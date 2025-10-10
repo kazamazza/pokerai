@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from ml.features.boards import BoardClusterer
 from ml.inference.policy.types import PolicyResponse, PolicyRequest
+from ml.inference.postflop_ctx import infer_postflop_ctx
 from ml.models.policy_consts import ACTION_VOCAB as DEFAULT_VOCAB
 from ml.models.postflop_policy_net import PostflopPolicyLit
 from ml.utils.board_mask import make_board_mask_52
@@ -107,38 +108,56 @@ class PostflopPolicyInfer:
         Convert PolicyRequest → model row dict with all features present
         (categoricals in raw tokens, cont as floats; cluster id if available).
         """
-        # categoricals (strings; encoded later via id_maps)
-        row = {
-            "hero_pos": (req.hero_pos or "").upper(),
-            "ip_pos": (req.ip_pos or req.hero_pos or "").upper(),
-            "oop_pos": (req.oop_pos or req.villain_pos or "").upper(),
-            "ctx": (req.ctx or "VS_OPEN").upper(),
-            "street": 1,  # flop
+        # street (postflop only for this infer)
+        try:
+            street = int(req.street or 1)
+        except Exception:
+            street = 1
+        if street < 1:
+            street = 1
+        if street > 3:
+            street = 3
+
+        # --- seats (prefer legalized ip/oop) ---
+        ip_pos = (req.ip_pos or "").upper()
+        oop_pos = (req.oop_pos or "").upper()
+        hero_pos = (req.hero_pos or "").upper()
+
+        # --- context (inferred robustly) ---
+        ctx = infer_postflop_ctx(req)
+
+        row: Dict[str, Any] = {
+            "hero_pos": hero_pos,
+            "ip_pos": ip_pos,
+            "oop_pos": oop_pos,
+            "ctx": ctx,
+            "street": street,  # integer; your dataset maps to cat id via id_maps
         }
 
-        # board → mask + optional cluster
-        if "board_mask_52" in self.cont_features and req.board:
-            mask_52: list[float] = make_board_mask_52(req.board)
-            row["board_mask_52"] = mask_52  # type: ignore[assignment]
+        # --- board → mask + optional cluster ---
+        if "board_mask_52" in getattr(self, "cont_features", []) and req.board:
+            row["board_mask_52"] = make_board_mask_52(req.board)
 
-        if self.board_cluster_feat:
-            cid = None
+        if getattr(self, "board_cluster_feat", None):
+            cid = 0
             if self.clusterer and req.board:
                 try:
                     cid = int(self.clusterer.predict_one(req.board))
                 except Exception:
-                    cid = None
-            # if present in feature_order, insert a value (0 fallback)
-            row[self.board_cluster_feat] = 0 if cid is None else cid
+                    cid = 0
+            row[self.board_cluster_feat] = cid  # "board_cluster" or "board_cluster_id"
 
-        # continuous
-        stack = float(req.stack_bb or req.eff_stack_bb or 100.0)
+        # --- continuous scalars ---
         row["pot_bb"] = float(req.pot_bb or 0.0)
-        row["eff_stack_bb"] = stack
+        row["eff_stack_bb"] = float(req.eff_stack_bb or 0.0)
 
-        # optional menu sizes (if you have them at inference time)
+        # optional bet menu (if provided)
         if isinstance(req.raw, dict) and "bet_sizes" in req.raw:
-            row["bet_sizes"] = list(req.raw["bet_sizes"])
+            try:
+                row["bet_sizes"] = list(req.raw["bet_sizes"])
+            except Exception:
+                pass
+
         return row
 
     @classmethod

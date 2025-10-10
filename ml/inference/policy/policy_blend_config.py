@@ -35,6 +35,10 @@ class PolicyBlendConfig:
     debug: bool = True
     extra: Dict[str, Any] = field(default_factory=dict)
 
+    # NEW — equity influence postflop
+    lambda_equity_post: float = 0.5
+    max_equity_logit_delta: float = 2.0
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize config to a dict for logs or JSON export."""
         return {

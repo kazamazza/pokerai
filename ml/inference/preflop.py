@@ -144,7 +144,7 @@ class PreflopPolicy:
         opener_action = ctx_res["opener_action"]
         facing_open = bool(ctx_res["facing_open"])
 
-        # Sidecar/feature names must match your trained model (case-insensitive is handled below)
+        # Build model row (case-insensitive tolerance)
         row_raw = {
             "STACK_BB": stack,  # if categorical in training, sidecar id_maps must contain bins
             "HERO_POS": hero_pos,
@@ -152,12 +152,10 @@ class PreflopPolicy:
             "OPENER_ACTION": opener_action,
             "CTX": (req.raw.get("ctx") or "SRP").upper(),
         }
-        # normalize keys to whatever your feature_order uses
-        row = {k.lower(): v for k, v in row_raw.items()}
-        row = {k.upper(): v for k, v in row.items()}  # tolerate UPPER in sidecar
+        row = {k.upper(): v for k, v in {k.lower(): v for k, v in row_raw.items()}.items()}
 
         # -------- 2) model → villain 169 range --------
-        xb = self._encode_row(row)  # expects dict[str,int/str/float] aligned to feature_order
+        xb = self._encode_row(row)  # expects dict aligned to feature_order
         logits = self.model(xb)  # [1,169]
         rng = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()  # [169]
         s = float(rng.sum())
@@ -166,7 +164,7 @@ class PreflopPolicy:
         hero_mass = None
         if req.hero_hand:
             try:
-                hid = hand_to_169_label(req.hero_hand)  # should yield 0..168
+                hid = hand_to_169_label(req.hero_hand)  # 0..168
                 if 0 <= int(hid) < 169:
                     hero_mass = float(rng[int(hid)])
             except Exception:
@@ -175,20 +173,34 @@ class PreflopPolicy:
         # -------- 3) action prior (+ tiny equity tilt) --------
         if facing_open:
             tokens = ["FOLD", "CALL", "RAISE_300"]  # F / flat / 3-bet ~3x
-            base = np.array([0.35, 0.40, 0.25], dtype="float32")
-            if equity and equity_nudge > 0:
-                tilt = (float(equity.get("p_win", 0.5)) - 0.5) * float(equity_nudge)
-                base[1] = max(0.0, base[1] + tilt)  # nudge call a touch
-                base = base / base.sum()
+            base = np.array([0.35, 0.40, 0.25], dtype="float32")  # prior mass
         else:
             tokens = ["FOLD", "RAISE_250"]  # open-fold vs open to 2.5bb
             base = np.array([0.30, 0.70], dtype="float32")
-            if equity and equity_nudge > 0:
-                tilt = (float(equity.get("p_win", 0.5)) - 0.5) * float(equity_nudge)
-                base[1] = max(0.0, base[1] + tilt)  # nudge opening frequency
-                base = base / base.sum()
 
-        # temperature
+        # keep a copy before applying equity (for diagnostics)
+        base_before = base.copy()
+
+        # apply tiny equity nudge (stable + normalized)
+        if equity and equity_nudge > 0:
+            p_win = float(equity.get("p_win", 0.5))
+            tilt = (p_win - 0.5) * float(equity_nudge)
+            if facing_open and "CALL" in tokens:
+                i_call = tokens.index("CALL")
+                base[i_call] = max(0.0, base[i_call] + tilt)
+            elif (not facing_open) and "RAISE_250" in tokens:
+                i_r = tokens.index("RAISE_250")
+                base[i_r] = max(0.0, base[i_r] + tilt)
+            s = float(base.sum())
+            if s > 0:
+                base = base / s
+
+        # diagnostic: magnitude of equity effect in (log) prior space
+        log_before = np.log(base_before + 1e-12)
+        log_after = np.log(base + 1e-12)
+        delta_eq_l1 = float(np.abs(log_after - log_before).sum())
+
+        # temperature → probs
         probs = self._softmax_np(np.log(base + 1e-8), temperature)
 
         return PolicyResponse(
@@ -203,5 +215,6 @@ class PreflopPolicy:
                 "villain_range_169_sum": float(rng.sum()),
                 "hero_prior_mass_in_villain_range": hero_mass,
                 "equity": equity or {},
+                "delta_eq_l1": delta_eq_l1,  # <- equity influence diagnostic
             },
         )

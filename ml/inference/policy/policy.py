@@ -1,7 +1,6 @@
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, Union
 import numpy as np
-
 from ml.features.hands import hand_to_169_label
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
@@ -56,7 +55,7 @@ class PolicyInfer:
 
         # action vocab (shared with postflop model)
         try:
-            from ml.models.postflop_policy_net import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX
+            from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX
             self.action_vocab = list(_VOC)
             self._vocab_index = dict(_VIX)
         except Exception:
@@ -119,52 +118,28 @@ class PolicyInfer:
         """
         Build the feature row expected by PostflopPolicyInfer.
 
-        Accepts PolicyRequest with hero_pos/villain_pos (preferred) or ip_pos/oop_pos.
-        Deduces ip_pos/oop_pos using a small canonical seat order. Produces:
-          - hero_pos, ip_pos, oop_pos, ctx, street (int)
-          - board_mask_52 (list/np.array length 52)
+        Uses hero_pos / villain_pos to infer ip_pos / oop_pos via PolicyRequest.is_hero_ip().
+        Produces a consistent row with:
+          - hero_pos, ip_pos, oop_pos, ctx, street
+          - board_mask_52 (52-length)
           - pot_bb, eff_stack_bb
-          - optional board_cluster feature (board_cluster or board_cluster_id)
+          - optional board_cluster_id (if model expects it)
         """
 
-        # --- canonicalize seats / simple seat order for relative position ---
-        def _canon_seat(v):
-            if v is None:
-                return ""
-            return str(v).strip().upper()
+        def _canon(v):
+            return str(v).strip().upper() if v else ""
 
-        # prefer explicit hero/villain labels; fallback to ip_pos/oop_pos (legacy)
-        hero = _canon_seat(getattr(req, "hero_pos", None) or req.raw.get("hero_pos"))
-        villain = _canon_seat(getattr(req, "villain_pos", None) or req.raw.get("villain_pos"))
+        # --- canonical seat inputs ---
+        hero = _canon(getattr(req, "hero_pos", None) or req.raw.get("hero_pos"))
+        villain = _canon(getattr(req, "villain_pos", None) or req.raw.get("villain_pos"))
+        ctx = _canon(getattr(req, "ctx", None) or req.raw.get("ctx") or "VS_OPEN")
 
-        # minimal seat ordering for deciding who is "left of" whom (6-max style)
-        # (higher index = more to the left; if hero index > villain index => hero is IP)
-        SEAT_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
+        # --- derive IP/OOP roles ---
+        hero_is_ip = PolicyRequest.is_hero_ip(hero, villain)
+        ip_pos = hero if hero_is_ip else villain
+        oop_pos = villain if hero_is_ip else hero
 
-        hero_idx = SEAT_ORDER.index(hero) if hero in SEAT_ORDER else None
-        vill_idx = SEAT_ORDER.index(villain) if villain in SEAT_ORDER else None
-
-        # If both known, decide by index; else try raw.actor hint; else default hero as IP
-        if hero_idx is not None and vill_idx is not None:
-            hero_is_ip = hero_idx > vill_idx
-        else:
-            raw_actor = (req.raw.get("actor") or "").lower()
-            if raw_actor in ("ip", "oop"):
-                hero_is_ip = (raw_actor == "ip")
-            else:
-                # fallback: assume hero is in position (safe default for many HU tests)
-                hero_is_ip = True
-
-        # assign ip_pos / oop_pos
-        if hero_is_ip:
-            ip_pos = hero or ""
-            oop_pos = villain or ""
-        else:
-            ip_pos = villain or ""
-            oop_pos = hero or ""
-
-        # --- context & numeric features ---
-        ctx = _canon_seat(getattr(req, "ctx", None) or req.raw.get("ctx") or "VS_OPEN")
+        # --- numeric features ---
         try:
             street = int(getattr(req, "street", 1) or 1)
         except Exception:
@@ -178,50 +153,45 @@ class PolicyInfer:
             or 0.0
         )
 
-        # --- board / board mask (52-d) ---
+        # --- board and 52-card mask ---
         board = getattr(req, "board", None) or req.raw.get("board")
         bm = req.raw.get("board_mask_52")
         if bm is None:
-            # make_board_mask_52 should return list/array len 52; provide safe fallback
             try:
                 bm = make_board_mask_52(board) if board else [0.0] * 52
             except Exception:
                 bm = [0.0] * 52
 
-        # ensure mask is length 52 (pad/truncate)
+        bm_arr = np.zeros(52, dtype=float)
         try:
-            bm_arr = np.asarray(bm, dtype=float).reshape(-1)
+            bm_np = np.asarray(bm, dtype=float).reshape(-1)
+            n = min(len(bm_np), 52)
+            bm_arr[:n] = bm_np[:n]
         except Exception:
-            bm_arr = np.zeros(52, dtype=float)
-        if bm_arr.size < 52:
-            tmp = np.zeros(52, dtype=float)
-            tmp[: bm_arr.size] = bm_arr
-            bm_arr = tmp
-        elif bm_arr.size > 52:
-            bm_arr = bm_arr[:52]
+            pass  # keep zeros fallback
 
-        # --- assemble row with canonical keys that PostflopPolicyInfer expects ---
+        # --- assemble row ---
         row = {
             "hero_pos": hero,
             "ip_pos": ip_pos,
             "oop_pos": oop_pos,
             "ctx": ctx,
             "street": street,
-            "board_mask_52": bm_arr.tolist() if not isinstance(bm_arr, list) else bm_arr,
-            "pot_bb": float(pot),
-            "eff_stack_bb": float(stack),
+            "board_mask_52": bm_arr.tolist(),
+            "pot_bb": pot,
+            "eff_stack_bb": stack,
         }
 
-        # --- optional board-cluster feature (respect PostflopPolicyInfer.board_cluster_feat) ---
-        bcf = getattr(self.pol_post, "board_cluster_feat", None)  # "board_cluster" or "board_cluster_id" or None
-        if bcf is not None:
+        # --- optional: board cluster id ---
+        bcf = getattr(self.pol_post, "board_cluster_feat", None)
+        if bcf:
             cid = 0
             if self.clusterer is not None and board:
                 try:
                     cid = int(self.clusterer.predict_one(board))
                 except Exception:
                     cid = 0
-            row[bcf] = int(cid)
+            row[bcf] = cid
 
         return row
 
@@ -396,29 +366,141 @@ class PolicyInfer:
         delta_v = torch.matmul(sig_fcr, self._P_fcr)  # [V]
         return delta_v.view(1, -1)
 
+    # inside PolicyInfer
+    def _infer_equity_postflop(self, req: PolicyRequest):
+        # Always report why equity wasn’t used
+        if self.eq is None:
+            return None, "no_equity_model"
+        if not req.hero_hand:
+            return None, "no_hero_hand"
+        if not req.board:
+            return None, "no_board"
+        # reject overlap hero↔board
+        try:
+            board_cards = [req.board[i:i + 2] for i in range(0, len(req.board), 2)]
+            if any(c in req.hero_hand for c in board_cards):
+                return None, "hand_board_overlap"
+        except Exception:
+            pass
+
+        try:
+            payload = {
+                "street": int(req.street),
+                "hand_id": hand_to_169_label(req.hero_hand),
+                "board": req.board,  # include if your EquityNet expects it
+            }
+            out = self.eq.predict([payload])
+            if not out or len(out[0]) != 3:
+                return None, "eq_model_empty_or_bad_shape"
+            p_win, p_tie, p_lose = map(float, out[0])
+            return {"p_win": p_win, "p_tie": p_tie, "p_lose": p_lose}, None
+        except Exception as e:
+            return None, f"eq_predict_error:{e}"
+
+    def _bump(self, vec: torch.Tensor, token: str, amount: float):
+        idx = self._vocab_index.get(token)
+        if idx is not None and 0 <= idx < vec.numel():
+            vec[idx] += float(amount)
+
+    def _equity_delta_vector(self, *, eq_margin: float, hero_is_ip: bool, facing_bet: bool) -> torch.Tensor:
+        """
+        Map equity margin (p_win - 0.5) into a [V]-shaped logit delta.
+        Positive margin → more aggression; negative → more caution.
+        """
+        V = len(self.action_vocab)
+        delta = torch.zeros(V, dtype=torch.float32)
+
+        m = float(eq_margin)
+        # Gentle shaping so it doesn't blow up
+        m = max(-0.25, min(0.25, m))  # clamp equity margin
+        base = m  # linear is fine; you can make it tanh if you like
+
+        if facing_bet:
+            # Facing a bet: bias CALL and small RAISEs up, FOLD down for positive equity
+            self._bump(delta, "CALL", +1.00 * base)
+            for tok in ("RAISE_150", "RAISE_200", "RAISE_300"):
+                self._bump(delta, tok, +0.50 * base)
+            self._bump(delta, "FOLD", -1.25 * base)
+            # Avoid encouraging pure bets when facing (should be illegal anyway)
+        else:
+            # Not facing: bias bets/donks up with equity, CHECK down
+            bet_tokens = ["BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100"]
+            for tok in bet_tokens:
+                self._bump(delta, tok, +0.80 * base)
+            if not hero_is_ip:
+                self._bump(delta, "DONK_33", +0.80 * base)
+            self._bump(delta, "CHECK", -1.00 * base)
+
+        return delta
+
     def _predict_postflop(self, req_dict: Dict[str, Any]) -> PolicyResponse:
         req = PolicyRequest(**req_dict)
-
-        # 1) Build row from hero/villain; row includes hero_pos, ip_pos, oop_pos, etc.
+        # 1) Build feature row (hero/villain → ip/oop; board mask; cluster id, etc.)
         row = self._build_postflop_row(req)
 
         # Decide which side is the hero
         hero_is_ip = (str(row.get("hero_pos", "")).upper() == str(row.get("ip_pos", "")).upper())
         actor = "ip" if hero_is_ip else "oop"
 
-        # 2) Legality masks for the hero side
+        # 2) Legality masks for the hero side (ensure non-empty)
         mask_ip, mask_oop = self._build_legality_masks(req=req, vocab=self.action_vocab, actor=actor)
         V = len(self.action_vocab)
         if mask_ip is None:  mask_ip = torch.ones(V, dtype=torch.float32)
         if mask_oop is None: mask_oop = torch.ones(V, dtype=torch.float32)
         hero_mask = mask_ip if hero_is_ip else mask_oop
+        if torch.all(hero_mask <= 0):
+            # Failsafe: never send an all-zero mask downstream
+            hero_mask = torch.ones(V, dtype=torch.float32)
 
         # 3) Model inference (logits for both sides)
         out = self.pol_post.predict_proba([row], actor=actor, return_logits=True)
         z_ip, z_oop = out["logits_ip"], out["logits_oop"]  # [1, V]
         z_hero = z_ip.clone() if hero_is_ip else z_oop.clone()  # start from hero side
 
-        # 4) Exploit integration (optional)
+        # 4a) Equity tilt (optional, controlled by blend.lambda_eq)
+        equity_debug = {}
+
+        # Backward-compatible unpack: supports either dict OR (dict, err)
+        _res = self._infer_equity_postflop(req)
+        if isinstance(_res, tuple):
+            equity, eq_err = _res
+        else:
+            equity, eq_err = _res, None
+
+        lam_eq = float(getattr(self.blend, "lambda_eq", 0.0))
+        equity_debug["lambda_eq"] = lam_eq
+
+        if eq_err:
+            equity_debug.update({"applied": False, "reason": eq_err})
+        elif equity is None:
+            equity_debug.update({"applied": False, "reason": "no_equity_dict"})
+        elif lam_eq <= 0.0:
+            equity_debug.update({"applied": False, "reason": "zero_lambda"})
+        else:
+            eq_margin = float(equity.get("p_win", 0.5)) - 0.5
+            gate = float(getattr(self.blend, "eq_min_abs_margin", 0.01))
+            if abs(eq_margin) < gate:
+                equity_debug.update({"applied": False, "reason": "small_margin",
+                                     "p_win": float(equity.get("p_win", 0.5))})
+            else:
+                d = self._equity_delta_vector(
+                    eq_margin=eq_margin,
+                    hero_is_ip=hero_is_ip,
+                    facing_bet=bool(req.facing_bet),
+                ).to(z_hero.dtype).to(z_hero.device).view(1, -1)
+
+                mx = float(getattr(self.blend, "eq_max_logit_delta", 2.0))
+                d = torch.clamp(d, -mx, mx)
+
+                z_hero = z_hero + lam_eq * d
+                equity_debug.update({
+                    "applied": True,
+                    "p_win": float(equity.get("p_win", 0.5)),
+                    "margin": float(eq_margin),
+                    "sum_abs": float(d.abs().sum().item()),
+                })
+
+        # 4b) Exploit integration (optional)
         exploit_debug = None
         try:
             if self.expl is not None and getattr(req, "villain_id", None) and (self.pop is not None):
@@ -451,6 +533,7 @@ class PolicyInfer:
             "board_cluster_id": row.get(bcf) if bcf else None,
             "blend_cfg": blend.to_dict(),
             "exploit_debug": exploit_debug,
+            "equity_debug": equity_debug,  # <-- include equity diagnostics
         }
 
         return PolicyResponse(
@@ -461,10 +544,25 @@ class PolicyInfer:
             debug=debug,
         )
 
-    def predict(self, req_dict: Dict[str, Any]) -> PolicyResponse:
-        """Unified entrypoint for both preflop and postflop policies."""
-        req = PolicyRequest(**req_dict)
+    def predict(self, req_input: Union[Dict[str, Any], PolicyRequest]) -> PolicyResponse:
+        """
+        Unified entrypoint for both preflop and postflop policies.
 
+        Accepts either:
+          • a raw dict (JSON-style API call), or
+          • a pre-built PolicyRequest object (already validated/legalized).
+        """
+        # --- normalize input ---
+        if isinstance(req_input, PolicyRequest):
+            req = req_input
+            req_dict = req.__dict__  # for downstream convenience
+        elif isinstance(req_input, dict):
+            req = PolicyRequest(**req_input)
+            req_dict = req_input
+        else:
+            raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
+
+        # --- derive street ---
         try:
             street = int(req.street or 0)
         except Exception:
@@ -487,12 +585,21 @@ class PolicyInfer:
                 except Exception:
                     equity = None
 
+            # NEW: allow request override, else fall back to blend
+            req_nudge = None
+            try:
+                req_nudge = float(req.raw.get("equity_nudge"))
+            except Exception:
+                req_nudge = None
+            eq_nudge = req_nudge if req_nudge is not None else float(getattr(self.blend, "equity_nudge_pre", 0.02))
+
             return self._preflop.predict(
                 req,
                 equity=equity,
                 temperature=self.blend.temperature,
-                equity_nudge=getattr(self.blend, "equity_nudge_pre", 0.02),  # tiny, configurable
+                equity_nudge=eq_nudge,
             )
 
         # === Postflop ===
+        # Pass normalized dict downstream (postflop pipeline often expects a mapping)
         return self._predict_postflop(dict(req_dict, street=street))
