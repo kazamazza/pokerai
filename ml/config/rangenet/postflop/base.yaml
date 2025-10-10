@@ -4,7 +4,7 @@ inputs:
   sph_manifest:    data/artifacts/sph_manifest.parquet
   vendor_s3_prefix: data/vendor
   manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
-  local_solver_dir: "/Users/antoniocasamassa/S3/"
+  #local_solver_dir: "/Users/antoniocasamassa/S3/"
   parquet: data/datasets/postflop_policy_with_seats+manifest.parquet
 
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
