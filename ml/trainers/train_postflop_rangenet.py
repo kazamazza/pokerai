@@ -8,9 +8,6 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from ml.trainers.helpers import _get
-from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
@@ -19,6 +16,8 @@ from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPo
 from ml.utils.config import load_model_config
 from ml.utils.rangenet_postflop_sidecar import write_postflop_policy_sidecar
 from ml.models.postflop_policy_net import PostflopPolicyLit
+from ml.trainers.helpers import _get
+from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
 
 
 def run_postflop_sweep(cfg: dict):
@@ -46,34 +45,42 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     if not parquet_path:
         raise ValueError("Missing inputs.parquet (or dataset.parquet) in config")
 
-    use_cluster = bool(_get(cfg, "model.use_board_cluster", True))
-    if use_cluster:
-        try:
-            # Only append if not already present
-            if "board_cluster_id" not in PostflopPolicyDatasetParquet.CAT_FEATURES:
-                PostflopPolicyDatasetParquet.CAT_FEATURES = (
-                        list(PostflopPolicyDatasetParquet.CAT_FEATURES) + ["board_cluster"]
-                )
-        except Exception:
-            pass  # harmless if code layout differs
+    # Pull schema from YAML
+    cat_features  = list(_get(cfg, "dataset.cat_features", []))
+    cont_features = list(_get(cfg, "dataset.cont_features", []))
+    soft_y_cols   = _get(cfg, "dataset.soft_y_cols", None)     # list[str] or None
+    hard_y_col    = _get(cfg, "dataset.hard_y_col", None)      # str or None
+    weight_col    = _get(cfg, "dataset.weight_col", "weight")
+    strict_canon  = bool(_get(cfg, "dataset.strict_canon", True))
+    force_hard    = bool(_get(cfg, "dataset.force_hard", False))
 
+    # Optionally add board cluster categorical
+    use_cluster = bool(_get(cfg, "model.use_board_cluster", True))
+    if use_cluster and "board_cluster_id" not in cat_features:
+        cat_features.append("board_cluster_id")
+
+    # Build dataset (config-driven; no class-level defaults)
     ds = PostflopPolicyDatasetParquet(
         parquet_path=parquet_path,
-        weight_col=_get(cfg, "dataset.weight_col", "weight"),
+        cat_features=cat_features,
+        cont_features=cont_features,
+        soft_y_cols=soft_y_cols,
+        hard_y_col=hard_y_col,
+        weight_col=weight_col,
         device=torch.device("cpu"),
-        strict_canon=bool(_get(cfg, "dataset.strict_canon", True)),
+        strict_canon=strict_canon,
+        force_hard=force_hard,
     )
 
-    # categorical vocab sizes (used for embeddings)
-    id_maps = ds.id_maps()  # may be partial; fine for sidecar
-    cards = ds.cards()  # definite {feat: vocab_size}
+    id_maps = ds.id_maps  # ✅ property (not callable)
+    cards = ds.cards  # ✅ property (returns dict)
     feature_order = list(ds.cat_features)
 
     # -------- Split --------
     stratify_keys = _get(cfg, "dataset.stratify_keys", ["street", "ip_pos", "oop_pos"])
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
     if stratify_keys:
-        train_idx, val_idx = stratified_indices(ds.df, stratify_keys, train_frac, seed)
+        train_idx, val_idx = stratified_indices(ds._df, stratify_keys, train_frac, seed)
     else:
         n = len(ds); cut = int(n * train_frac)
         idx = list(range(n))

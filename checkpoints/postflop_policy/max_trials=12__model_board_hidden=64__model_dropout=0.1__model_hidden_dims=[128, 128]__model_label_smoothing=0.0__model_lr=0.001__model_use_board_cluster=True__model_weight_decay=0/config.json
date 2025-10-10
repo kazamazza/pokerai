@@ -357,7 +357,7 @@
     "monitor": "val_loss",
     "mode": "min",
     "pin_memory": true,
-    "checkpoints_dir": "checkpoints/postflop_policy/max_trials=12__model_board_hidden=96__model_dropout=0.1__model_hidden_dims=[128, 128]__model_label_smoothing=0.0__model_lr=0.001__model_use_board_cluster=True__model_weight_decay=0"
+    "checkpoints_dir": "checkpoints/postflop_policy/max_trials=12__model_board_hidden=64__model_dropout=0.1__model_hidden_dims=[128, 128]__model_label_smoothing=0.0__model_lr=0.001__model_use_board_cluster=True__model_weight_decay=0"
   },
   "model": {
     "hidden_dims": [
@@ -369,7 +369,7 @@
     "weight_decay": 0.0001,
     "label_smoothing": 0.0,
     "use_board_cluster": true,
-    "board_hidden": 96
+    "board_hidden": 64
   },
   "sweep": {
     "model.hidden_dims": [

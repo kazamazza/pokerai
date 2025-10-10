@@ -1,12 +1,11 @@
 from __future__ import annotations
 from typing import Any, Dict
-
 import numpy as np
 
+from ml.features.hands import hand_to_169_label
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.types import Action, PolicyRequest, PolicyResponse
-from ml.inference.preflop import PreflopPolicy, PreflopDeps
 import torch
 import torch.nn.functional as F
 from ml.utils.board_mask import make_board_mask_52
@@ -16,6 +15,7 @@ class PolicyInfer:
     def __init__(self, deps: PolicyInferDeps, blend_cfg: PolicyBlendConfig | None = None):
         self.p = deps.params or {}
         self.blend = blend_cfg or PolicyBlendConfig.default()
+
         if deps.exploit is None:
             raise ValueError("exploit infer is required")
         if deps.equity is None:
@@ -25,16 +25,34 @@ class PolicyInfer:
         if deps.policy_post is None:
             raise ValueError("policy_post (PostflopPolicyInfer) is required")
 
+        # deps
         self.pol_post   = deps.policy_post
         self.pop        = deps.pop
         self.expl       = deps.exploit
         self.eq         = deps.equity
-        self.rng_pre    = deps.range_pre
+        self.rng_pre    = deps.range_pre     # <- keep the original object
         self.clusterer  = deps.clusterer
+
+        # if the postflop infer supports an explicit setter, pass it through
+        if self.clusterer is not None and hasattr(self.pol_post, "set_clusterer"):
+            try:
+                self.pol_post.set_clusterer(self.clusterer)
+            except Exception:
+                pass
+
+        # (optional) quick visibility on what the postflop model expects
+        try:
+            bcf = getattr(self.pol_post, "board_cluster_feat", None)
+            if bcf:
+                print(f"[policy] postflop expects board cluster feature: {bcf}")
+        except Exception:
+            pass
+
+
         self.p          = deps.params or {}
 
-        # preflop module (stateless facade)
-        self._preflop = PreflopPolicy(PreflopDeps(range_pre=self.rng_pre, equity=self.eq))
+        # ✅ preflop module: use what we were passed; do NOT re-wrap
+        self._preflop = self.rng_pre
 
         # action vocab (shared with postflop model)
         try:
@@ -45,6 +63,23 @@ class PolicyInfer:
             self.action_vocab = ["FOLD","CHECK","CALL","BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
                                  "DONK_33","RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500","ALLIN"]
             self._vocab_index = {a:i for i,a in enumerate(self.action_vocab)}
+
+        # 🔒 Fail fast on wiring mistakes
+        if not hasattr(self.pol_post, "predict_proba"):
+            raise TypeError(
+                "deps.policy_post is not a PostflopPolicyInfer (missing predict_proba). "
+                f"Got: {type(self.pol_post)!r}"
+            )
+        if not hasattr(self._preflop, "predict"):
+            raise TypeError(
+                "deps.range_pre is not a PreflopPolicy (missing predict). "
+                f"Got: {type(self._preflop)!r}"
+            )
+        if self.eq is not None and not hasattr(self.eq, "predict_proba"):
+            raise TypeError(
+                "deps.equity does not expose predict_proba(). "
+                f"Got: {type(self.eq)!r}"
+            )
 
     def _encode_action(self, a: Action) -> str:
         k = a.kind.upper()
@@ -80,43 +115,113 @@ class PolicyInfer:
         # fallback
         return Action(kind="CHECK")
 
-    # --- helper: build one row for postflop model ---
     def _build_postflop_row(self, req: "PolicyRequest") -> dict:
-        # Seats: prefer explicit fields, then raw payload, then safe defaults
-        ip = (getattr(req, "ip_pos", None) or req.raw.get("ip_pos") or "IP").upper()
-        oop = (getattr(req, "oop_pos", None) or req.raw.get("oop_pos") or "OOP").upper()
+        """
+        Build the feature row expected by PostflopPolicyInfer.
 
-        # Context + street (keep as integer)
-        ctx = (getattr(req, "ctx", None) or req.raw.get("ctx") or "VS_OPEN").upper()
-        s = int(getattr(req, "street", 1) or 1)
+        Accepts PolicyRequest with hero_pos/villain_pos (preferred) or ip_pos/oop_pos.
+        Deduces ip_pos/oop_pos using a small canonical seat order. Produces:
+          - hero_pos, ip_pos, oop_pos, ctx, street (int)
+          - board_mask_52 (list/np.array length 52)
+          - pot_bb, eff_stack_bb
+          - optional board_cluster feature (board_cluster or board_cluster_id)
+        """
 
-        # Numbers
+        # --- canonicalize seats / simple seat order for relative position ---
+        def _canon_seat(v):
+            if v is None:
+                return ""
+            return str(v).strip().upper()
+
+        # prefer explicit hero/villain labels; fallback to ip_pos/oop_pos (legacy)
+        hero = _canon_seat(getattr(req, "hero_pos", None) or req.raw.get("hero_pos"))
+        villain = _canon_seat(getattr(req, "villain_pos", None) or req.raw.get("villain_pos"))
+
+        # minimal seat ordering for deciding who is "left of" whom (6-max style)
+        # (higher index = more to the left; if hero index > villain index => hero is IP)
+        SEAT_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
+
+        hero_idx = SEAT_ORDER.index(hero) if hero in SEAT_ORDER else None
+        vill_idx = SEAT_ORDER.index(villain) if villain in SEAT_ORDER else None
+
+        # If both known, decide by index; else try raw.actor hint; else default hero as IP
+        if hero_idx is not None and vill_idx is not None:
+            hero_is_ip = hero_idx > vill_idx
+        else:
+            raw_actor = (req.raw.get("actor") or "").lower()
+            if raw_actor in ("ip", "oop"):
+                hero_is_ip = (raw_actor == "ip")
+            else:
+                # fallback: assume hero is in position (safe default for many HU tests)
+                hero_is_ip = True
+
+        # assign ip_pos / oop_pos
+        if hero_is_ip:
+            ip_pos = hero or ""
+            oop_pos = villain or ""
+        else:
+            ip_pos = villain or ""
+            oop_pos = hero or ""
+
+        # --- context & numeric features ---
+        ctx = _canon_seat(getattr(req, "ctx", None) or req.raw.get("ctx") or "VS_OPEN")
+        try:
+            street = int(getattr(req, "street", 1) or 1)
+        except Exception:
+            street = 1
+
         pot = float(getattr(req, "pot_bb", None) or req.raw.get("pot_bb") or 0.0)
         stack = float(
-            getattr(req, "eff_stack_bb", None) or req.raw.get("eff_stack_bb") or getattr(req, "stack_bb", 0.0) or 0.0
+            getattr(req, "eff_stack_bb", None)
+            or req.raw.get("eff_stack_bb")
+            or getattr(req, "stack_bb", 0.0)
+            or 0.0
         )
 
-        # Board mask
+        # --- board / board mask (52-d) ---
         board = getattr(req, "board", None) or req.raw.get("board")
-        bm = req.raw.get("board_mask_52") or (make_board_mask_52(board) if board else [0.0] * 52)
+        bm = req.raw.get("board_mask_52")
+        if bm is None:
+            # make_board_mask_52 should return list/array len 52; provide safe fallback
+            try:
+                bm = make_board_mask_52(board) if board else [0.0] * 52
+            except Exception:
+                bm = [0.0] * 52
 
+        # ensure mask is length 52 (pad/truncate)
+        try:
+            bm_arr = np.asarray(bm, dtype=float).reshape(-1)
+        except Exception:
+            bm_arr = np.zeros(52, dtype=float)
+        if bm_arr.size < 52:
+            tmp = np.zeros(52, dtype=float)
+            tmp[: bm_arr.size] = bm_arr
+            bm_arr = tmp
+        elif bm_arr.size > 52:
+            bm_arr = bm_arr[:52]
+
+        # --- assemble row with canonical keys that PostflopPolicyInfer expects ---
         row = {
-            "ip_pos": ip,
-            "oop_pos": oop,
+            "hero_pos": hero,
+            "ip_pos": ip_pos,
+            "oop_pos": oop_pos,
             "ctx": ctx,
-            "street": s,  # ✅ integer street
-            "board_mask_52": bm,
-            "pot_bb": pot,
-            "eff_stack_bb": stack,
+            "street": street,
+            "board_mask_52": bm_arr.tolist() if not isinstance(bm_arr, list) else bm_arr,
+            "pot_bb": float(pot),
+            "eff_stack_bb": float(stack),
         }
 
-        # ✅ Optional board cluster id (if model expects it)
-        if hasattr(self, "clusterer") and "board_cluster_id" in getattr(self.pol_post, "feature_order", []):
-            try:
-                cid = int(self.clusterer.predict_one(board)) if board else 0
-            except Exception:
-                cid = 0
-            row["board_cluster_id"] = cid
+        # --- optional board-cluster feature (respect PostflopPolicyInfer.board_cluster_feat) ---
+        bcf = getattr(self.pol_post, "board_cluster_feat", None)  # "board_cluster" or "board_cluster_id" or None
+        if bcf is not None:
+            cid = 0
+            if self.clusterer is not None and board:
+                try:
+                    cid = int(self.clusterer.predict_one(board))
+                except Exception:
+                    cid = 0
+            row[bcf] = int(cid)
 
         return row
 
@@ -293,79 +398,67 @@ class PolicyInfer:
 
     def _predict_postflop(self, req_dict: Dict[str, Any]) -> PolicyResponse:
         req = PolicyRequest(**req_dict)
-        actor = (getattr(req, "actor", None) or getattr(req, "to_act", None) or "ip").lower()
-        if actor not in ("ip", "oop"):
-            actor = "ip"
 
-        # Build input row and legality masks
+        # 1) Build row from hero/villain; row includes hero_pos, ip_pos, oop_pos, etc.
         row = self._build_postflop_row(req)
+
+        # Decide which side is the hero
+        hero_is_ip = (str(row.get("hero_pos", "")).upper() == str(row.get("ip_pos", "")).upper())
+        actor = "ip" if hero_is_ip else "oop"
+
+        # 2) Legality masks for the hero side
         mask_ip, mask_oop = self._build_legality_masks(req=req, vocab=self.action_vocab, actor=actor)
+        V = len(self.action_vocab)
+        if mask_ip is None:  mask_ip = torch.ones(V, dtype=torch.float32)
+        if mask_oop is None: mask_oop = torch.ones(V, dtype=torch.float32)
+        hero_mask = mask_ip if hero_is_ip else mask_oop
 
-        # Run model inference (ask for logits so we can apply exploit deltas pre-softmax)
+        # 3) Model inference (logits for both sides)
         out = self.pol_post.predict_proba([row], actor=actor, return_logits=True)
-        li, lo = out["logits_ip"], out["logits_oop"]  # [1, V]
-        # start from model logits
-        z_ip, z_oop = li.clone(), lo.clone()
+        z_ip, z_oop = out["logits_ip"], out["logits_oop"]  # [1, V]
+        z_hero = z_ip.clone() if hero_is_ip else z_oop.clone()  # start from hero side
 
-        # --- Exploit signal integration (if available) ---
-        # --- Exploit signal integration (request-native; uses PopulationNet prior) ---
+        # 4) Exploit integration (optional)
         exploit_debug = None
         try:
             if self.expl is not None and getattr(req, "villain_id", None) and (self.pop is not None):
                 sig3 = self.expl.get_signal_from_request(str(req.villain_id), req, self.pop)  # -> np.ndarray | None
                 if sig3 is not None:
-                    t_delta = self._lift_exploit_signal(sig3, device=z_ip.device, dtype=z_ip.dtype)  # [1,V]
+                    t_delta = self._lift_exploit_signal(sig3, device=z_hero.device, dtype=z_hero.dtype)  # [1, V]
                     scale = float(self.blend.lambda_expl)
-                    if actor == "ip":
-                        z_ip = z_ip + scale * t_delta
-                    else:
-                        z_oop = z_oop + scale * t_delta
-                    exploit_debug = {
-                        "applied": True,
-                        "scale": scale,
-                        "sum_abs": float(t_delta.abs().sum().item()),
-                    }
+                    z_hero = z_hero + scale * t_delta
+                    exploit_debug = {"applied": True, "scale": scale, "sum_abs": float(t_delta.abs().sum().item())}
                 else:
                     exploit_debug = {"applied": False, "reason": "insufficient_data_or_small_kl"}
         except Exception as e:
             exploit_debug = {"error": str(e)}
 
+        # 5) Convert to probabilities with masking & blending niceties
         blend = self.blend
+        p_hero = self._masked_softmax(z_hero, hero_mask, T=blend.temperature, eps=blend.min_legal_prob)
+        p_hero = self._mix_ties_if_close(p_hero, blend.tie_mix_threshold)
+        p_hero = self._epsilon_explore(p_hero, blend.epsilon_explore, hero_mask)
+        p_hero = self._cap_allins(p_hero, row, hero_mask, blend)
 
-        # Apply other component deltas placeholders (EQ/POP/RISK) if/when you compute them
-        # For now those are zero tensors (kept for clarity)
-        # z_ip/z_oop already contain model logits + exploit deltas
+        probs = p_hero[0].tolist()
 
-        # Masked softmax (respects legality and temperature)
-        p_ip = self._masked_softmax(z_ip, mask_ip, T=blend.temperature, eps=blend.min_legal_prob)
-        p_oop = self._masked_softmax(z_oop, mask_oop, T=blend.temperature, eps=blend.min_legal_prob)
-
-        # Tie-mix, exploration, all-in capping
-        p_ip = self._mix_ties_if_close(p_ip, blend.tie_mix_threshold)
-        p_oop = self._mix_ties_if_close(p_oop, blend.tie_mix_threshold)
-
-        p_ip = self._epsilon_explore(p_ip, blend.epsilon_explore, mask_ip)
-        p_oop = self._epsilon_explore(p_oop, blend.epsilon_explore, mask_oop)
-
-        p_ip = self._cap_allins(p_ip, row, mask_ip, blend)
-        p_oop = self._cap_allins(p_oop, row, mask_oop, blend)
-
-        # Select actor-specific probabilities
-        probs = p_ip[0].tolist() if actor == "ip" else p_oop[0].tolist()
+        # 6) Debug helpers
+        bcf = getattr(self.pol_post, "board_cluster_feat", None)  # "board_cluster" or "board_cluster_id" or None
+        debug = {
+            "hero_is_ip": hero_is_ip,
+            "ctx": row.get("ctx"),
+            "street": row.get("street"),
+            "board_cluster_id": row.get(bcf) if bcf else None,
+            "blend_cfg": blend.to_dict(),
+            "exploit_debug": exploit_debug,
+        }
 
         return PolicyResponse(
             actions=self.action_vocab,
             probs=probs,
             evs=[0.0] * len(self.action_vocab),
-            notes=[f"Postflop policy; actor={actor}, temp={blend.temperature:.2f}"],
-            debug={
-                "actor": actor,
-                "ctx": row.get("ctx"),
-                "street": row.get("street"),
-                "board_cluster_id": row.get("board_cluster_id"),
-                "blend_cfg": blend.to_dict(),
-                "exploit_debug": exploit_debug,
-            },
+            notes=[f"Postflop policy; hero_is_ip={hero_is_ip}, temp={blend.temperature:.2f}"],
+            debug=debug,
         )
 
     def predict(self, req_dict: Dict[str, Any]) -> PolicyResponse:
@@ -384,8 +477,22 @@ class PolicyInfer:
 
         # === Preflop ===
         if street == 0:
-            out: PolicyResponse = self._preflop.predict(req)
-            return out
+            equity = None
+            if self.eq and req.hero_hand:
+                try:
+                    out = self.eq.predict([{"street": 0, "hand_id": hand_to_169_label(req.hero_hand)}])
+                    if out:
+                        p_win, p_tie, p_lose = out[0]
+                        equity = {"p_win": float(p_win), "p_tie": float(p_tie), "p_lose": float(p_lose)}
+                except Exception:
+                    equity = None
+
+            return self._preflop.predict(
+                req,
+                equity=equity,
+                temperature=self.blend.temperature,
+                equity_nudge=getattr(self.blend, "equity_nudge_pre", 0.02),  # tiny, configurable
+            )
 
         # === Postflop ===
         return self._predict_postflop(dict(req_dict, street=street))

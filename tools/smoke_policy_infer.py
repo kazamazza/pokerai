@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
-from ml.features.boards.board_clusterers.kmeans import KMeansBoardClusterer
 from ml.inference.equity import EquityNetInfer
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy import PolicyInfer
@@ -15,6 +14,7 @@ from ml.inference.postflop import PostflopPolicyInfer
 from ml.inference.preflop import PreflopPolicy
 from ml.inference.player_exploit_store import PlayerExploitStore, ExploitConfig
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
+from ml.features.boards import load_board_clusterer
 
 # === Hard-coded paths (edit if different) ===
 POSTFLOP_DIR = Path("checkpoints/postflop_policy")
@@ -81,12 +81,16 @@ def main():
     pop      = load_dependency(PopulationNetInference, POP_DIR)
     expl = PlayerExploitStore(ExploitConfig())
 
-    clusterer = None
-    if KMeansBoardClusterer is not None and CLUSTER_JSON.exists():
-        try:
-            clusterer = KMeansBoardClusterer.load(str(CLUSTER_JSON))
-        except Exception as e:
-            print(f"  ⚠️  board clusterer failed to load: {e}")
+    cfg = {
+        "board_clustering": {
+            "type": "kmeans",
+            "artifact": "data/artifacts/board_clusters_kmeans_128.json"
+        }
+    }
+
+    clusterer = load_board_clusterer(cfg)
+    print("✅ Loaded KMeans clusterer:", type(clusterer))
+    print("Example cluster id:", clusterer.predict_one("AsKh2d"))
 
     # 2) build deps object (PolicyInfer expects some of these; ensure required ones exist)
     deps = PolicyInferDeps(

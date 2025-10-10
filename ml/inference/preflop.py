@@ -1,55 +1,64 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Union, Sequence, Dict, Optional, Any, List
+import torch.nn.functional as F
+import numpy as np
 import torch
 from ml.features.hands import hand_to_169_label
-from ml.inference.equity import EquityNetInfer
+from ml.inference.deduce_context import deduce_preflop_context
 from ml.inference.policy.types import PolicyRequest, PolicyResponse, Action
-from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Union
-import numpy as np
 from ml.models.preflop_rangenet import RangeNetLit
-from ml.utils.device import DeviceLike
 from ml.utils.sidecar import load_sidecar
 
-def _to_device(device: str | torch.device = "auto") -> torch.device:
+DeviceLike = Union[str, torch.device]
+
+def _to_device(device: DeviceLike = "auto") -> torch.device:
     if isinstance(device, torch.device):
         return device
-    if isinstance(device, str) and device == "auto":
+    if str(device) == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device)
-
-@dataclass
-class PreflopDeps:
-    range_pre: Any
-    equity: Optional[Any] = None
+    return torch.device(str(device))
 
 class PreflopPolicy:
     """
-    Orchestrates preflop decision using:
-      - Range model (villain 169-range prior)
-      - Optional equity model (small guidance)
-    Returns a normalized PolicyResponse.
+    Single, self-contained preflop policy that:
+      - loads the trained RangeNet (Lightning) from ckpt(+sidecar)
+      - encodes a single inference row using sidecar id_maps/cards
+      - predicts a simple action distribution (with optional equity nudge)
     """
-    def __init__(self, deps: PreflopDeps):
-        if deps.range_pre is None:
-            raise ValueError("PreflopPolicy requires range_pre")
-        self.rng = deps.range_pre
-        self.eq  = deps.equity
 
+    def __init__(
+        self,
+        *,
+        model: RangeNetLit,
+        feature_order: Sequence[str],
+        cards: Dict[str, int],
+        id_maps: Dict[str, Dict[str, int]] | None,
+        device: torch.device,
+    ):
+        self.model = model.eval().to(device)
+        self.device = device
+
+        self.feature_order = list(feature_order)
+        self.cards = {k: int(v) for k, v in cards.items()}
+        self.id_maps = {k: {str(a): int(b) for a, b in m.items()} for k, m in (id_maps or {}).items()}
+
+    # ---------- loaders ----------
     @classmethod
     def from_checkpoint(
-            cls,
-            checkpoint_path: str | Path,
-            sidecar_path: str | Path,
-            *,
-            equity_dir: str | Path | None = None,
-            device: str = "auto",
+        cls,
+        checkpoint_path: Union[str, Path],
+        sidecar_path: Union[str, Path],
+        *,
+        device: DeviceLike = "auto",
     ) -> "PreflopPolicy":
         dev = _to_device(device)
         sc = load_sidecar(sidecar_path)
+        feature_order = sc["feature_order"]
         cards = {str(k): int(v) for k, v in sc["cards"].items()}
-        feature_order = list(sc["feature_order"])
+        id_maps = sc.get("id_maps") or {}
 
+        # ⚠️ RangeNetLit needs cards/feature_order passed to constructor
         model = RangeNetLit.load_from_checkpoint(
             str(checkpoint_path),
             map_location=dev,
@@ -58,187 +67,141 @@ class PreflopPolicy:
         )
         model.eval().to(dev)
 
-        eq = None
-        if equity_dir:
-            try:
-                eq = EquityNetInfer.from_dir(equity_dir, device=dev.type)
-            except Exception as e:
-                print(f"[warn] failed to load EquityNet from {equity_dir}: {e}")
-
-        return cls(PreflopDeps(range_pre=model, equity=eq))
+        return cls(
+            model=model,
+            feature_order=feature_order,
+            cards=cards,
+            id_maps=id_maps,
+            device=dev,
+        )
 
     @classmethod
     def from_dir(
-            cls,
-            range_dir: Union[str, Path],
-            *,
-            equity_dir: Union[str, Path, None] = None,
-            device: DeviceLike = "auto",
+        cls,
+        ckpt_dir: Union[str, Path],
+        ckpt_name: Optional[str] = None,
+        device: DeviceLike = "auto",
     ) -> "PreflopPolicy":
-        """
-        Discover best/last checkpoint + sidecar in range_dir, then delegate to from_checkpoint.
-        Mirrors the Postflop loader behavior.
-        """
-        rdir = Path(range_dir)
-        if not rdir.exists():
-            raise FileNotFoundError(f"Preflop range model dir not found: {rdir}")
-
-        # Prefer pattern, then best/last, else any .ckpt
-        cands = sorted(rdir.glob("range_preflop-*-*.ckpt"))
-        if cands:
-            ckpt_path = cands[0]
-        elif (rdir / "best.ckpt").exists():
-            ckpt_path = rdir / "best.ckpt"
-        elif (rdir / "last.ckpt").exists():
-            ckpt_path = rdir / "last.ckpt"
+        d = Path(ckpt_dir)
+        if ckpt_name is None:
+            cands = sorted(d.glob("range_preflop-*-*.ckpt"))
+            ckpt = cands[0] if cands else (d / "best.ckpt")
         else:
-            any_ckpt = sorted(rdir.glob("*.ckpt"))
-            if not any_ckpt:
-                raise FileNotFoundError(f"No checkpoint found in {rdir}")
-            ckpt_path = any_ckpt[0]
+            ckpt = d / ckpt_name
+        sidecar = d / "best_sidecar.json"
+        return cls.from_checkpoint(ckpt, sidecar, device=device)
 
-        # Sidecar preference: best_sidecar.json → sidecar.json → <ckpt>.sidecar.json
-        sidecar_path = (
-            rdir / "best_sidecar.json"
-            if (rdir / "best_sidecar.json").exists()
-            else (rdir / "sidecar.json"
-                  if (rdir / "sidecar.json").exists()
-                  else ckpt_path.with_suffix(ckpt_path.suffix + ".sidecar.json"))
-        )
-        if not sidecar_path.exists():
-            raise FileNotFoundError(f"Sidecar JSON not found: {sidecar_path}")
+    # ---------- encode one row ----------
+    def _unknown_idx(self, feat: str) -> int:
+        C = int(self.cards.get(feat, 1))
+        return max(C - 1, 0)
 
-        return cls.from_checkpoint(
-            ckpt_path,
-            sidecar_path,
-            equity_dir=equity_dir,
-            device=device,
-        )
+    def _encode_row(self, row: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        out: Dict[str, torch.Tensor] = {}
+        for feat in self.feature_order:
+            enc = self.id_maps.get(feat, {})
+            card = int(self.cards.get(feat, max(len(enc), 1)))
+            unk = min(max(len(enc), 1) - 1, card - 1) if enc else self._unknown_idx(feat)
 
+            val = row.get(feat, None)
+            key = "__NONE__" if val is None else str(val).upper()
+            idx = enc.get(key, unk)
+            if idx >= card:
+                idx = card - 1
+            out[feat] = torch.tensor([int(idx)], dtype=torch.long, device=self.device)
+        return out
 
-    def _encode_action(self, a: Action) -> str:
-        k = str(a.kind).upper()
-        if k in ("FOLD", "CHECK", "CALL", "ALLIN"):
-            return k
-        if k == "BET":
-            if a.size_pct is not None:
-                pct = int(round(a.size_pct))
-                bucket = min([25, 33, 50, 66, 75, 100], key=lambda x: abs(x - pct))
-                return f"BET_{bucket}"
-            return "BET_50" if a.size_bb else "BET_33"
-        if k == "RAISE":
-            if a.size_mult is not None:
-                m = float(a.size_mult)
-                if abs(m - 1.5) < 0.11: return "RAISE_150"
-                if abs(m - 2.0) < 0.11: return "RAISE_200"
-                if abs(m - 3.0) < 0.11: return "RAISE_300"
-                if abs(m - 4.0) < 0.11: return "RAISE_400"
-                if abs(m - 5.0) < 0.11: return "RAISE_500"
-                return "RAISE_200"
-            if a.size_pct is not None:
-                return f"RAISE_{int(round(a.size_pct))}"
-            return "RAISE_200"
-        return k
-
-    # --- small helpers ---
+    # ---------- helpers ----------
     @staticmethod
-    def _safe_np(x) -> np.ndarray:
-        if hasattr(x, "detach"):
-            x = x.detach().cpu().numpy()
-        return np.asarray(x, dtype="float32")
-
-    @staticmethod
-    def _softmax(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
-        if temperature <= 0:
-            raise ValueError("temperature must be > 0")
-        z = (logits / temperature).astype("float32")
-        z = z - np.max(z)  # stability
+    def _softmax_np(logits: np.ndarray, T: float) -> List[float]:
+        z = logits.astype("float32") / max(T, 1e-6)
+        z -= np.max(z)
         p = np.exp(z)
-        s = p.sum()
-        return p / s if s > 0 else np.ones_like(p) / len(p)
-
-    @staticmethod
-    def _norm_probs(p: Sequence[float]) -> List[float]:
-        p = np.clip(np.asarray(p, dtype="float32"), 0.0, None)
         s = float(p.sum())
         return (p / s).tolist() if s > 0 else (np.ones_like(p) / len(p)).tolist()
 
-    def _legal_actions(self, facing_open: bool) -> List[Action]:
-        if facing_open:
-            return [Action("FOLD"), Action("CALL"), Action("RAISE", size_mult=3.0)]
-        # opening
-        return [Action("FOLD"), Action("RAISE", size_bb=2.5)]
-
+    @torch.no_grad()
     def predict(
-        self,
-        req: PolicyRequest,
-        *,
-        temperature: float = 1.0,
-        equity_nudge: float = 0.0,  # 0..0.1 small prior tilt; keep tiny
+            self,
+            req: PolicyRequest,
+            *,
+            equity: Optional[Dict[str, float]] = None,  # {"p_win","p_tie","p_lose"}
+            temperature: float = 1.0,
+            equity_nudge: float = 0.0,  # tiny tilt only
     ) -> PolicyResponse:
-        stack = float(req.stack_bb or req.eff_stack_bb or 100.0)
-        row = {
-            "stack_bb": stack,
-            "hero_pos": (req.hero_pos or "").upper(),
-            "opener_pos": (req.opener_pos or "").upper(),
-            "opener_action": (req.opener_action or "RAISE").upper(),
-            "ctx": (req.ctx or "SRP").upper(),
+        # -------- 1) derive minimal context (hero-centric) --------
+        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
+
+        ctx_res = deduce_preflop_context(
+            hero_pos=req.hero_pos,
+            villain_pos=req.villain_pos,
+            actions_hist=req.actions_hist,
+            raw=req.raw,
+            pot_bb=req.pot_bb,
+        )
+        hero_pos = ctx_res["hero_pos"]
+        opener_pos = ctx_res["opener_pos"]
+        opener_action = ctx_res["opener_action"]
+        facing_open = bool(ctx_res["facing_open"])
+
+        # Sidecar/feature names must match your trained model (case-insensitive is handled below)
+        row_raw = {
+            "STACK_BB": stack,  # if categorical in training, sidecar id_maps must contain bins
+            "HERO_POS": hero_pos,
+            "OPENER_POS": opener_pos,
+            "OPENER_ACTION": opener_action,
+            "CTX": (req.raw.get("ctx") or "SRP").upper(),
         }
-        rng = self._safe_np(self.rng.predict_proba([row]))
-        if rng.ndim != 2 or rng.shape[0] != 1 or rng.shape[1] != 169:
-            raise ValueError(f"range_pre.predict_proba must return [1,169], got {tuple(rng.shape)}")
-        rng_169 = rng[0].astype("float32")
-        rng_169 = rng_169 / max(rng_169.sum(), 1e-8)
+        # normalize keys to whatever your feature_order uses
+        row = {k.lower(): v for k, v in row_raw.items()}
+        row = {k.upper(): v for k, v in row.items()}  # tolerate UPPER in sidecar
+
+        # -------- 2) model → villain 169 range --------
+        xb = self._encode_row(row)  # expects dict[str,int/str/float] aligned to feature_order
+        logits = self.model(xb)  # [1,169]
+        rng = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()  # [169]
+        s = float(rng.sum())
+        rng = (rng / s).astype("float32") if s > 1e-8 else (np.ones(169, dtype="float32") / 169.0)
+
         hero_mass = None
         if req.hero_hand:
             try:
-                idx = getattr(self.rng, "hand_to_id", None)
-                if isinstance(idx, dict):
-                    hid = idx.get(hand_to_169_label(req.hero_hand))
-                    if hid is not None and 0 <= hid < 169:
-                        hero_mass = float(rng_169[int(hid)])
+                hid = hand_to_169_label(req.hero_hand)  # should yield 0..168
+                if 0 <= int(hid) < 169:
+                    hero_mass = float(rng[int(hid)])
             except Exception:
                 pass
 
-        equity = {"p_win": 0.5, "p_tie": 0.0, "p_lose": 0.5}
-        if self.eq and req.hero_hand:
-            try:
-                out = self.eq.predict([{"street": 0, "hand_id": hand_to_169_label(req.hero_hand)}])
-                if out:
-                    p_win, p_tie, p_lose = out[0]
-                    equity = {"p_win": float(p_win), "p_tie": float(p_tie), "p_lose": float(p_lose)}
-            except Exception:
-                pass
-        facing_open = bool(req.facing_open) or (
-            row["opener_action"] == "RAISE" and row["hero_pos"] in ("BB", "SB")
-        )
-        actions = self._legal_actions(facing_open)
-        tokens  = [self._encode_action(a) for a in actions]
+        # -------- 3) action prior (+ tiny equity tilt) --------
         if facing_open:
-            base = np.array([0.35, 0.40, 0.25], dtype="float32")  # FOLD/CALL/RAISE3x
+            tokens = ["FOLD", "CALL", "RAISE_300"]  # F / flat / 3-bet ~3x
+            base = np.array([0.35, 0.40, 0.25], dtype="float32")
+            if equity and equity_nudge > 0:
+                tilt = (float(equity.get("p_win", 0.5)) - 0.5) * float(equity_nudge)
+                base[1] = max(0.0, base[1] + tilt)  # nudge call a touch
+                base = base / base.sum()
         else:
-            base = np.array([0.30, 0.70], dtype="float32")        # FOLD/RAISE2.5bb
+            tokens = ["FOLD", "RAISE_250"]  # open-fold vs open to 2.5bb
+            base = np.array([0.30, 0.70], dtype="float32")
+            if equity and equity_nudge > 0:
+                tilt = (float(equity.get("p_win", 0.5)) - 0.5) * float(equity_nudge)
+                base[1] = max(0.0, base[1] + tilt)  # nudge opening frequency
+                base = base / base.sum()
 
-        if equity_nudge > 0 and "CALL" in tokens:
-            i_call  = tokens.index("CALL")
-            tilt = (equity["p_win"] - 0.5) * equity_nudge
-            base[i_call] = max(0.0, base[i_call] + tilt)
-            base = base / base.sum()
-
-        probs = self._softmax(np.log(base + 1e-8), temperature)
-        probs = self._norm_probs(probs)
+        # temperature
+        probs = self._softmax_np(np.log(base + 1e-8), temperature)
 
         return PolicyResponse(
             actions=tokens,
             probs=probs,
             evs=[0.0] * len(tokens),
-            notes=[f"preflop stub; temp={temperature}, equity_nudge={equity_nudge}"],
+            notes=[f"preflop policy (T={temperature:.2f}, eq_nudge={equity_nudge:.3f})"],
             debug={
                 "street": 0,
-                "input_row": row,
-                "villain_range_169": rng_169.tolist(),
-                "hero_prior_mass_in_villain_range": hero_mass,
-                "equity": equity,
                 "facing_open": facing_open,
+                "input_row": row_raw,
+                "villain_range_169_sum": float(rng.sum()),
+                "hero_prior_mass_in_villain_range": hero_mass,
+                "equity": equity or {},
             },
         )

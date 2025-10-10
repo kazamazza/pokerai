@@ -21,8 +21,6 @@ class Action:
 @dataclass
 class PolicyRequest:
     street: int = 0
-    ip_pos: Optional[str] = None
-    oop_pos: Optional[str] = None
     hero_pos: Optional[str] = None
     villain_pos: Optional[str] = None
     hero_hand: Optional[str] = None
