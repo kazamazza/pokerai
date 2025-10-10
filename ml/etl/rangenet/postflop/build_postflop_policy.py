@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
-from ml.etl.rangenet.postflop.solver_policy_parser import parse_solver_file, FocusMode
 from infra.storage.s3_client import S3Client
 from pathlib import Path
 from typing import Any, Optional, Mapping
@@ -20,14 +20,9 @@ from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions,
 from ml.models.policy_consts import ACTION_VOCAB
 from ml.config.bet_menus import BET_SIZE_MENUS, DEFAULT_MENU
 from ml.utils.board_mask import make_board_mask_52
-
+from ml.etl.rangenet.postflop.solver_policy_parser import parse_solver_simple
 dotenv.load_dotenv()
 
-def _auto_focus(menu_id: str) -> str:
-    """Pick facing extraction per menu. Default: OOP vs IP root bet."""
-    if (menu_id or "").strip() == "srp_hu.Caller_OOP":
-        return FocusMode.IP_VS_OOP_DONK
-    return FocusMode.OOP_VS_IP_ROOT_BET
 
 def _normalize_s3_key(s3_key: Any) -> str:
     # Unwrap dicts until we get a string
@@ -150,33 +145,34 @@ def build_postflop_policy(
             menu_id = str(r.get("bet_sizing_id", ""))
 
             solver_path = _resolve_solver_path(cfg, s3_key)
-
             board = str(r.get("board", "") or "")
             cluster_id = r.get("board_cluster_id", None)
-            # derive hero_pos at root → IP acts first in your dataset unless facing-bet focus overrides
             hero_pos = ip_pos
 
+            # ✅ FIX: define menu_pcts *before* base_row
+            raw_sizes = r.get("bet_sizes", None)
+            sizes_manifest = _ensure_float_list(raw_sizes)
+            menu_pcts = tuple(
+                sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU)
+            )
+
+            # ✅ now safe to use in base_row
             base_row = {
                 "s3_key": _normalize_s3_key(s3_key),
                 "node_key": node_key,
-                "stack_bb": int(round(stack_bb)),  # keep original int field (for schema compat)
-                "effective_stack_bb": float(stack_bb),  # add explicit eff stack (trainer expects this)
+                "stack_bb": int(round(stack_bb)),
+                "effective_stack_bb": float(stack_bb),
                 "pot_bb": float(pot_bb),
-
                 "ip_pos": ip_pos,
                 "oop_pos": oop_pos,
                 "hero_pos": hero_pos,
-
                 "street": int(street),
                 "ctx": ctx,
-
                 "board": board,
                 "board_cluster_id": int(cluster_id) if pd.notna(cluster_id) else None,
                 "board_mask_52": make_board_mask_52(board),
-
                 "bet_sizing_id": menu_id,
-                "bet_sizes": list(menu_pcts),  # ensure floats list in parquet
-
+                "bet_sizes": list(menu_pcts),  # ✅ now defined
                 "valid": 1,
             }
 
@@ -185,40 +181,24 @@ def build_postflop_policy(
             # Prefer manifest bet_sizes if present → cast to floats; else fallback to table
             raw_sizes = r.get("bet_sizes", None)
             sizes_manifest = _ensure_float_list(raw_sizes)
-            menu_pcts = tuple(sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU))
-
-            # Resolve local solver path as you already do -> solver_path
-            # Resolve local solver path as you already do -> solver_path
-            focus = _auto_focus(menu_id)
 
             try:
-                # 1) Try facing mode first (surfaces FOLD/CALL when appropriate)
-                probs, meta = parse_solver_file(
-                    str(solver_path),
-                    pot_bb=pot_bb,
-                    stack_bb=stack_bb,
-                    menu_pcts=menu_pcts,  # tuple/list of floats like (0.33, 0.66)
-                    focus=focus,  # e.g., "facing_ip", "facing_oop", or None
-                )
+                # --- use the new universal parser instead ---
+                probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
+                probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
 
-                # 2) If empty/zero mass, fall back to ROOT (baseline)
-                if not probs or sum(probs.values()) <= 0:
-                    probs, meta = parse_solver_file(
-                        str(solver_path),
-                        pot_bb=pot_bb,
-                        stack_bb=stack_bb,
-                        menu_pcts=menu_pcts,
-                        focus=None,  # ROOT
-                    )
-            except Exception:
-                # 3) Hard fallback to ROOT on any parsing error
-                probs, meta = parse_solver_file(
-                    str(solver_path),
-                    pot_bb=pot_bb,
-                    stack_bb=stack_bb,
-                    menu_pcts=menu_pcts,
-                    focus=None,
-                )
+                # prefer facing-bet distribution if non-empty
+                if probs_face and sum(probs_face.values()) > 0:
+                    probs, meta = probs_face, meta_face
+                elif probs_root and sum(probs_root.values()) > 0:
+                    probs, meta = probs_root, meta_root
+                else:
+                    _emit_sentinel(base_row, "zero_mass")
+                    continue
+
+            except Exception as e:
+                _emit_sentinel(base_row or {}, f"exception: {e}")
+                continue
 
             if not probs or sum(probs.values()) <= 0:
                 _emit_sentinel(base_row, "zero_mass")
