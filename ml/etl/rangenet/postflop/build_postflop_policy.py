@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import lru_cache
 import json
 import sys
 from pathlib import Path
@@ -6,7 +7,6 @@ import dotenv
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
@@ -37,26 +37,60 @@ def _normalize_s3_key(s3_key: Any) -> str:
     return str(s3_key)
 
 def _ensure_float_list(v) -> list[float]:
-    # Accept: list/tuple of ints or floats, JSON string, or single number
-    import json
+    """Fast, schema-tolerant cast to List[float]."""
     if v is None:
         return []
+
+    # Fast paths
     if isinstance(v, (list, tuple)):
-        return [float(x) for x in v]
-    if isinstance(v, str):
-        try:
-            parsed = json.loads(v)
-            if isinstance(parsed, (list, tuple)):
-                return [float(x) for x in parsed]
-            if isinstance(parsed, (int, float)):
-                return [float(parsed)]
-        except Exception:
-            pass
-        # fallback: unknown string → empty
-        return []
+        if v and isinstance(v[0], dict) and "element" in v[0]:
+            # Parquet array-of-records: [{"element": 0.33}, ...]
+            out = []
+            for d in v:
+                try:
+                    out.append(float(d.get("element")))
+                except Exception:
+                    continue
+            return out
+        # Normal list/tuple of numbers/strings
+        out = []
+        for x in v:
+            try:
+                out.append(float(x))
+            except Exception:
+                # tolerate junk quietly
+                continue
+        return out
+
     if isinstance(v, (int, float)):
         return [float(v)]
+
+    if isinstance(v, str):
+        s = v.strip()
+        # Only JSON-decode if it *looks* like JSON array/number
+        if s and (s[0] in "[{" or s[0].isdigit() or s[0] in "+-."):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, (list, tuple)):
+                    return [float(x) for x in parsed if _is_number_like(x)]
+                if isinstance(parsed, (int, float)):
+                    return [float(parsed)]
+            except Exception:
+                pass
+        return []
+
     return []
+
+def _is_number_like(x) -> bool:
+    try:
+        float(x)
+        return True
+    except Exception:
+        return False
+
+@lru_cache(maxsize=50000)
+def _mask52_cached(board: str) -> list[float]:
+    return make_board_mask_52(board)
 
 def build_postflop_policy(
     manifest_path: Path,
@@ -131,95 +165,84 @@ def build_postflop_policy(
         return _cache_path_for_key(cfg, s3_key)
 
     # === Loop rows ===
-    for _, r in tqdm(df.iterrows(), total=len(df), desc="Building postflop policy"):
-        base_row = None
+    # === Loop rows ===
+    for r in tqdm(df.itertuples(index=False, name="Row"), total=len(df), desc="Building postflop policy"):
+        base_row = {}
         try:
-            raw_key = r["s3_key"]
+            # --- read from namedtuple safely ---
+            raw_key = getattr(r, "s3_key", None)
             s3_key = _normalize_s3_key(raw_key)
-            node_key = str(r.get("node_key", "root"))
-            ip_pos, oop_pos = _split_positions(str(r.get("positions", "")))
-            stack_bb = float(r["effective_stack_bb"])
-            pot_bb = float(r["pot_bb"])
-            street = int(r["street"])
-            ctx = str(r["ctx"])
-            menu_id = str(r.get("bet_sizing_id", ""))
+            node_key = str(getattr(r, "node_key", "root"))
+            positions = str(getattr(r, "positions", "") or "")
+            ip_pos, oop_pos = _split_positions(positions)
+
+            stack_bb = float(getattr(r, "effective_stack_bb", 0.0) or 0.0)
+            pot_bb = float(getattr(r, "pot_bb", 0.0) or 0.0)
+            street = int(getattr(r, "street", 1) or 1)
+            ctx = str(getattr(r, "ctx", "") or "")
+            menu_id = str(getattr(r, "bet_sizing_id", "") or "")
 
             solver_path = _resolve_solver_path(cfg, s3_key)
-            board = str(r.get("board", "") or "")
-            cluster_id = r.get("board_cluster_id", None)
+            board = str(getattr(r, "board", "") or "")
+            cluster_id = getattr(r, "board_cluster_id", None)
             hero_pos = ip_pos
 
-            # ✅ FIX: define menu_pcts *before* base_row
-            raw_sizes = r.get("bet_sizes", None)
+            # --- sizes: prefer manifest column if present ---
+            raw_sizes = getattr(r, "bet_sizes", None)
             sizes_manifest = _ensure_float_list(raw_sizes)
-            menu_pcts = tuple(
-                sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU)
-            )
+            menu_pcts = tuple(sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU))
 
-            # ✅ now safe to use in base_row
+            # --- assemble base_row (trainer-ready) ---
             base_row = {
                 "s3_key": _normalize_s3_key(s3_key),
                 "node_key": node_key,
                 "stack_bb": int(round(stack_bb)),
                 "effective_stack_bb": float(stack_bb),
                 "pot_bb": float(pot_bb),
+
                 "ip_pos": ip_pos,
                 "oop_pos": oop_pos,
                 "hero_pos": hero_pos,
+
                 "street": int(street),
                 "ctx": ctx,
+
                 "board": board,
-                "board_cluster_id": int(cluster_id) if pd.notna(cluster_id) else None,
-                "board_mask_52": make_board_mask_52(board),
+                "board_cluster_id": int(cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None,
+                "board_mask_52": _mask52_cached(board) if board else [0.0] * 52,
+
                 "bet_sizing_id": menu_id,
-                "bet_sizes": list(menu_pcts),  # ✅ now defined
+                "bet_sizes": list(menu_pcts),
+
                 "valid": 1,
             }
 
-            # === inside the build loop, replace your current parse call ===
-            menu_id = str(r.get("bet_sizing_id", "") or "")
-            # Prefer manifest bet_sizes if present → cast to floats; else fallback to table
-            raw_sizes = r.get("bet_sizes", None)
-            sizes_manifest = _ensure_float_list(raw_sizes)
+            # --- parse with the new universal parser: try facing, then root ---
+            probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
+            probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
 
-            try:
-                # --- use the new universal parser instead ---
-                probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
-                probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
-
-                # prefer facing-bet distribution if non-empty
-                if probs_face and sum(probs_face.values()) > 0:
-                    probs, meta = probs_face, meta_face
-                elif probs_root and sum(probs_root.values()) > 0:
-                    probs, meta = probs_root, meta_root
-                else:
-                    _emit_sentinel(base_row, "zero_mass")
-                    continue
-
-            except Exception as e:
-                _emit_sentinel(base_row or {}, f"exception: {e}")
-                continue
-
-            if not probs or sum(probs.values()) <= 0:
+            if probs_face and sum(probs_face.values()) > 0:
+                probs = probs_face
+                meta = meta_face
+                facing_bet = 1
+            elif probs_root and sum(probs_root.values()) > 0:
+                probs = probs_root
+                meta = meta_root
+                facing_bet = 0
+            else:
                 _emit_sentinel(base_row, "zero_mass")
                 continue
 
-            actor = "ip"
-            facing_bet = 0
-            if isinstance(meta, dict):
-                a = str(meta.get("actor", "ip")).lower()
-                actor = a if a in ("ip", "oop") else "ip"
-                try:
-                    facing_bet = int(meta.get("facing_bet", 0) or 0)
-                except Exception:
-                    facing_bet = 0
+            # actor: root actor is IP in our generation; facing_bet row is a response side
+            actor = "ip" if facing_bet == 0 else "oop"
 
+            # --- vectorize to ACTION_VOCAB ---
             vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
             mass = float(vec.sum())
             if mass <= 1e-12:
                 _emit_sentinel(base_row, "zero_mass")
                 continue
-            vec /= mass  # ensure soft labels sum to 1
+            vec /= mass
 
             argmax_action = ACTION_VOCAB[int(vec.argmax())]
 
@@ -235,11 +258,15 @@ def build_postflop_policy(
 
             rows_buffer.append(out_row)
             diag["ok"] += 1
+
             if len(rows_buffer) >= part_rows:
                 flush_part()
 
         except Exception as e:
-            _emit_sentinel(base_row or {}, f"exception: {e}")
+            # ensure dict for sentinel path
+            if not isinstance(base_row, dict):
+                base_row = {}
+            _emit_sentinel(base_row, f"exception: {e}")
 
     flush_part()
     if dump_fh: dump_fh.close()
@@ -313,7 +340,7 @@ if __name__ == "__main__":
     ap.add_argument("--config", type=str, default="rangenet/postflop")
     ap.add_argument("--shard-index", type=int, default=None)
     ap.add_argument("--shard-count", type=int, default=None)
-    ap.add_argument("--part-rows", type=int, default=2000)
+    ap.add_argument("--part-rows", type=int, default=1000)
     ap.add_argument("--parts-local-dir", type=str, default="data/datasets/postflop_policy_parts")
     ap.add_argument("--parts-s3-prefix", type=str, default=None)
     ap.add_argument("--sample-n", type=int, default=None)

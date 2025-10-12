@@ -1,6 +1,8 @@
 import json, gzip, re
 from typing import Any, Dict, List, Tuple, Sequence, Optional
 
+import orjson
+
 # --- vocab (unchanged) ---
 ACTION_VOCAB = [
     "FOLD","CHECK","CALL",
@@ -362,12 +364,12 @@ def _bucket_to_vocab(pct: Optional[float], prefix: str) -> str:
 # Utils
 # ======================================================================
 
-def _open_json_any(path: str) -> Json:
-    if str(path).endswith(".gz"):
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            return json.load(f)
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def _open_json_any(path: str) -> dict:
+    if path.endswith(".gz"):
+        with gzip.open(path, "rb") as f:
+            return orjson.loads(f.read())
+    with open(path, "rb") as f:
+        return orjson.loads(f.read())
 
 def _renorm(acts: List[str], mix: List[float]) -> Tuple[List[str], List[float]]:
     mix = [0.0 if v is None else float(v) for v in mix]

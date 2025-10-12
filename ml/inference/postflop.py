@@ -107,51 +107,65 @@ class PostflopPolicyInfer:
         """
         Convert PolicyRequest → model row dict with all features present
         (categoricals in raw tokens, cont as floats; cluster id if available).
+        No reliance on req.ip_pos/oop_pos (derived here).
         """
-        # street (postflop only for this infer)
+        # --- street (clamp to flop/turn/river for postflop) ---
         try:
             street = int(req.street or 1)
         except Exception:
             street = 1
-        if street < 1:
-            street = 1
-        if street > 3:
-            street = 3
+        street = 1 if street < 1 else (3 if street > 3 else street)
 
-        # --- seats (prefer legalized ip/oop) ---
-        ip_pos = (req.ip_pos or "").upper()
-        oop_pos = (req.oop_pos or "").upper()
-        hero_pos = (req.hero_pos or "").upper()
+        # --- seats: derive ip/oop from hero/villain ---
+        hero = (req.hero_pos or "").strip().upper()
+        vill = (req.villain_pos or "").strip().upper()
 
-        # --- context (inferred robustly) ---
+        # default safe fallbacks if missing
+        if not hero and vill:
+            hero = "BTN" if vill != "BTN" else "CO"
+        if not vill and hero:
+            vill = "BB" if hero != "BB" else "SB"
+        if not hero and not vill:
+            hero, vill = "BTN", "BB"
+
+        try:
+            hero_is_ip = PolicyRequest.is_hero_ip(hero, vill)
+        except Exception:
+            hero_is_ip = True
+
+        ip_pos = hero if hero_is_ip else vill
+        oop_pos = vill if hero_is_ip else hero
+
+        # --- context (robust inference + explicit override via raw.ctx) ---
         ctx = infer_postflop_ctx(req)
 
         row: Dict[str, Any] = {
-            "hero_pos": hero_pos,
+            "hero_pos": hero,
             "ip_pos": ip_pos,
             "oop_pos": oop_pos,
             "ctx": ctx,
-            "street": street,  # integer; your dataset maps to cat id via id_maps
+            "street": street,
         }
 
         # --- board → mask + optional cluster ---
         if "board_mask_52" in getattr(self, "cont_features", []) and req.board:
             row["board_mask_52"] = make_board_mask_52(req.board)
 
-        if getattr(self, "board_cluster_feat", None):
+        bcf = getattr(self, "board_cluster_feat", None)  # "board_cluster" or "board_cluster_id" or None
+        if bcf:
             cid = 0
-            if self.clusterer and req.board:
+            if getattr(self, "clusterer", None) and req.board:
                 try:
                     cid = int(self.clusterer.predict_one(req.board))
                 except Exception:
                     cid = 0
-            row[self.board_cluster_feat] = cid  # "board_cluster" or "board_cluster_id"
+            row[bcf] = cid
 
         # --- continuous scalars ---
         row["pot_bb"] = float(req.pot_bb or 0.0)
         row["eff_stack_bb"] = float(req.eff_stack_bb or 0.0)
 
-        # optional bet menu (if provided)
+        # --- optional bet menu passthrough (if present in raw) ---
         if isinstance(req.raw, dict) and "bet_sizes" in req.raw:
             try:
                 row["bet_sizes"] = list(req.raw["bet_sizes"])

@@ -34,12 +34,6 @@ class PolicyRequest:
     actions_hist: Optional[List[str]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
-    # --- Derived attributes after validation ---
-    ip_pos: Optional[str] = None
-    oop_pos: Optional[str] = None
-
-    # --- Static canonical seat order (clockwise) ---
-
     _POSITION_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
 
     @staticmethod
