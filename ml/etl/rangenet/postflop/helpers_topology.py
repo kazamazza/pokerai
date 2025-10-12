@@ -1,6 +1,6 @@
 from typing import Tuple, Optional, Mapping, Any
 
-from ml.config.bet_menus import BET_SIZE_MENUS
+from ml.config.bet_menus import BET_SIZE_MENUS_NL25, DEFAULT_MENU_NL25, BET_SIZE_MENUS_NL10, DEFAULT_MENU_NL10
 from ml.etl.utils.positions import canon_pos
 from ml.etl.rangenet.preflop.monker_manifest import expected_menu_id
 
@@ -15,7 +15,7 @@ MENU_TAG_TO_ID = {
     "4bet_oop":  "4bet_hu.Aggressor_OOP",
     "limp":      "limped_single.SB_IP",
     "limp_multi":"limped_multi.Any",
-    "bvs": "srp_hu.PFR_IP",
+    "bvs": "srp_hu.PFR_IP"
 }
 
 def _ctx_for_lookup(ctx: str) -> str:
@@ -158,20 +158,46 @@ def _compute_pot_bb(
 # =========================
 # Menu binding (topology+roles)
 # =========================
-def _menu_for(ctx, ip, oop, opener, three_bettor, menu_tag: str | None = None):
+def bet_sizes_for(menu_id: str, stake: str = "NL10") -> list[float]:
+    """
+    Retrieve stake-specific bet sizes for a given menu ID.
+    Falls back to DEFAULT_MENU if not found.
+    """
+    if stake.upper() == "NL25":
+        table = BET_SIZE_MENUS_NL25
+        default = DEFAULT_MENU_NL25
+    else:
+        table = BET_SIZE_MENUS_NL10
+        default = DEFAULT_MENU_NL10
+    return table.get(menu_id, default)
+
+def _map_tag_dynamic(tag: str, topo: str, ip: str, oop: str) -> str | None:
+    tag = tag.lower()
+    if tag == "4bet":
+        # mirror your earlier fallback: if OOP is a blind, default to OOP aggressor
+        return "4bet_hu.Aggressor_OOP" if oop in {"SB", "BB"} else "4bet_hu.Aggressor_IP"
+    if tag == "limp":
+        if topo == "limped_multi":  return "limped_multi.Any"
+        if topo == "limped_single": return "limped_single.SB_IP"
+        # default to single-limp when context is ambiguous
+        return "limped_single.SB_IP"
+    return None
+
+def _menu_for(ctx, ip, oop, opener, three_bettor, menu_tag: str | None = None, stake: str = "NL10"):
     topo, opener_h, three_h = _infer_topology_and_roles(ctx, ip, oop)
 
-    # 1) explicit tag wins
+    # 1) explicit tag wins (with dynamic handling for '4bet' / 'limp')
     if menu_tag:
         tag = str(menu_tag).strip().lower()
-        menu_id = MENU_TAG_TO_ID.get(tag)
+        dyn = _map_tag_dynamic(tag, topo, canon_pos(ip), canon_pos(oop))
+        menu_id = dyn or MENU_TAG_TO_ID.get(tag)
         if not menu_id:
             raise ValueError(f"Unknown bet_menus tag '{menu_tag}'")
-        if menu_id not in BET_SIZE_MENUS:
-            raise ValueError(f"Menu id '{menu_id}' from tag '{menu_tag}' not in BET_SIZE_MENUS")
-        return menu_id, BET_SIZE_MENUS[menu_id]
+        if menu_id not in BET_SIZE_MENUS_NL10 and menu_id not in BET_SIZE_MENUS_NL25:
+            raise ValueError(f"Menu id '{menu_id}' from tag '{menu_tag}' not in configured menus")
+        return menu_id, bet_sizes_for(menu_id, stake=stake)
 
-    # 2) fall back to inference (unchanged)
+    # 2) inferred path (unchanged logic)
     menu_id = expected_menu_id(
         topo=topo,
         ip=canon_pos(ip),
@@ -184,6 +210,4 @@ def _menu_for(ctx, ip, oop, opener, three_bettor, menu_tag: str | None = None):
         elif topo == "limped_single": menu_id = "limped_single.SB_IP"
         else:
             raise ValueError(f"Cannot derive bet_sizing_id for ctx={ctx} topo={topo} ip={ip} oop={oop}")
-    if menu_id not in BET_SIZE_MENUS:
-        raise ValueError(f"Unknown bet_sizing_id '{menu_id}'")
-    return menu_id, BET_SIZE_MENUS[menu_id]
+    return menu_id, bet_sizes_for(menu_id, stake=stake)

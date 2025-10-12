@@ -7,6 +7,7 @@ import dotenv
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import gc
 
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
@@ -110,6 +111,7 @@ def build_postflop_policy(
     s3c = S3Client()
     df = pd.read_parquet(manifest_path)
 
+
     out_dir = Path(parts_local_dir); out_dir.mkdir(parents=True, exist_ok=True)
     rows_buffer: list[dict] = []
     parts_written = 0
@@ -135,18 +137,33 @@ def build_postflop_policy(
 
     def flush_part():
         nonlocal rows_buffer, parts_written
-        if not rows_buffer: return
+        if not rows_buffer:
+            return
+
+        # Build the part dataframe
         part_df = pd.DataFrame(rows_buffer)
+
+        # Ensure all vocab columns exist
         for a in ACTION_VOCAB:
             if a not in part_df.columns:
                 part_df[a] = 0.0
+
+        # Write to disk (pyarrow engine is faster and memory-friendlier)
         path = out_dir / part_name(parts_written)
-        part_df.to_parquet(path, index=False)
+        part_df.to_parquet(path, index=False, engine="pyarrow")  # compression defaults are fine
+
         print(f"💾 wrote {path} (rows={len(part_df)})")
+
+        # Optional: push to S3
         if parts_s3_prefix:
             _retry(lambda: s3c.upload_file(path, f"{parts_s3_prefix}/{path.name}"))
+
         parts_written += 1
-        rows_buffer = []
+
+        # Free memory
+        rows_buffer = []  # drop references
+        del part_df
+        gc.collect()
 
     def _resolve_solver_path(cfg: Mapping[str, Any], s3_key: Any) -> Path:
         """Return a local filesystem path for the given s3_key.
@@ -221,43 +238,71 @@ def build_postflop_policy(
             probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
             probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
 
-            if probs_face and sum(probs_face.values()) > 0:
-                probs = probs_face
-                meta = meta_face
-                facing_bet = 1
-            elif probs_root and sum(probs_root.values()) > 0:
-                probs = probs_root
-                meta = meta_root
-                facing_bet = 0
-            else:
+            emitted_any = False
+
+            def _emit_row(probs: dict, actor: str, facing_flag: int):
+                nonlocal emitted_any, rows_buffer, diag
+                if not probs:
+                    return
+                vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
+                s = float(vec.sum())
+                if s <= 1e-12:
+                    return
+                vec /= s
+                argmax_action = ACTION_VOCAB[int(vec.argmax())]
+
+                out_row = {
+                    **base_row,
+                    "actor": actor,  # "ip" for root, "oop" for facing
+                    "facing_bet": int(facing_flag),  # 0 = not facing, 1 = facing
+                    "action": argmax_action,
+                    "weight": 1.0,
+                }
+                for a, p in zip(ACTION_VOCAB, vec.tolist()):
+                    out_row[a] = float(p)
+
+                rows_buffer.append(out_row)
+                diag["ok"] += 1
+                emitted_any = True
+
+            # ✅ Emit both views when available
+            probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
+            probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
+
+            emitted_any = False
+
+            def _emit_row(probs: dict, actor: str, facing_flag: int):
+                nonlocal emitted_any, rows_buffer, diag
+                if not probs:
+                    return
+                vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
+                s = float(vec.sum())
+                if s <= 1e-12:
+                    return
+                vec /= s
+                argmax_action = ACTION_VOCAB[int(vec.argmax())]
+
+                out_row = {
+                    **base_row,
+                    "actor": actor,  # "ip" for root, "oop" for facing
+                    "facing_bet": int(facing_flag),  # 0 = not facing, 1 = facing
+                    "action": argmax_action,
+                    "weight": 1.0,
+                }
+                for a, p in zip(ACTION_VOCAB, vec.tolist()):
+                    out_row[a] = float(p)
+
+                rows_buffer.append(out_row)
+                diag["ok"] += 1
+                emitted_any = True
+
+            # ✅ Emit both views when available
+            _emit_row(probs_root, actor="ip", facing_flag=0)  # IP action mix (CHECK/BET_33/BET_66)
+            _emit_row(probs_face, actor="oop", facing_flag=1)  # OOP response mix (CALL/RAISE/FOLD)
+
+            if not emitted_any:
                 _emit_sentinel(base_row, "zero_mass")
                 continue
-
-            # actor: root actor is IP in our generation; facing_bet row is a response side
-            actor = "ip" if facing_bet == 0 else "oop"
-
-            # --- vectorize to ACTION_VOCAB ---
-            vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
-            mass = float(vec.sum())
-            if mass <= 1e-12:
-                _emit_sentinel(base_row, "zero_mass")
-                continue
-            vec /= mass
-
-            argmax_action = ACTION_VOCAB[int(vec.argmax())]
-
-            out_row = {
-                **base_row,
-                "actor": actor,
-                "facing_bet": int(facing_bet),
-                "action": argmax_action,
-                "weight": 1.0,
-            }
-            for a, p in zip(ACTION_VOCAB, vec.tolist()):
-                out_row[a] = float(p)
-
-            rows_buffer.append(out_row)
-            diag["ok"] += 1
 
             if len(rows_buffer) >= part_rows:
                 flush_part()
@@ -340,7 +385,7 @@ if __name__ == "__main__":
     ap.add_argument("--config", type=str, default="rangenet/postflop")
     ap.add_argument("--shard-index", type=int, default=None)
     ap.add_argument("--shard-count", type=int, default=None)
-    ap.add_argument("--part-rows", type=int, default=1000)
+    ap.add_argument("--part-rows", type=int, default=500)
     ap.add_argument("--parts-local-dir", type=str, default="data/datasets/postflop_policy_parts")
     ap.add_argument("--parts-s3-prefix", type=str, default=None)
     ap.add_argument("--sample-n", type=int, default=None)

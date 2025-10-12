@@ -75,15 +75,15 @@ multiway:
 
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_128.json
-  n_clusters: 128
+  artifact: data/artifacts/board_clusters_kmeans_64.json
+  n_clusters: 64
 
 manifest_build:
   include_missing: false
   allow_pair_subs: true
   lookup_max_stack_delta: 200
 
-  board_clusters_limit: 128
+  board_clusters_limit: 64
   boards_per_cluster: 2
   sample_pool: 50000
   seed: 42
