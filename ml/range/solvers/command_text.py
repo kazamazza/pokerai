@@ -13,7 +13,7 @@ def build_command_text(
     *,
     pot_bb: float,
     effective_stack_bb: float,
-    board: str,                 # e.g. "QsJh2h" → must emit "Qs,Jh,2h"
+    board: str,
     range_ip: str,
     range_oop: str,
     bet_sizes: Optional[Dict[Literal["flop","turn","river"],
@@ -46,13 +46,13 @@ def build_command_text(
     if bet_sizes:
         for street, per_role in bet_sizes.items():
             for role, kinds in per_role.items():
-                # donk/bet/raise with optional size lists
                 for kind in ("donk", "bet", "raise"):
                     sizes = kinds.get(kind) or []
                     if isinstance(sizes, list) and len(sizes) > 0:
-                        size_csv = ",".join(str(int(s)) for s in sizes)
+                        # Convert fractional bets (0.33) → percent (33)
+                        size_csv = ",".join(f"{s * 100:.0f}" for s in sizes)
                         lines.append(f"set_bet_sizes {role},{street},{kind},{size_csv}")
-                # all-in toggle (no size argument)
+                # all-in toggle
                 if kinds.get("allin"):
                     lines.append(f"set_bet_sizes {role},{street},allin")
 

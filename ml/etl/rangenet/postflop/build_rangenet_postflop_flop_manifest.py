@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 import pandas as pd
 
+
+
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -16,18 +18,38 @@ from ml.features.boards import load_board_clusterer
 from ml.utils.config import load_model_config
 from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
 from ml.range.solvers.keying import s3_key_for_solve, solve_sha1
-from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles, _compute_pot_bb, _menu_for, \
-    _ctx_for_lookup
+from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles, _menu_for, \
+    _ctx_for_lookup, compute_pot_bb, bet_menu_for
 from ml.features.boards.representatives import discover_representative_flops
+from ml.core.types import Stakes
+
+def parse_stake(value) -> Stakes:
+    """
+    Convert a string or int into a Stakes enum value.
+    Accepts 'nl10', 'NL10', 2, Stakes.NL10, etc.
+    Defaults to Stakes.NL10 if unrecognized.
+    """
+    if isinstance(value, Stakes):
+        return value
+    if isinstance(value, int):
+        return Stakes(value)
+    if isinstance(value, str):
+        key = value.strip().upper()
+        if key.startswith("NL") and key[2:].isdigit():
+            try:
+                return Stakes[key]  # e.g. Stakes["NL10"]
+            except KeyError:
+                pass
+    return Stakes.NL10  # fallback default
 
 def build_manifest(cfg: dict) -> pd.DataFrame:
     mb = cfg.get("manifest_build", {}) or {}
     sv = cfg.get("solver", {}) or {}
     inputs = cfg.get("inputs", {}) or {}
     rake_tier = str(sv.get("rake_tier", "nl10_5pct_1bbcap"))
-    sizes = cfg.get("sizes", {}) or {}
-
     mw_cfg = cfg.get("multiway", {}) or {}
+    stake_val = cfg.get("train.stakes", "NL10")
+    stake = parse_stake(stake_val)
 
     multiway_enabled = bool(mw_cfg.get("enable", False))
     multiway_max_players = int(mw_cfg.get("max_players", 3))
@@ -117,10 +139,16 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
                 # Roles + deterministic pot + menu
                 topo, opener, three_bettor = _infer_topology_and_roles(ctx, ip_pos, oop_pos)
-                pot_bb = _compute_pot_bb(ctx, opener, ip_pos, three_bettor, sizes=sizes)
+                pot_bb = compute_pot_bb(
+                    ctx=ctx,
+                    opener=opener,
+                    ip=ip_pos,
+                    three_bettor=three_bettor,
+                    stake=stake,
+                )
                 menu_id, bet_sizes = _menu_for(ctx, ip_pos, oop_pos, opener, three_bettor)
+                bet_sizes = bet_menu_for(menu_id, stake)
 
-                # Resolve ranges (Monker-first + built-in fallback)
                 try:
                     rng_ip, rng_oop, meta = lookup.ranges_for_pair(
                         stack_bb=stack, ip=ip_pos, oop=oop_pos, ctx=_ctx_for_lookup(ctx), strict=False

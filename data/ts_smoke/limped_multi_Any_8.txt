@@ -1,0 +1,21 @@
+set_pot 7.5
+set_effective_stack 60
+set_board Qs,Jh,2h
+set_range_ip AA:1.0,KK:1.0
+set_range_oop AA:1.0,KK:1.0
+set_bet_sizes ip,flop,bet,0
+set_bet_sizes ip,flop,raise,1,2,3
+set_bet_sizes ip,flop,allin
+set_bet_sizes oop,flop,bet,0
+set_bet_sizes oop,flop,raise,1,2,3
+set_bet_sizes oop,flop,allin
+set_allin_threshold 0.67
+build_tree
+set_thread_num 1
+set_accuracy 0.5
+set_max_iteration 120
+set_print_interval 20
+set_use_isomorphism 1
+start_solve
+set_dump_rounds 3
+dump_result data/ts_smoke/limped_multi_Any_8.json

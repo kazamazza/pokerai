@@ -19,9 +19,9 @@ from ml.etl.utils.ec2_shutdown import shutdown_ec2_instance
 from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions, \
      _stable_shard_index, _get
 from ml.models.policy_consts import ACTION_VOCAB
-from ml.config.bet_menus import BET_SIZE_MENUS, DEFAULT_MENU
 from ml.utils.board_mask import make_board_mask_52
-from ml.etl.rangenet.postflop.solver_policy_parser import parse_solver_simple
+from ml.etl.rangenet.postflop.texas_solver_extractor import TexasSolverExtractor
+from ml.config.bet_menus import BET_SIZE_MENUS_NL10, BET_SIZE_MENUS_NL25, DEFAULT_MENU_NL25, DEFAULT_MENU_NL10
 dotenv.load_dotenv()
 
 
@@ -110,11 +110,10 @@ def build_postflop_policy(
     """
     s3c = S3Client()
     df = pd.read_parquet(manifest_path)
-
-
     out_dir = Path(parts_local_dir); out_dir.mkdir(parents=True, exist_ok=True)
     rows_buffer: list[dict] = []
     parts_written = 0
+    x = TexasSolverExtractor()
 
     diag = {"ok": 0, "sentinel": 0, "zero_mass": 0}
     dump_fh = open(debug_dump, "a", encoding="utf-8") if debug_dump else None
@@ -182,7 +181,6 @@ def build_postflop_policy(
         return _cache_path_for_key(cfg, s3_key)
 
     # === Loop rows ===
-    # === Loop rows ===
     for r in tqdm(df.itertuples(index=False, name="Row"), total=len(df), desc="Building postflop policy"):
         base_row = {}
         try:
@@ -204,10 +202,34 @@ def build_postflop_policy(
             cluster_id = getattr(r, "board_cluster_id", None)
             hero_pos = ip_pos
 
-            # --- sizes: prefer manifest column if present ---
+            # --- stake selection (manifest column beats config; default NL10) ---
+            def _stake_from(cfg, row) -> str:
+                # try manifest column names commonly used
+                for col in ("stake", "stakes", "stake_level"):
+                    val = getattr(row, col, None)
+                    if val:
+                        return str(val).upper()
+                # then config
+                val = _get(cfg, "inputs.stakes", None) or _get(cfg, "training.stakes", None)
+                return str(val or "NL10").upper()
+
+            stake = _stake_from(cfg, r)
+
+            # route tables by stake
+            if stake == "NL25":
+                _BETS = BET_SIZE_MENUS_NL25
+                _DEFAULT = DEFAULT_MENU_NL25
+            else:  # NL10 (fallback)
+                _BETS = BET_SIZE_MENUS_NL10
+                _DEFAULT = DEFAULT_MENU_NL10
+
+            # --- sizes: prefer manifest column if present (still allowed to override) ---
             raw_sizes = getattr(r, "bet_sizes", None)
             sizes_manifest = _ensure_float_list(raw_sizes)
-            menu_pcts = tuple(sizes_manifest if sizes_manifest else BET_SIZE_MENUS.get(menu_id, DEFAULT_MENU))
+
+            menu_pcts = tuple(
+                sizes_manifest if sizes_manifest else _BETS.get(menu_id, _DEFAULT)
+            )
 
             # --- assemble base_row (trainer-ready) ---
             base_row = {
@@ -223,6 +245,7 @@ def build_postflop_policy(
 
                 "street": int(street),
                 "ctx": ctx,
+                "stake": stake,  # 👈 keep for lineage
 
                 "board": board,
                 "board_cluster_id": int(cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None,
@@ -234,13 +257,21 @@ def build_postflop_policy(
                 "valid": 1,
             }
 
-            # --- parse with the new universal parser: try facing, then root ---
-            probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
-            probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
+            # --- parse with the new extractor (robust to schema/layout) ---
+            ex = x.extract(
+                str(solver_path),
+                ctx=ctx,
+                ip_pos=ip_pos,
+                oop_pos=oop_pos,
+                board=board,
+                pot_bb=pot_bb,
+                stack_bb=stack_bb,
+                bet_sizing_id=menu_id,
+            )
 
             emitted_any = False
 
-            def _emit_row(probs: dict, actor: str, facing_flag: int):
+            def _emit_row(probs: dict, *, actor: str, facing_flag: int):
                 nonlocal emitted_any, rows_buffer, diag
                 if not probs:
                     return
@@ -253,7 +284,7 @@ def build_postflop_policy(
 
                 out_row = {
                     **base_row,
-                    "actor": actor,  # "ip" for root, "oop" for facing
+                    "actor": actor,  # "ip" for root, "oop" for facing (our convention)
                     "facing_bet": int(facing_flag),  # 0 = not facing, 1 = facing
                     "action": argmax_action,
                     "weight": 1.0,
@@ -265,43 +296,17 @@ def build_postflop_policy(
                 diag["ok"] += 1
                 emitted_any = True
 
-            # ✅ Emit both views when available
-            probs_root, meta_root = parse_solver_simple(str(solver_path), facing_bet=False)
-            probs_face, meta_face = parse_solver_simple(str(solver_path), facing_bet=True)
+            if ex.ok:
+                # Root = IP first-to-act in our trees
+                _emit_row(ex.root_mix, actor="ip", facing_flag=0)
+                # Facing = OOP response to IP bet
+                _emit_row(ex.facing_mix, actor="oop", facing_flag=1)
 
-            emitted_any = False
-
-            def _emit_row(probs: dict, actor: str, facing_flag: int):
-                nonlocal emitted_any, rows_buffer, diag
-                if not probs:
-                    return
-                vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
-                s = float(vec.sum())
-                if s <= 1e-12:
-                    return
-                vec /= s
-                argmax_action = ACTION_VOCAB[int(vec.argmax())]
-
-                out_row = {
-                    **base_row,
-                    "actor": actor,  # "ip" for root, "oop" for facing
-                    "facing_bet": int(facing_flag),  # 0 = not facing, 1 = facing
-                    "action": argmax_action,
-                    "weight": 1.0,
-                }
-                for a, p in zip(ACTION_VOCAB, vec.tolist()):
-                    out_row[a] = float(p)
-
-                rows_buffer.append(out_row)
-                diag["ok"] += 1
-                emitted_any = True
-
-            # ✅ Emit both views when available
-            _emit_row(probs_root, actor="ip", facing_flag=0)  # IP action mix (CHECK/BET_33/BET_66)
-            _emit_row(probs_face, actor="oop", facing_flag=1)  # OOP response mix (CALL/RAISE/FOLD)
-
-            if not emitted_any:
-                _emit_sentinel(base_row, "zero_mass")
+                if not emitted_any:
+                    _emit_sentinel(base_row, "zero_mass")
+                    continue
+            else:
+                _emit_sentinel(base_row, ex.reason or "extract_failed")
                 continue
 
             if len(rows_buffer) >= part_rows:

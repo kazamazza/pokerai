@@ -205,22 +205,56 @@ class TexasSolverExtractor:
         if to_bb is None or pot_bb <= 1e-9: return None
         return (to_bb / pot_bb) * 100.0
 
-    def _bucket_bet_pct(self, pct: Optional[float]) -> str:
-        buckets = [25, 33, 50, 66, 75, 100]
+    def _bucket_bet_pct(self, val: Optional[float]) -> str:
+        """
+        Map a bet size to vocab buckets.
+        Accepts either fraction-of-pot (e.g. 0.33, 0.66) or percent (33, 66).
+        """
         default = "BET_50"
-        if pct is None: return default
+        if val is None:
+            return default
+
+        # if it's a fraction (<= 3.0), convert to percent
+        pct = float(val) * 100.0 if val <= 3.0 else float(val)
+        # clamp to sane range
+        if pct <= 0:
+            return default
+        if pct > 120:
+            pct = 100.0  # we don't have >100% buckets in ACTION_VOCAB
+
+        buckets = [25, 33, 50, 66, 75, 100]
         nearest = min(buckets, key=lambda b: abs(b - pct))
         tok = f"BET_{int(nearest)}"
         return tok if tok in ACTION_VOCAB else default
 
-    def _bucket_raise_to(self, to_bb: Optional[float], facing_bb: Optional[float]) -> str:
-        if to_bb is None or facing_bb is None or facing_bb <= 1e-9:
-            return "RAISE_300"
-        mult = to_bb / facing_bb
+    def _bucket_raise_to(self, to_val: Optional[float], facing_val: Optional[float]) -> str:
+        """
+        Map a raise-to target to vocab buckets.
+        Handles either:
+          - absolute raise-to in 'bb' with current bet 'facing_val' in 'bb'  → mult = to_val / facing_val
+          - direct multiplier in 'to_val' when facing_val is missing/small
+        """
+        default = "RAISE_300"
+        if to_val is None:
+            return default
+
+        to_val = float(to_val)
+        mult: Optional[float] = None
+
+        if facing_val is not None and float(facing_val) > 1e-9:
+            mult = to_val / float(facing_val)
+        else:
+            # Heuristic: if to_val is within plausible multiplier range, treat it as multiplier directly
+            if 1.1 <= to_val <= 6.0:
+                mult = to_val
+
+        if mult is None or mult <= 1.0:  # invalid / min-raise edge cases → default
+            return default
+
         candidates = [1.5, 2.0, 3.0, 4.0, 5.0]
         nearest = min(candidates, key=lambda x: abs(x - mult))
-        tok = f"RAISE_{int(round(nearest*100))}"
-        return tok if tok in ACTION_VOCAB else "RAISE_300"
+        tok = f"RAISE_{int(round(nearest * 100))}"
+        return tok if tok in ACTION_VOCAB else default
 
     # ----- structure utilities -----
 
