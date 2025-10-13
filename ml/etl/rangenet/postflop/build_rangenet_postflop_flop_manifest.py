@@ -4,8 +4,6 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-
-
 ROOT_DIR = Path(__file__).resolve().parents[4]
 sys.path.append(str(ROOT_DIR))
 
@@ -22,6 +20,7 @@ from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles,
     _ctx_for_lookup, compute_pot_bb, bet_menu_for
 from ml.features.boards.representatives import discover_representative_flops
 from ml.core.types import Stakes
+from ml.config.solver import STAKE_CFG
 
 def parse_stake(value) -> Stakes:
     """
@@ -42,14 +41,16 @@ def parse_stake(value) -> Stakes:
                 pass
     return Stakes.NL10  # fallback default
 
-def build_manifest(cfg: dict) -> pd.DataFrame:
-    mb = cfg.get("manifest_build", {}) or {}
-    sv = cfg.get("solver", {}) or {}
-    inputs = cfg.get("inputs", {}) or {}
+def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
+    mb      = cfg.get("manifest_build", {}) or {}
+    sv      = cfg.get("solver", {}) or {}
+    inputs  = cfg.get("inputs", {}) or {}
     rake_tier = str(sv.get("rake_tier", "nl10_5pct_1bbcap"))
-    mw_cfg = cfg.get("multiway", {}) or {}
-    stake_val = cfg.get("train.stakes", "NL10")
-    stake = parse_stake(stake_val)
+    mw_cfg  = cfg.get("multiway", {}) or {}
+
+    # --- NEW: stake-specific tables (centralized) ---
+    stake_cfg       = STAKE_CFG[stake]
+    board_clusters  = stake_cfg.get("board_clusters", 64)
 
     multiway_enabled = bool(mw_cfg.get("enable", False))
     multiway_max_players = int(mw_cfg.get("max_players", 3))
@@ -57,31 +58,27 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     multiway_default_pot = float(mw_cfg.get("default_flop_pot_bb", 3.0))
     multiway_allow_scen = bool(mw_cfg.get("allow_in_scenarios", True))
 
-    # Scenarios (config-driven)
-    scenarios = mb.get("scenarios") or []
-    if not scenarios:
-        scenarios = [{
-            "name": "SRP",
-            "ctx": "SRP",
-            "stacks_bb": [100],
-            "position_pairs": [("BTN", "BB")],
-        }]
+    scenarios = mb.get("scenarios") or [{
+        "name": "SRP",
+        "ctx": "SRP",
+        "stacks_bb": [100],
+        "position_pairs": [("BTN", "BB")],
+    }]
 
-    n_clusters_limit = int(mb.get("board_clusters_limit", 24))
+    # --- stake-aware sampling knobs ---
+    # Use stake default for board cluster count unless explicitly overridden in config
+    n_clusters_limit = int(mb.get("board_clusters_limit", board_clusters))
     boards_per_cluster = int(mb.get("boards_per_cluster", 2))
     sample_pool = int(mb.get("sample_pool", 50000))
     seed = int(cfg.get("seed", 42))
     allow_pair_subs = bool(mb.get("allow_pair_subs", False))
-    include_missing = bool(mb.get("include_missing", False))  # largely moot: lookup has built-in fallback
+    include_missing = bool(mb.get("include_missing", False))
+
     raw_delta = mb.get("lookup_max_stack_delta")
-    max_stack_delta: Optional[int]
-    if raw_delta is None:
+    try:
+        max_stack_delta: Optional[int] = int(raw_delta) if raw_delta is not None else None
+    except (TypeError, ValueError):
         max_stack_delta = None
-    else:
-        try:
-            max_stack_delta = int(raw_delta)
-        except (TypeError, ValueError):
-            max_stack_delta = None
 
     # Preflop range lookup (Monker-only)
     lookup = PreflopRangeLookup(
@@ -131,48 +128,59 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
         sc_jobs = sc_kept = sc_missing = sc_skipped = 0
 
-        for stack in stacks:
+        # Pick stacks based on context first, then fall back to generic stake stacks
+        stacks_for_ctx = stake_cfg.get("stacks_by_ctx", {}).get(norm_ctx)
+        if not stacks_for_ctx:
+            stacks_for_ctx = stake_cfg.get("stacks", [])
+
+        for stack in stacks_for_ctx:
             for (ip_pos, oop_pos) in pairs:
-                ip_pos = canon_pos(ip_pos); oop_pos = canon_pos(oop_pos)
+                ip_pos = canon_pos(ip_pos)
+                oop_pos = canon_pos(oop_pos)
                 if not ip_pos or not oop_pos or ip_pos == oop_pos:
                     continue
 
-                # Roles + deterministic pot + menu
-                topo, opener, three_bettor = _infer_topology_and_roles(ctx, ip_pos, oop_pos)
+                # --- roles + deterministic pot (stake-aware) ---
+                topo, opener, three_bettor = _infer_topology_and_roles(norm_ctx, ip_pos, oop_pos)
+
                 pot_bb = compute_pot_bb(
-                    ctx=ctx,
+                    ctx=norm_ctx,
                     opener=opener,
                     ip=ip_pos,
                     three_bettor=three_bettor,
-                    stake=stake,
+                    stake=stake,  # uses STAKE_CFG[stake] internally
                 )
-                menu_id, bet_sizes = _menu_for(ctx, ip_pos, oop_pos, opener, three_bettor)
-                bet_sizes = bet_menu_for(menu_id, stake)
+
+                # --- bet menu id + sizes from stake config ---
+                menu_tag = (sc.get("bet_menus") or [None])[0]
+                menu_id, bet_sizes = _menu_for(
+                    norm_ctx, ip_pos, oop_pos, opener, three_bettor,
+                    menu_tag=menu_tag, stake=stake
+                )
 
                 try:
                     rng_ip, rng_oop, meta = lookup.ranges_for_pair(
-                        stack_bb=stack, ip=ip_pos, oop=oop_pos, ctx=_ctx_for_lookup(ctx), strict=False
+                        stack_bb=stack, ip=ip_pos, oop=oop_pos, ctx=_ctx_for_lookup(norm_ctx), strict=False
                     )
                 except Exception as e:
                     rng_ip = rng_oop = None
                     meta = {"error": str(e)}
 
-                if rng_ip is None or rng_oop is None:
-                    # With built-in fallback this shouldn't happen; still respect include_missing
-                    if not include_missing:
-                        miss = len(cluster_ids_sorted) * boards_per_cluster
-                        sc_skipped += miss; skipped += miss
-                        continue
+                if (rng_ip is None or rng_oop is None) and not include_missing:
+                    miss = len(cluster_ids_sorted) * boards_per_cluster
+                    sc_skipped += miss;
+                    skipped += miss
+                    continue
 
                 for cluster_id in cluster_ids_sorted:
                     for board_tuple in boards_by_cluster[cluster_id]:
                         board_str = "".join(board_tuple)
-                        knobs = profile_for(menu_id)  # {"accuracy", "max_iter", "allin_threshold"}
+                        knobs = profile_for(menu_id)  # {"accuracy","max_iter","allin_threshold"}
 
                         params = {
                             "street": 1,
                             "scenario": scenario_name,
-                            "ctx": ctx,
+                            "ctx": norm_ctx,
                             "topology": topo,
                             "rake_tier": rake_tier,
 
@@ -190,19 +198,16 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                             "effective_stack_bb": float(stack),
 
                             "bet_sizing_id": menu_id,
-                            "bet_sizes": bet_sizes,
+                            "bet_sizes": list(bet_sizes),
 
-                            # ranges (JSON-169 strings per your lookup)
                             "range_ip": rng_ip or "",
                             "range_oop": rng_oop or "",
 
-                            # 🔧 solver knobs (contextual)
                             "accuracy": knobs["accuracy"],
                             "max_iter": knobs["max_iter"],
                             "allin_threshold": knobs["allin_threshold"],
-                            "solver_version": "v1",  # keep whatever you already set earlier
+                            "solver_version": "v1",
 
-                            # provenance
                             "range_ip_source_stack": meta.get("range_ip_source_stack"),
                             "range_oop_source_stack": meta.get("range_oop_source_stack"),
                             "range_ip_stack_delta": meta.get("range_ip_stack_delta"),
@@ -216,11 +221,7 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
                         }
 
                         sha = solve_sha1(params)
-                        s3_key = s3_key_for_solve(
-                            params,
-                            sha1=sha,
-                            prefix="solver/outputs/v1"
-                        )
+                        s3_key = s3_key_for_solve(params, sha1=sha, prefix="solver/outputs/v1")
 
                         rows.append({
                             **params,
@@ -244,20 +245,22 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
+    # stake should already be a column in df at this point
+    dedup_keys_cfg = (cfg.get("manifest_build", {}) or {}).get("dedup_keys") or []
+    if not dedup_keys_cfg:
+        # conservative default if config omitted
+        dedup_keys_cfg = [
+            "street", "ctx", "topology", "ip_actor_flop", "oop_actor_flop",
+            "effective_stack_bb", "pot_bb", "bet_sizing_id", "board",
+            "board_cluster_id", "range_ip", "range_oop", "stake"
+        ]
+
     before = len(df)
-    # sha1 is derived from params (board, positions, ctx, stack, menu, etc.)
     if "sha1" in df.columns:
         df = df.drop_duplicates(subset=["sha1"]).reset_index(drop=True)
     else:
-        # very defensive fallback: dedupe on a minimal identifying subset
-        key_cols = [
-            "street", "ctx", "topology",
-            "ip_actor_flop", "oop_actor_flop",
-            "effective_stack_bb", "pot_bb",
-            "bet_sizing_id", "board", "board_cluster_id",
-            "range_ip", "range_oop"
-        ]
-        key_cols = [c for c in key_cols if c in df.columns]
+        # only keep keys present in the dataframe
+        key_cols = [c for c in dedup_keys_cfg if c in df.columns]
         df = df.drop_duplicates(subset=key_cols).reset_index(drop=True)
     removed = before - len(df)
 
@@ -280,6 +283,19 @@ def build_manifest(cfg: dict) -> pd.DataFrame:
     return df
 
 
+def _parse_stake_arg(s: str) -> Stakes:
+    s_norm = (s or "NL10").strip().upper()
+    try:
+        return Stakes[s_norm]
+    except KeyError:
+        raise ValueError(f"Unsupported --stake '{s}'. Use one of: {', '.join([e.name for e in Stakes])}")
+
+def _append_stake_suffix(path_str: str, stake: Stakes) -> str:
+    p = Path(path_str)
+    stem = p.stem
+    suf = "".join(p.suffixes) or ".parquet"
+    return str(p.with_name(f"{stem}_{stake.name}{suf}"))
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(description="Build flop-only manifest for RangeNet Postflop (Monker-first).")
@@ -289,24 +305,38 @@ def main():
                     default="data/artifacts/rangenet_postflop_flop_manifest.parquet")
     ap.add_argument("--scenario", type=str, default=None,
                     help="Optional: only build a single scenario name (case-insensitive)")
+    ap.add_argument("--stake", type=str, default="NL10",
+                    help="Stake level (e.g., NL10, NL25)")
     args = ap.parse_args()
+
+    # parse stake → enum
+    stake = _parse_stake_arg(args.stake)
 
     cfg = load_model_config(model=args.config)
 
+    # optional single-scenario filter
     if args.scenario:
         mb = dict(cfg.get("manifest_build", {}) or {})
-        scenarios = [s for s in (mb.get("scenarios") or []) if str(s.get("name","")).upper() == args.scenario.upper()]
+        scenarios = [s for s in (mb.get("scenarios") or [])
+                     if str(s.get("name","")).upper() == args.scenario.upper()]
         if not scenarios:
             print(f"[warn] no scenario named '{args.scenario}' found; building all.")
         else:
             mb["scenarios"] = scenarios
             cfg = {**cfg, "manifest_build": mb}
-    df = build_manifest(cfg)
 
-    out = Path(args.out)
+    # >>> IMPORTANT: pass stake into your builder <<<
+    # Make sure build_manifest signature is: build_manifest(cfg, stake: Stakes)
+    df = build_manifest(cfg, stake=stake)
+
+    # append stake suffix to filename
+    out_path = _append_stake_suffix(args.out, stake)
+    out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    # persist + log
     df.to_parquet(out, index=False)
-    print(f"✅ wrote FLOP manifest: {out} rows={len(df):,}")
+    print(f"✅ wrote FLOP manifest: {out} rows={len(df):,} stake={stake.name}")
 
 if __name__ == "__main__":
     main()

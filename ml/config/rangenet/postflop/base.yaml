@@ -60,18 +60,12 @@ outputs:
   s3_key:  datasets/rangenet_postflop.parquet
 
 
-sizes:
-  open_x: {"UTG": 3.0, "HJ": 2.5, "CO": 2.5, "BTN": 2.5, "SB": 3.0}
-  threebet_x: {"IP": 7.5, "OOP": 9.0}
-  fourbet_x: 24.0
-
 multiway:
   enable: false            # ← stays false for NL10/NL25/NL50
   max_players: 3           # future-proof; clamp to 3-way if you enable it later
   default_menu_id: "limped_multi.Any"   # fallback bet menu for multiway
   default_flop_pot_bb: 3.0 # safe default if you don’t compute exact preflop path
   allow_in_scenarios: true # scenario-level override allowed
-
 
 board_clustering:
   type: kmeans
@@ -88,11 +82,25 @@ manifest_build:
   sample_pool: 50000
   seed: 42
 
+  dedup_keys:
+    - street
+    - ctx
+    - topology
+    - ip_actor_flop
+    - oop_actor_flop
+    - effective_stack_bb
+    - pot_bb
+    - bet_sizing_id
+    - board
+    - board_cluster_id
+    - range_ip
+    - range_oop
+    - stake        # ← include stake to avoid cross-stake collisions
+
   scenarios:
     # --- Single-raised pots (vs-open) ---
     - name: SRP_IP
       ctx: VS_OPEN
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "UTG", "BB" ]
         - [ "HJ",  "BB" ]
@@ -102,7 +110,6 @@ manifest_build:
 
     - name: SRP_OOP
       ctx: VS_OPEN
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         # Caller OOP = BB (the bread-and-butter raise spots)
         - [ "UTG", "BB" ]
@@ -120,7 +127,6 @@ manifest_build:
     # --- Blind vs steal (treated like SRP) ---
     - name: BLIND_VS_STEAL
       ctx: BLIND_VS_STEAL
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
@@ -131,7 +137,6 @@ manifest_build:
     # --- 3-bet pots ---
     - name: VS_3BET_IP
       ctx: VS_3BET
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
@@ -141,7 +146,6 @@ manifest_build:
 
     - name: VS_3BET_OOP
       ctx: VS_3BET
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "BB",  "BTN" ]
         - [ "SB",  "BTN" ]
@@ -152,7 +156,6 @@ manifest_build:
     # --- 4-bet pots (lean) ---
     - name: VS_4BET
       ctx: VS_4BET
-      stacks_bb: [ 60, 100, 150 ]
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BB",  "BTN" ]
@@ -163,14 +166,12 @@ manifest_build:
     # --- Limped pots ---
     - name: LIMPED_SINGLE
       ctx: LIMPED_SINGLE
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "SB", "BB" ]    # single limp HU → (IP,OOP)=(SB,BB)
       bet_menus: [ "limp" ]
 
     - name: LIMPED_MULTI
       ctx: LIMPED_MULTI
-      stacks_bb: [ 25, 60, 100, 150 ]
       position_pairs:
         - [ "SB",  "BB" ]   # SB leads multiway; we model HU heads-up derived from it
         - [ "BTN", "SB" ]
@@ -198,7 +199,6 @@ train:
   monitor: val_loss
   mode: min
   pin_memory: true
-  stakes: NL10
 
 model:
   hidden_dims: [512, 512, 256]   # deeper/wider, postflop is richer
