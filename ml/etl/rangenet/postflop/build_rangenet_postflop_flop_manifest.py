@@ -17,7 +17,7 @@ from ml.utils.config import load_model_config
 from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
 from ml.range.solvers.keying import s3_key_for_solve, solve_sha1
 from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles, _menu_for, \
-    _ctx_for_lookup, compute_pot_bb, bet_menu_for
+    _ctx_for_lookup, compute_pot_bb
 from ml.features.boards.representatives import discover_representative_flops
 from ml.core.types import Stakes
 from ml.config.solver import STAKE_CFG
@@ -168,7 +168,7 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
 
                 if (rng_ip is None or rng_oop is None) and not include_missing:
                     miss = len(cluster_ids_sorted) * boards_per_cluster
-                    sc_skipped += miss;
+                    sc_skipped += miss
                     skipped += miss
                     continue
 
@@ -183,6 +183,7 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
                             "ctx": norm_ctx,
                             "topology": topo,
                             "rake_tier": rake_tier,
+                            "stake": stake,
 
                             "positions": f"{ip_pos}v{oop_pos}",
                             "ip_actor_flop": ip_pos,

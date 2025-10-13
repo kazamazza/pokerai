@@ -20,6 +20,7 @@ dataset:
     - ctx
     - street
     - board_cluster_id      # ✅ added
+    - stake
 
   cont_features:
     - pot_bb

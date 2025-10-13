@@ -21,7 +21,6 @@ from ml.etl.utils.postflop import _retry, _cache_path_for_key, _split_positions,
 from ml.models.policy_consts import ACTION_VOCAB
 from ml.utils.board_mask import make_board_mask_52
 from ml.etl.rangenet.postflop.texas_solver_extractor import TexasSolverExtractor
-from ml.config.bet_menus import BET_SIZE_MENUS_NL10, BET_SIZE_MENUS_NL25, DEFAULT_MENU_NL25, DEFAULT_MENU_NL10
 dotenv.load_dotenv()
 
 
@@ -200,38 +199,9 @@ def build_postflop_policy(
             solver_path = _resolve_solver_path(cfg, s3_key)
             board = str(getattr(r, "board", "") or "")
             cluster_id = getattr(r, "board_cluster_id", None)
+            stake = getattr(r, "stake", 0)
             hero_pos = ip_pos
 
-            # --- stake selection (manifest column beats config; default NL10) ---
-            def _stake_from(cfg, row) -> str:
-                # try manifest column names commonly used
-                for col in ("stake", "stakes", "stake_level"):
-                    val = getattr(row, col, None)
-                    if val:
-                        return str(val).upper()
-                # then config
-                val = _get(cfg, "inputs.stakes", None) or _get(cfg, "training.stakes", None)
-                return str(val or "NL10").upper()
-
-            stake = _stake_from(cfg, r)
-
-            # route tables by stake
-            if stake == "NL25":
-                _BETS = BET_SIZE_MENUS_NL25
-                _DEFAULT = DEFAULT_MENU_NL25
-            else:  # NL10 (fallback)
-                _BETS = BET_SIZE_MENUS_NL10
-                _DEFAULT = DEFAULT_MENU_NL10
-
-            # --- sizes: prefer manifest column if present (still allowed to override) ---
-            raw_sizes = getattr(r, "bet_sizes", None)
-            sizes_manifest = _ensure_float_list(raw_sizes)
-
-            menu_pcts = tuple(
-                sizes_manifest if sizes_manifest else _BETS.get(menu_id, _DEFAULT)
-            )
-
-            # --- assemble base_row (trainer-ready) ---
             base_row = {
                 "s3_key": _normalize_s3_key(s3_key),
                 "node_key": node_key,
@@ -252,7 +222,6 @@ def build_postflop_policy(
                 "board_mask_52": _mask52_cached(board) if board else [0.0] * 52,
 
                 "bet_sizing_id": menu_id,
-                "bet_sizes": list(menu_pcts),
 
                 "valid": 1,
             }
@@ -328,6 +297,7 @@ def build_postflop_policy(
 def run_from_config(
     cfg: Mapping[str, Any],
     *,
+    manifest_path: str,
     shard_index: Optional[int],
     shard_count: Optional[int],
     part_rows: int,
@@ -337,24 +307,34 @@ def run_from_config(
     sample_random: bool = False,
     sample_seed: int = 42,
 ) -> None:
-    manifest = Path(_get(cfg, "inputs.manifest", "data/artifacts/rangenet_postflop_flop_manifest.parquet"))
-    if not manifest.exists():
-        raise FileNotFoundError(f"Manifest not found: {manifest}")
+    from pathlib import Path
+    import numpy as np
+    import pandas as pd
 
-    df = pd.read_parquet(manifest)
+    mpath = Path(manifest_path).expanduser().resolve()
+    if not mpath.exists():
+        raise FileNotFoundError(f"Manifest not found: {mpath}")
 
+    # Load manifest once
+    df = pd.read_parquet(mpath)
     if "node_key" not in df.columns:
         df = df.assign(node_key="root")
 
-    # optional sharding
+    # Shard bookkeeping
     shard_label = "solo"
     if shard_count is not None and shard_index is not None:
-        mask = df.apply(lambda r: _stable_shard_index(str(r["s3_key"]), str(r["node_key"]), shard_count) == shard_index, axis=1)
+        # stable sharding by (s3_key, node_key)
+        mask = df.apply(
+            lambda r: _stable_shard_index(
+                str(r["s3_key"]), str(r["node_key"]), shard_count
+            ) == shard_index,
+            axis=1,
+        )
         df = df.loc[mask].reset_index(drop=True)
         print(f"🧩 shard {shard_index}/{shard_count} → {len(df)} manifest rows")
         shard_label = f"{shard_index:02d}of{shard_count:02d}"
 
-    # optional sampling
+    # Optional sampling
     if sample_n is not None and sample_n > 0 and len(df) > 0:
         if sample_random:
             rng = np.random.default_rng(sample_seed)
@@ -364,11 +344,15 @@ def run_from_config(
             df = df.head(sample_n).reset_index(drop=True)
         print(f"🔎 sample mode: using {len(df)} row(s)")
 
-    tmp_manifest = manifest.with_suffix(".shard.tmp.parquet")
+    # Persist a filtered temp manifest for the builder
+    out_dir = Path(parts_local_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_manifest = out_dir / f"__tmp_manifest_{shard_label}.parquet"
     df.to_parquet(tmp_manifest, index=False)
 
-    debug_dump = Path(parts_local_dir) / f"debug-{shard_label}.jsonl"
+    debug_dump = out_dir / f"debug-{shard_label}.jsonl"
 
+    # Build using the filtered manifest
     build_postflop_policy(
         manifest_path=tmp_manifest,
         cfg=cfg,
@@ -379,6 +363,7 @@ def run_from_config(
         strict_mode=_get(cfg, "builder.strict_mode", "fail"),
         debug_dump=str(debug_dump),
     )
+
     print("✅ run_from_config complete.")
 
 
@@ -387,6 +372,8 @@ if __name__ == "__main__":
     from ml.utils.config import load_model_config
 
     ap = argparse.ArgumentParser("Build Postflop Policy (sharded, streaming parquet parts)")
+    ap.add_argument("--manifest", type=str, required=True,  # <— NEW: explicit parquet path
+                    help="Path to the manifest parquet to consume")
     ap.add_argument("--config", type=str, default="rangenet/postflop")
     ap.add_argument("--shard-index", type=int, default=None)
     ap.add_argument("--shard-count", type=int, default=None)
@@ -403,6 +390,7 @@ if __name__ == "__main__":
     try:
         run_from_config(
             cfg,
+            manifest_path=args.manifest,
             shard_index=args.shard_index,
             shard_count=args.shard_count,
             part_rows=args.part_rows,
