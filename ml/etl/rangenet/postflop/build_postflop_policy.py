@@ -97,70 +97,80 @@ def build_postflop_policy(
     cfg: Mapping[str, Any],
     *,
     part_rows: int = 2000,
-    parts_local_dir: str = "data/datasets/postflop_policy_parts",
-    parts_s3_prefix: Optional[str] = None,
+    parts_local_dir_root: str = "data/datasets/postflop_policy_parts_root",
+    parts_local_dir_facing: str = "data/datasets/postflop_policy_parts_facing",
+    parts_s3_prefix_root: Optional[str] = None,
+    parts_s3_prefix_facing: Optional[str] = None,
     shard_label: Optional[str] = None,
-    strict_mode: str = "fail",                 # 'fail' | 'emit_sentinel' | 'skip'
-    debug_dump: Optional[str] = None,          # path to .jsonl for problematic rows
+    strict_mode: str = "fail",
+    debug_dump: Optional[str] = None,
 ) -> None:
-    """
-    Postflop-policy builder using the new solver parser.
-    Produces action probability vectors aligned with ACTION_VOCAB.
-    """
     s3c = S3Client()
     df = pd.read_parquet(manifest_path)
-    out_dir = Path(parts_local_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    rows_buffer: list[dict] = []
-    parts_written = 0
+
+    out_root   = Path(parts_local_dir_root);   out_root.mkdir(parents=True, exist_ok=True)
+    out_facing = Path(parts_local_dir_facing); out_facing.mkdir(parents=True, exist_ok=True)
+
+    rows_root:   list[dict] = []
+    rows_facing: list[dict] = []
+
+    parts_written_root   = 0
+    parts_written_facing = 0
     x = TexasSolverExtractor()
 
     diag = {"ok": 0, "sentinel": 0, "zero_mass": 0}
     dump_fh = open(debug_dump, "a", encoding="utf-8") if debug_dump else None
 
-    def _emit_sentinel(base_row: dict, reason: str):
+    def _emit_sentinel(base_row: dict, reason: str, *, target: str):
         if dump_fh:
-            dump_fh.write(json.dumps({"reason": reason, **base_row}) + "\n")
+            dump_fh.write(json.dumps({"reason": reason, "target": target, **base_row}) + "\n")
         if strict_mode == "fail":
-            raise RuntimeError(f"{reason}: {str(base_row.get('s3_key', '?'))}")
+            raise RuntimeError(f"{reason}: {str(base_row.get('s3_key', '?'))} [{target}]")
         elif strict_mode in {"emit_sentinel", "skip"}:
             row = {**base_row, "valid": 0, "weight": 0.0, "action": "CHECK"}
-            for a in ACTION_VOCAB:
-                row[a] = 0.0
-            rows_buffer.append(row)
+            for a in ACTION_VOCAB: row[a] = 0.0
+            if target == "root":
+                rows_root.append(row)
+            else:
+                rows_facing.append(row)
             diag["sentinel"] += 1
 
-    def part_name(i: int) -> str:
+    def _part_name(kind: str, i: int) -> str:
         pref = f"shard-{shard_label}-" if shard_label else ""
-        return f"{pref}part-{i:05d}.parquet"
+        return f"{pref}{kind}-part-{i:05d}.parquet"
 
-    def flush_part():
-        nonlocal rows_buffer, parts_written
-        if not rows_buffer:
-            return
-
-        # Build the part dataframe
-        part_df = pd.DataFrame(rows_buffer)
-
-        # Ensure all vocab columns exist
+    def _ensure_vocab_cols(df: pd.DataFrame) -> pd.DataFrame:
         for a in ACTION_VOCAB:
-            if a not in part_df.columns:
-                part_df[a] = 0.0
+            if a not in df.columns:
+                df[a] = 0.0
+        return df
 
-        # Write to disk (pyarrow engine is faster and memory-friendlier)
-        path = out_dir / part_name(parts_written)
-        part_df.to_parquet(path, index=False, engine="pyarrow")  # compression defaults are fine
-
+    def flush_root():
+        nonlocal rows_root, parts_written_root
+        if not rows_root: return
+        part_df = _ensure_vocab_cols(pd.DataFrame(rows_root))
+        path = out_root / _part_name("root", parts_written_root)
+        part_df.to_parquet(path, index=False, engine="pyarrow")
+        if parts_s3_prefix_root:
+            _retry(lambda: s3c.upload_file(path, f"{parts_s3_prefix_root}/{path.name}"))
         print(f"💾 wrote {path} (rows={len(part_df)})")
+        parts_written_root += 1
+        rows_root = []
+        del part_df;
+        gc.collect()
 
-        # Optional: push to S3
-        if parts_s3_prefix:
-            _retry(lambda: s3c.upload_file(path, f"{parts_s3_prefix}/{path.name}"))
-
-        parts_written += 1
-
-        # Free memory
-        rows_buffer = []  # drop references
-        del part_df
+    def flush_facing():
+        nonlocal rows_facing, parts_written_facing
+        if not rows_facing: return
+        part_df = _ensure_vocab_cols(pd.DataFrame(rows_facing))
+        path = out_facing / _part_name("facing", parts_written_facing)
+        part_df.to_parquet(path, index=False, engine="pyarrow")
+        if parts_s3_prefix_facing:
+            _retry(lambda: s3c.upload_file(path, f"{parts_s3_prefix_facing}/{path.name}"))
+        print(f"💾 wrote {path} (rows={len(part_df)})")
+        parts_written_facing += 1
+        rows_facing = []
+        del part_df;
         gc.collect()
 
     def _resolve_solver_path(cfg: Mapping[str, Any], s3_key: Any) -> Path:
@@ -240,46 +250,46 @@ def build_postflop_policy(
 
             emitted_any = False
 
-            def _emit_row(probs: dict, *, actor: str, facing_flag: int):
-                nonlocal emitted_any, rows_buffer, diag
+            def _emit_row(probs: dict, *, actor: str, facing_flag: int, target: str):
                 if not probs:
+                    _emit_sentinel(base_row, "empty_probs", target=target)
                     return
                 vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
                 s = float(vec.sum())
                 if s <= 1e-12:
+                    _emit_sentinel(base_row, "zero_mass", target=target)
                     return
                 vec /= s
                 argmax_action = ACTION_VOCAB[int(vec.argmax())]
 
                 out_row = {
                     **base_row,
-                    "actor": actor,  # "ip" for root, "oop" for facing (our convention)
-                    "facing_bet": int(facing_flag),  # 0 = not facing, 1 = facing
+                    "actor": actor,  # "ip" for root, "oop" for facing (convention)
+                    "facing_bet": facing_flag,  # 0/1
                     "action": argmax_action,
                     "weight": 1.0,
                 }
                 for a, p in zip(ACTION_VOCAB, vec.tolist()):
                     out_row[a] = float(p)
 
-                rows_buffer.append(out_row)
+                if target == "root":
+                    rows_root.append(out_row)
+                else:
+                    rows_facing.append(out_row)
+
                 diag["ok"] += 1
-                emitted_any = True
 
             if ex.ok:
-                # Root = IP first-to-act in our trees
-                _emit_row(ex.root_mix, actor="ip", facing_flag=0)
-                # Facing = OOP response to IP bet
-                _emit_row(ex.facing_mix, actor="oop", facing_flag=1)
-
-                if not emitted_any:
-                    _emit_sentinel(base_row, "zero_mass")
-                    continue
+                _emit_row(ex.root_mix, actor="ip", facing_flag=0, target="root")
+                _emit_row(ex.facing_mix, actor="oop", facing_flag=1, target="facing")
             else:
-                _emit_sentinel(base_row, ex.reason or "extract_failed")
-                continue
+                # emit a sentinel to BOTH targets so downstream counts match
+                _emit_sentinel(base_row, ex.reason or "extract_failed", target="root")
+                _emit_sentinel(base_row, ex.reason or "extract_failed", target="facing")
 
-            if len(rows_buffer) >= part_rows:
-                flush_part()
+            # flush each independently when it hits the threshold
+            if len(rows_root) >= part_rows: flush_root()
+            if len(rows_facing) >= part_rows: flush_facing()
 
         except Exception as e:
             # ensure dict for sentinel path
@@ -287,10 +297,16 @@ def build_postflop_policy(
                 base_row = {}
             _emit_sentinel(base_row, f"exception: {e}")
 
-    flush_part()
+    flush_root()
+    flush_facing()
     if dump_fh: dump_fh.close()
 
-    print("✅ done.", f"parts={parts_written}", f"ok={diag['ok']}", f"sentinel={diag['sentinel']}", sep="  ")
+    print("✅ done.",
+          f"root_parts={parts_written_root}",
+          f"facing_parts={parts_written_facing}",
+          f"ok={diag['ok']}",
+          f"sentinel={diag['sentinel']}",
+          sep="  ")
 
 
 # === Shard runner ===
@@ -302,7 +318,6 @@ def run_from_config(
     shard_count: Optional[int],
     part_rows: int,
     parts_local_dir: str,
-    parts_s3_prefix: Optional[str],
     sample_n: Optional[int] = None,
     sample_random: bool = False,
     sample_seed: int = 42,
@@ -352,13 +367,21 @@ def run_from_config(
 
     debug_dump = out_dir / f"debug-{shard_label}.jsonl"
 
-    # Build using the filtered manifest
+    root_dir = _get(cfg, "builder.policy_parts_dir_root", "data/datasets/postflop_policy_parts_root")
+    facing_dir = _get(cfg, "builder.policy_parts_dir_facing", "data/datasets/postflop_policy_parts_facing")
+
+    # ensure both exist
+    Path(root_dir).mkdir(parents=True, exist_ok=True)
+    Path(facing_dir).mkdir(parents=True, exist_ok=True)
+
     build_postflop_policy(
         manifest_path=tmp_manifest,
         cfg=cfg,
         part_rows=part_rows,
-        parts_local_dir=parts_local_dir,
-        parts_s3_prefix=parts_s3_prefix,
+        parts_local_dir_root=root_dir,
+        parts_local_dir_facing=facing_dir,
+        parts_s3_prefix_root=_get(cfg, "builder.parts_s3_prefix_root", None),
+        parts_s3_prefix_facing=_get(cfg, "builder.parts_s3_prefix_facing", None),
         shard_label=shard_label,
         strict_mode=_get(cfg, "builder.strict_mode", "fail"),
         debug_dump=str(debug_dump),
@@ -395,7 +418,6 @@ if __name__ == "__main__":
             shard_count=args.shard_count,
             part_rows=args.part_rows,
             parts_local_dir=args.parts_local_dir,
-            parts_s3_prefix=args.parts_s3_prefix,
             sample_n=args.sample_n,
             sample_random=args.sample_random,
             sample_seed=args.sample_seed,
