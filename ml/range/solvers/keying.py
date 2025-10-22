@@ -26,24 +26,19 @@ def _sanitize_board(board: str | None) -> str:
         return ""
     return str(board).replace(",", "").replace(" ", "")
 
-def s3_key_for_solve(
+def s3_key_base(
     params: Dict[str, Any],
-    sha1: str,
+    sha: str,
     prefix: str = "solver/outputs/v1",
 ) -> str:
     street = int(params.get("street", 1))
-    pos    = str(params.get("positions", "UNKvUNK"))
-    stack  = int(round(float(params.get("effective_stack_bb", 0))))
-    pot    = int(round(float(params.get("pot_bb", 0))))
-    # prefer explicit board; else fall back to cluster label
-    board_raw = params.get("board")
-    if not board_raw:
-        board_raw = f"cluster_{int(params.get('board_cluster_id', -1))}"
-    board = _sanitize_board(board_raw)
-
-    acc   = float(params.get("accuracy", 0.01))
+    pos = str(params.get("positions", "UNKvUNK"))
+    stack = int(round(float(params.get("effective_stack_bb", 0))))
+    pot = int(round(float(params.get("pot_bb", 0))))
+    board = _sanitize_board(params.get("board") or f"cluster_{int(params.get('board_cluster_id', -1))}")
+    acc = float(params.get("accuracy", 0.01))
     sizes = str(params.get("bet_sizing_id", "std"))
-    shard = sha1[:2]
+    shard = solve_sha1(params)[:2]  # same sha1, no size in params
 
     return (
         f"{prefix}"
@@ -54,5 +49,11 @@ def s3_key_for_solve(
         f"/board={board}"
         f"/acc={acc:.2f}"
         f"/sizes={sizes}"
-        f"/{shard}/{sha1}/output_result.json.gz"
+        f"/{shard}/{sha}"
     )
+
+def s3_key_for_size(base_key: str, size_pct: int) -> str:
+    """
+    Turns a base directory into a concrete object key for a given size.
+    """
+    return f"{base_key}/size={int(size_pct)}p/output_result.json.gz"

@@ -14,7 +14,7 @@ CTX_ALIASES = {
     "BLIND_VS_STEAL": "BLIND_VS_STEAL", "BVS": "BLIND_VS_STEAL",
     "VS_3BET": "VS_3BET", "3BET": "VS_3BET",
     "VS_4BET": "VS_4BET", "4BET": "VS_4BET",
-    "LIMPED_SINGLE": "LIMP_SINGLE", "LIMP_SINGLE": "LIMP_SINGLE",
+    "LIMPED_SINGLE": "LIMPED_SINGLE", "LIMPED_SINGLE": "LIMPED_SINGLE",
     "LIMPED_MULTI": "LIMP_MULTI",   "LIMP_MULTI": "LIMP_MULTI",
     "VS_CBET": "VS_CBET", "VS_CBET_TURN": "VS_CBET_TURN",
     "VS_CHECK_RAISE": "VS_CHECK_RAISE", "VS_DONK": "VS_DONK",
@@ -39,16 +39,17 @@ VALID_4BET_PAIRS: Set[Pair] = {
     ("BTN","SB"), ("SB","BTN"),
 }
 
-VALID_BVS_PAIRS: Set[Pair] = {
-    ("BTN","BB"), ("BTN","SB"), ("CO","BB"),
-}
 
 VALID_LIMP_SINGLE_PAIRS: Set[Pair] = {
     ("BB","SB"),           # SB limps, BB checks → IP=BB
 }
 
+VALID_BVS_PAIRS: Set[Pair] = {
+    ("BTN","BB"), ("BTN","SB"), ("CO","BB"), ("CO","SB")  # add ("CO","SB") if you’ll use it
+}
+
 VALID_LIMP_MULTI_PAIRS: Set[Pair] = {
-    ("BB","SB"), ("BTN","SB"),
+    ("BB","SB"), ("BTN","SB"), ("BTN","BB")  # add ("BTN","BB")
 }
 
 # --- New helper ---
@@ -61,16 +62,14 @@ def to_ip_oop_from_clockwise(ctx: str, a: str, b: str) -> tuple[str, str]:
     A, B = canon_pos(a), canon_pos(b)
     c = str(ctx).upper()
 
-    if c in ("LIMPED_SINGLE", "LIMP_SINGLE"):
+    if c in ("LIMPED_SINGLE", "LIMPED_SINGLE"):
         # SB limps, BB checks → flop IP=BB, OOP=SB
         return ("BB", "SB")  # regardless of input order
 
     if c in ("LIMPED_MULTI", "LIMP_MULTI"):
-        # We only model HU at flop; when we do include it, use the HU heads (e.g., BTN limps, SB checks → IP=BTN or SB?)
-        # For now keep the pairs you approved, mapping intuitively:
         if (A, B) == ("BB", "SB"):   return ("BB", "SB")
-        if (A, B) == ("BTN","SB"):   return ("BTN","SB")
-        # fallback – keep as-is but still canonicalized
+        if (A, B) == ("BTN", "SB"):   return ("BTN", "SB")
+        if (A, B) == ("BTN", "BB"):   return ("BTN", "BB")
         return (A, B)
 
     # SRP and relatives: treat input as (opener, defender) and derive IP/OOP:
@@ -94,7 +93,7 @@ def valid_pairs_for_ctx(ctx: str) -> Set[Pair]:
     if key == "VS_3BET":       return VALID_3BET_PAIRS
     if key == "VS_4BET":       return VALID_4BET_PAIRS
     if key == "BLIND_VS_STEAL":return VALID_BVS_PAIRS
-    if key == "LIMP_SINGLE":   return VALID_LIMP_SINGLE_PAIRS
+    if key == "LIMPED_SINGLE":   return VALID_LIMP_SINGLE_PAIRS
     if key == "LIMP_MULTI":    return VALID_LIMP_MULTI_PAIRS
     # Unknown/unmodeled contexts → no legal pairs
     return set()

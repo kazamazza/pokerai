@@ -40,15 +40,9 @@ class SphIndex:
         df["stack_bb"] = pd.to_numeric(df["stack_bb"], errors="coerce").astype("Int64")
 
         self.df = df
-
-        # expose stacks for union in PreflopRangeLookup
         self.stacks: list[int] = sorted(int(x) for x in df["stack_bb"].dropna().unique().tolist())
-
-        # (optional) quick diags
         self.ctxs  = sorted(df["ctx"].dropna().unique().tolist())
         self.pairs = sorted({(str(r.ip_pos), str(r.oop_pos)) for _, r in df[["ip_pos","oop_pos"]].dropna().iterrows()})
-
-        # primary cache root + fallback
         self.cache_dir = Path(cache_dir)
         self.cache_fallback = Path("data/vendor_cache")
         self.s3_vendor = (s3_vendor or "").rstrip("/") if s3_vendor else None
@@ -76,14 +70,12 @@ class SphIndex:
             if p_abs.is_file():
                 return p_abs
 
-        # 2) try both cache roots with rel_path
         rel = str(row["rel_path"]).lstrip("/").replace("\\", "/")
         for root in (self.cache_dir, self.cache_fallback):
             p_local = root / rel
             if p_local.is_file():
                 return p_local
 
-        # 3) S3 → cache (under the primary cache_dir)
         if self.s3_vendor and self.s3:
             rel_sph = _ensure_subdir(rel, "sph")
             s3_key = _join_s3(self.s3_vendor, rel_sph)
@@ -125,11 +117,9 @@ def load_sph_range_compact(path: Path, *, pick: str|None=None) -> str:
             raise ValueError(f"SPH JSON needs one of the known keys at {path}")
     except Exception:
         pass
-    # 2) Monker string (your ip.csv/oop.csv)
     if ":" in text and any(tag in text for tag in ("AA","AKs","KQo","22","72o")):
         vec = _monker_to_vec169(text)
         return json.dumps(vec)
-    # 3) 13x13 CSV of numbers
     try:
         df = pd.read_csv(path, header=None)
         arr = df.to_numpy(dtype=float)
@@ -141,9 +131,7 @@ def load_sph_range_compact(path: Path, *, pick: str|None=None) -> str:
 
 
 class PreflopRangeLookup:
-    # -------- Context normalization (public labels -> canonical) --------
     CTX_ALIAS = {
-        # SRP-like contexts all normalize to SRP
         "OPEN": "SRP",
         "VS_OPEN": "SRP",
         "VS_OPEN_RFI": "SRP",
@@ -156,7 +144,7 @@ class PreflopRangeLookup:
         "VS_4BET": "VS_4BET",
         # limp variants (kept distinct)
         "LIMPED_SINGLE": "LIMPED_SINGLE",
-        "LIMP_SINGLE": "LIMPED_SINGLE",
+        "LIMPED_SINGLE": "LIMPED_SINGLE",
         "LIMPED_MULTI": "LIMPED_MULTI",
         "LIMP_MULTI": "LIMPED_MULTI",
     }
@@ -172,7 +160,6 @@ class PreflopRangeLookup:
         allow_pair_subs: bool = False,
         max_stack_delta: Optional[int] = None,
     ):
-        print("monker_manifest_parquet", monker_manifest_parquet)
         # ---- Load & normalize manifest (new/old schema tolerant) ----
         df = pd.read_parquet(str(monker_manifest_parquet)).copy()
 
@@ -181,22 +168,19 @@ class PreflopRangeLookup:
             df["ip_pos"] = df["ip_actor_flop"]
         if "oop_pos" not in df.columns and "oop_actor_flop" in df.columns:
             df["oop_pos"] = df["oop_actor_flop"]
-
-        # 2) hero_pos: explicit -> hint -> derive from rel_path parent
         if "hero_pos" not in df.columns:
             if "hero_pos_hint" in df.columns:
                 df["hero_pos"] = df["hero_pos_hint"]
             elif "rel_path" in df.columns:
                 def _hero_from_rel(p):
                     try:
-                        return Path(str(p)).parent.name  # .../<HERO>/<file>.txt
+                        return Path(str(p)).parent.name
                     except Exception:
                         return None
                 df["hero_pos"] = df["rel_path"].map(_hero_from_rel)
             else:
                 df["hero_pos"] = None
 
-        # 3) ctx: derive from topology if missing
         if "ctx" not in df.columns:
             topo2ctx = {
                 "srp_hu": "SRP", "srp_multi": "SRP",
@@ -243,12 +227,11 @@ class PreflopRangeLookup:
         self.allow_pair_subs = bool(allow_pair_subs)
         self.max_stack_delta = max_stack_delta if (max_stack_delta is None or max_stack_delta >= 0) else None
 
-        # ---- SPH (optional; used for limped ctx) ----
         self.sph: Optional[SphIndex] = None
         if sph_manifest_parquet and Path(sph_manifest_parquet).exists():
             self.sph = SphIndex(
                 manifest_parquet=sph_manifest_parquet,
-                cache_dir=self.cache_dir,  # use same cache root
+                cache_dir=self.cache_dir,
                 s3_vendor=(self.s3_vendor or "data/vendor"),
                 s3_client=S3Client(),
             )
@@ -307,10 +290,8 @@ class PreflopRangeLookup:
                     "hero": hero, "ip": ip, "oop": oop, "ctx": ctx, "stack": st
                 })
 
-
-        # quick diag set
         self._seen_pairs_ctx = {(k[1], k[3], k[4]) for k in self._monker_idx_ctx.keys()}
-    # ---------- path resolution ----------
+
     def _resolve_monker_path(self, row: dict) -> Path:
         abs_path = Path(row.get("abs_path") or "")
         if str(abs_path) and abs_path.exists():
@@ -337,14 +318,13 @@ class PreflopRangeLookup:
             raise RuntimeError(f"Failed to materialize vendor file: {s3_key}")
         return cache_path
 
-    # ---------- small helpers ----------
     def _canon_ctx(self, ctx: str) -> str:
         c = str(ctx).upper()
         return type(self).CTX_ALIAS.get(c, c)
 
     def _canon_ctx_sph(self, ctx: str) -> str:
         c = str(ctx).upper()
-        if c == "LIMPED_SINGLE": return "LIMP_SINGLE"
+        if c == "LIMPED_SINGLE": return "LIMPED_SINGLE"
         if c == "LIMPED_MULTI":  return "LIMP_MULTI"
         return c
 
@@ -358,16 +338,39 @@ class PreflopRangeLookup:
         rows = self._monker_idx_srp.get(key)
         return rows[0] if rows else None
 
-    # NEW: choose best two rows (prefer hero==ip and hero==oop)
+    def _rows_distinct(self, a: Optional[dict], b: Optional[dict]) -> bool:
+        """Two vendor rows are considered distinct if either their paths or hashes differ."""
+        if not a or not b:
+            return False
+        pa = (a.get("abs_path") or a.get("rel_path") or "").strip()
+        pb = (b.get("abs_path") or b.get("rel_path") or "").strip()
+        if pa and pb and pa != pb:
+            return True
+        sa = (a.get("file_sha1") or a.get("sha1") or "").strip()
+        sb = (b.get("file_sha1") or b.get("sha1") or "").strip()
+        if sa and sb and sa != sb:
+            return True
+        return False
+
     def _pick_best_two(self, rows: List[dict], ip: str, oop: str) -> Tuple[Optional[dict], Optional[dict]]:
+        """
+        Return (ip_row, oop_row) if BOTH exist; never mirror.
+        If only one side exists, return (that, None) or (None, that).
+        """
         if not rows:
             return None, None
-        ip_row  = next((r for r in rows if r["hero"] == ip), None)
-        oop_row = next((r for r in rows if r["hero"] == oop), None)
-        if ip_row is None:
-            ip_row = rows[0]
-        if oop_row is None:
-            oop_row = rows[1] if len(rows) > 1 else rows[0]
+
+        ip = canon_pos(ip)
+        oop = canon_pos(oop)
+
+        ip_row = next((r for r in rows if canon_pos(r.get("hero")) == ip), None)
+        oop_row = next((r for r in rows if canon_pos(r.get("hero")) == oop), None)
+
+        # If both found but they actually point to same file/hash, treat as partial
+        if ip_row and oop_row and not self._rows_distinct(ip_row, oop_row):
+            # Keep the IP pick; force OOP to None (so caller can fallback)
+            oop_row = None
+
         return ip_row, oop_row
 
     def _monker_pick_ctx_pair(self, stack: int, ctx: str, ip: str, oop: str) -> Tuple[Optional[dict], Optional[dict]]:
@@ -386,7 +389,7 @@ class PreflopRangeLookup:
     def _sph_ctx_for(self, ctx: str) -> str | None:
         c = (ctx or "").upper()
         if c == "SRP": return "SRP"
-        if c == "LIMPED_SINGLE": return "LIMP_SINGLE"
+        if c == "LIMPED_SINGLE": return "LIMPED_SINGLE"
         if c == "LIMPED_MULTI": return "LIMP_MULTI"
         return None
 
@@ -399,7 +402,7 @@ class PreflopRangeLookup:
             ctx: str = "SRP",
             strict: bool = True,
     ) -> Tuple[str, str, Dict[str, object]]:
-        ip = canon_pos(ip);
+        ip = canon_pos(ip)
         oop = canon_pos(oop)
         if not ip or not oop or ip == oop:
             raise RuntimeError(f"Bad positions ip={ip} oop={oop}")
@@ -428,7 +431,7 @@ class PreflopRangeLookup:
                 # 1) Monker exact context (hero)
                 row_ip = self._monker_pick_ctx(s, ctx, hero=cand_ip, ip=cand_ip, oop=cand_oop)
                 row_oop = self._monker_pick_ctx(s, ctx, hero=cand_oop, ip=cand_ip, oop=cand_oop)
-                if row_ip and row_oop:
+                if row_ip and row_oop and self._rows_distinct(row_ip, row_oop):
                     p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
                     rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
                     meta = {**base_meta, "source": f"monker:{ctx}",
@@ -439,7 +442,7 @@ class PreflopRangeLookup:
 
                 # 2) Monker exact context (pair-level)
                 row_ip2, row_oop2 = self._monker_pick_ctx_pair(s, ctx, ip=cand_ip, oop=cand_oop)
-                if row_ip2 and row_oop2:
+                if row_ip2 and row_oop2 and self._rows_distinct(row_ip2, row_oop2):
                     p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
                     rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
                     meta = {**base_meta, "source": f"monker:{ctx}",
@@ -452,7 +455,7 @@ class PreflopRangeLookup:
                 if ctx == "SRP":
                     row_ip = self._monker_pick_srp(s, hero=cand_ip, ip=cand_ip, oop=cand_oop)
                     row_oop = self._monker_pick_srp(s, hero=cand_oop, ip=cand_ip, oop=cand_oop)
-                    if row_ip and row_oop:
+                    if row_ip and row_oop and self._rows_distinct(row_ip, row_oop):
                         p_ip, p_oop = self._resolve_monker_path(row_ip), self._resolve_monker_path(row_oop)
                         rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
                         meta = {**base_meta, "source": "monker:SRP-fallback",
@@ -463,7 +466,7 @@ class PreflopRangeLookup:
 
                     # 4) Monker SRP fallback (pair-level)
                     row_ip2, row_oop2 = self._monker_pick_srp_pair(s, ip=cand_ip, oop=cand_oop)
-                    if row_ip2 and row_oop2:
+                    if row_ip2 and row_oop2 and self._rows_distinct(row_ip2, row_oop2):
                         p_ip, p_oop = self._resolve_monker_path(row_ip2), self._resolve_monker_path(row_oop2)
                         rng_ip, rng_oop = _load_vendor_range_compact(p_ip), _load_vendor_range_compact(p_oop)
                         meta = {**base_meta, "source": "monker:SRP-fallback",
@@ -472,13 +475,12 @@ class PreflopRangeLookup:
                                 "monker_ip_path": str(p_ip), "monker_oop_path": str(p_oop)}
                         return rng_ip, rng_oop, meta
 
-                # 5) SPH fallback (any mappable ctx: SRP, LIMP_SINGLE, LIMP_MULTI)
                 if self.sph is not None:
                     sph_ctx = self._sph_ctx_for(ctx)
                     if sph_ctx:
                         row_ip = self.sph._pick(s, sph_ctx, hero="IP", ip=cand_ip, oop=cand_oop)
                         row_oop = self.sph._pick(s, sph_ctx, hero="OOP", ip=cand_ip, oop=cand_oop)
-                        if row_ip and row_oop:
+                        if row_ip and row_oop and self._rows_distinct(row_ip, row_oop):
                             p_ip = self.sph._resolve_path(row_ip)
                             p_oop = self.sph._resolve_path(row_oop)
                             rng_ip = load_sph_range_compact(p_ip, pick="ip")
@@ -487,9 +489,8 @@ class PreflopRangeLookup:
                                     "range_ip_source_stack": s, "range_oop_source_stack": s,
                                     "range_ip_stack_delta": delta, "range_oop_stack_delta": delta,
                                     "sph_ip_path": str(p_ip), "sph_oop_path": str(p_oop)}
+                            print(row_ip, row_oop, row_oop)
                             return rng_ip, rng_oop, meta
-
-        # 6) Last resort
         if strict:
             raise RuntimeError(f"No ranges found for {ip}v{oop}@{stack_bb} ctx={ctx}")
         flat_range = json.dumps([1.0] * 169)

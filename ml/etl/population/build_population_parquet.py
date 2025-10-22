@@ -98,12 +98,15 @@ def _cfg_get(cfg: dict, path: str, default=None):
         cur = cur[p]
     return cur
 
-def run_from_config(cfg: dict) -> Path:
-    parquet_in = _cfg_get(cfg, "inputs.parquet")  # <- enriched parquet
+def run_from_config(cfg: dict, *, parquet: str | None = None) -> Path:
+    """
+    Build PopulationNet dataset. If `parquet` is provided, it overrides any config value.
+    """
+    parquet_in = parquet
     out_parquet = _cfg_get(cfg, "build.out_parquet", "data/datasets/populationnet.parquet")
     x_cols = _cfg_get(cfg, "dataset.x_cols")
     if not parquet_in or not x_cols:
-        raise ValueError("Need inputs.parquet and dataset.x_cols in config.")
+        raise ValueError("Need parquet (CLI or config) and dataset.x_cols in config.")
     weight_mode = _cfg_get(cfg, "build.weight_mode", "count")
     min_rows = _cfg_get(cfg, "build.min_rows", None)
 
@@ -115,11 +118,14 @@ def run_from_config(cfg: dict) -> Path:
         min_rows=min_rows,
     )
 
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="populationnet",
                     help="Model name or YAML path")
+    ap.add_argument("--parquet", type=str, required=True,
+                    help="Path to enriched parquet for PopulationNet")
     args = ap.parse_args()
     cfg = load_model_config(args.config)
-    run_from_config(cfg)
+    run_from_config(cfg, parquet=args.parquet)

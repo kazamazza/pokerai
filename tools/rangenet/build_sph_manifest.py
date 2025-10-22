@@ -32,7 +32,10 @@ def _rows_from_ctx_dir(ctx_dir: Path, ctx: str) -> list[dict]:
             ip_csv  = pair_dir / "ip.csv"
             oop_csv = pair_dir / "oop.csv"
 
-            # Rows are “file pointers” for SphIndex/lookup to materialize later
+            # Compute base relative and absolute paths cleanly
+            rel_base = f"sph/{ctx}/{stack}/{ip}_{oop}"
+            abs_base = pair_dir.resolve()  # full absolute path on disk
+
             if ip_csv.exists():
                 rows.append({
                     "stack_bb": stack,
@@ -40,8 +43,8 @@ def _rows_from_ctx_dir(ctx_dir: Path, ctx: str) -> list[dict]:
                     "ip_pos": ip,
                     "oop_pos": oop,
                     "hero_pos": "IP",
-                    "rel_path": f"sph/{ctx}/{stack}/{ip}_{oop}/ip.csv",
-                    "abs_path": None,
+                    "rel_path": f"{rel_base}/ip.csv",
+                    "abs_path": str((abs_base / "ip.csv").resolve()),
                 })
             if oop_csv.exists():
                 rows.append({
@@ -50,18 +53,18 @@ def _rows_from_ctx_dir(ctx_dir: Path, ctx: str) -> list[dict]:
                     "ip_pos": ip,
                     "oop_pos": oop,
                     "hero_pos": "OOP",
-                    "rel_path": f"sph/{ctx}/{stack}/{ip}_{oop}/oop.csv",
-                    "abs_path": None,
+                    "rel_path": f"{rel_base}/oop.csv",
+                    "abs_path": str((abs_base / "oop.csv").resolve()),
                 })
     return rows
 
 def main():
     ap = argparse.ArgumentParser(description="Scan SPH cache (ip.csv/oop.csv) into a manifest parquet.")
     ap.add_argument("--cache-root", type=Path, default=Path("data/vendor_cache/sph"),
-                    help="Root containing SRP/LIMP_SINGLE/LIMP_MULTI subdirs")
+                    help="Root containing SRP/LIMPED_SINGLE/LIMP_MULTI subdirs")
     ap.add_argument("--out", type=Path, default=Path("data/artifacts/sph_manifest.parquet"))
-    ap.add_argument("--ctx", type=str, nargs="*", default=["SRP", "LIMP_SINGLE", "LIMP_MULTI"],
-                    help="Contexts to include (default: SRP LIMP_SINGLE LIMP_MULTI)")
+    ap.add_argument("--ctx", type=str, nargs="*", default=["SRP", "LIMPED_SINGLE", "LIMP_MULTI"],
+                    help="Contexts to include (default: SRP LIMPED_SINGLE LIMP_MULTI)")
     args = ap.parse_args()
 
     rows: list[dict] = []

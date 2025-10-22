@@ -1,5 +1,7 @@
-# ---- canonical positions (6-max) ----
 import numpy as np
+import json
+from pathlib import Path
+from typing import List
 
 from ml.range.solvers.utils.range_utils import hand_to_index
 
@@ -123,14 +125,7 @@ def is_srp_open_call(seq_raw: list[dict], ip_pos: str, oop_pos: str) -> bool:
     return False
 
 
-# ---------------- vendor range loader ----------------
-from pathlib import Path
-import json
 
-import json
-import re
-from pathlib import Path
-from typing import List
 
 def _canonical_169_keys() -> List[str]:
     """Return standard 169-grid keys in A..2 × A..2 order:

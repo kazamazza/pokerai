@@ -190,6 +190,7 @@ if __name__ == "__main__":
         "--config", type=str, default="rangenet/postflop",
         help="Model name or YAML path (resolved by load_model_config)"
     )
+    ap.add_argument("--parquet", type=str, help="Override input parquet path for training/sweep")
     # quick overrides for single-run training
     ap.add_argument("--batch_size", type=int)
     ap.add_argument("--max_epochs", type=int)
@@ -203,6 +204,10 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     cfg = load_model_config(args.config)
+
+    # Inject CLI parquet override (works for both run_train and sweep)
+    if args.parquet:
+        cfg.setdefault("inputs", {})["parquet"] = args.parquet
 
     # ---- apply single-run overrides (always safe; for sweep they become defaults) ----
     train_cfg = cfg.setdefault("train", {})

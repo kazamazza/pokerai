@@ -5,8 +5,6 @@ inputs:
   vendor_s3_prefix: data/vendor
   manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
   local_solver_dir: "/Users/antoniocasamassa/S3/"
-  parquet: data/datasets/postflop_policy_with_seats+manifest.parquet
-
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir: data/datasets/postflop_policy_parts   # or postflop_policy_parts_test for smoke
 
@@ -20,7 +18,7 @@ dataset:
     - ctx
     - street
     - board_cluster_id      # ✅ added
-    - stake
+    - stakes_id
 
   cont_features:
     - pot_bb
@@ -98,85 +96,96 @@ manifest_build:
     - range_oop
     - stake        # ← include stake to avoid cross-stake collisions
 
+  # tools/rangenet/config/scenarios.yml
+  # IP must be first in each pair; OOP second. This avoids role ambiguity across services.
+
   scenarios:
-    # --- Single-raised pots (vs-open) ---
+    # --- Single-raised pots (open → defend) ---
     - name: SRP_IP
       ctx: VS_OPEN
       position_pairs:
+        # Opener IP vs Blinds OOP
         - [ "UTG", "BB" ]
+        - [ "UTG", "SB" ]
         - [ "HJ",  "BB" ]
+        - [ "HJ",  "SB" ]
         - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
         - [ "BTN", "BB" ]
-      bet_menus: [ "srp_ip" ]
+        - [ "BTN", "SB" ]
+      bet_menus: [ "srp_ip" ]     # Why: maps to IP postflop menus in SPH/rangenet
 
     - name: SRP_OOP
       ctx: VS_OPEN
       position_pairs:
-        # Caller OOP = BB (the bread-and-butter raise spots)
+        # Same topology, different menu for OOP trees (caller OOP postflop)
         - [ "UTG", "BB" ]
-        - [ "HJ",  "BB" ]
-        - [ "CO",  "BB" ]
-        - [ "BTN", "BB" ]
-
-        # Caller OOP = SB (BTN/UTG/HJ/CO opens → SB calls) — keep some if you want
-        - [ "BTN", "SB" ]
         - [ "UTG", "SB" ]
+        - [ "HJ",  "BB" ]
         - [ "HJ",  "SB" ]
+        - [ "CO",  "BB" ]
         - [ "CO",  "SB" ]
-      bet_menus: [ "srp_oop" ]   # must map to srp_hu.Caller_OOP
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+      bet_menus: [ "srp_oop" ]    # Why: OOP-specific tree (sizes/branches)
 
-    # --- Blind vs steal (treated like SRP) ---
+    # --- Blind vs Steal (CO/BTN open; SB/BB defend) ---
     - name: BLIND_VS_STEAL
       ctx: BLIND_VS_STEAL
       position_pairs:
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]   # NEW
-        - [ "CO",  "SB" ]   # Optional if you have data/menus
-      bet_menus: [ "bvs" ]
+        - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
+      bet_menus: [ "bvs" ]        # Why: lean sizes specialized for steal nodes
 
-    # --- 3-bet pots ---
+    # --- 3-bet pots (caller perspective covered by menus) ---
     - name: VS_3BET_IP
       ctx: VS_3BET
       position_pairs:
+        # IP caller vs OOP 3-bettor (postflop IP = BTN/CO)
         - [ "BTN", "BB" ]
         - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]   # NEW
-        - [ "CO",  "SB" ]   # NEW
+        - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
       bet_menus: [ "3bet_ip" ]
 
     - name: VS_3BET_OOP
       ctx: VS_3BET
       position_pairs:
-        - [ "BB",  "BTN" ]
-        - [ "SB",  "BTN" ]
-        - [ "BB",  "CO" ]   # NEW
-        - [ "SB",  "CO" ]   # NEW
+        # OOP caller vs IP 3-bettor share same pairs; menu builds OOP trees
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+        - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
       bet_menus: [ "3bet_oop" ]
 
-    # --- 4-bet pots (lean) ---
-    - name: VS_4BET
+    # --- 4-bet pots (split to avoid role mixing) ---
+    - name: VS_4BET_IP
       ctx: VS_4BET
       position_pairs:
+        # IP postflop = BTN/CO; OOP = blinds
         - [ "BTN", "BB" ]
-        - [ "BB",  "BTN" ]
-        - [ "BTN", "SB" ]   # NEW
-        - [ "SB",  "BTN" ]  # NEW
-      bet_menus: [ "4bet" ]
+        - [ "BTN", "SB" ]
+        - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
+      bet_menus: [ "4bet_ip" ]
 
-    # --- Limped pots ---
+    - name: VS_4BET_OOP
+      ctx: VS_4BET
+      position_pairs:
+        # OOP postflop = blinds; IP = BTN/CO (pairs remain IP→OOP)
+        - [ "BTN", "BB" ]
+        - [ "BTN", "SB" ]
+        - [ "CO",  "BB" ]
+        - [ "CO",  "SB" ]
+      bet_menus: [ "4bet_oop" ]
+
+      # --- Limped pots ---
     - name: LIMPED_SINGLE
       ctx: LIMPED_SINGLE
       position_pairs:
-        - [ "SB", "BB" ]    # single limp HU → (IP,OOP)=(SB,BB)
-      bet_menus: [ "limp" ]
-
-    - name: LIMPED_MULTI
-      ctx: LIMPED_MULTI
-      position_pairs:
-        - [ "SB",  "BB" ]   # SB leads multiway; we model HU heads-up derived from it
-        - [ "BTN", "SB" ]
-        - [ "BTN", "BB" ]
+        - [ "BB", "SB" ]     # ✅ BB is IP on flop; SB is OOP
       bet_menus: [ "limp" ]
 
 solver:

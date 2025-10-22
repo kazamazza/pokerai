@@ -24,48 +24,78 @@ class TexasSolverExtractor:
     # ---------- public API ----------
 
     def extract(
-        self,
-        path: str,
-        *,
-        ctx: str,
-        ip_pos: str,
-        oop_pos: str,
-        board: str,
-        pot_bb: float,
-        stack_bb: float,
-        bet_sizing_id: str,
+            self,
+            path: str,
+            *,
+            ctx: str,
+            ip_pos: str,
+            oop_pos: str,
+            board: str,
+            pot_bb: float,
+            stack_bb: float,
+            bet_sizing_id: str,
+            bet_sizes: Optional[List[float]] = None,
+            raise_mults: Optional[List[float]] = None,
     ) -> SolverExtraction:
         """Single entry point. Returns a filled SolverExtraction (ok=True) or reason."""
         ex = SolverExtraction(
-            ctx=ctx, ip_pos=ip_pos, oop_pos=oop_pos, board=board,
-            pot_bb=float(pot_bb), stack_bb=float(stack_bb), bet_sizing_id=str(bet_sizing_id)
+            ctx=ctx,
+            ip_pos=ip_pos,
+            oop_pos=oop_pos,
+            board=board,
+            pot_bb=float(pot_bb),
+            stack_bb=float(stack_bb),
+            bet_sizing_id=str(bet_sizing_id),
         )
+
         try:
             payload = self._open_json_any(path)
             root = payload.get("root", payload)
             if not isinstance(root, dict):
                 return self._fail(ex, "malformed_root")
 
-            # 1) IP root mix (not facing): CHECK / BET_xx
-            ex.root_mix, root_meta = self._read_node_action_mix(root, mode="root", pot_bb=ex.pot_bb)
+            # --- 1️⃣  Root (IP) mix: CHECK / BET_xx ---
+            ex.root_mix, root_meta = self._read_node_action_mix(
+                root,
+                mode="root",
+                pot_bb=ex.pot_bb,
+                stack_bb=ex.stack_bb,
+                bet_sizes=bet_sizes,
+                bet_sizing_id=ex.bet_sizing_id,
+            )
             ex.meta["root_meta"] = root_meta
 
-            # 2) OOP facing mix (find first bet edge IP->BET; or CHECK->BET)
+            # --- 2️⃣  Facing mix: OOP’s response to first IP bet ---
             bet_node, via_path = self._find_first_bet_node(root)
             ex.meta["facing_path"] = via_path
             if bet_node is not None:
                 facing_pct, facing_to_bb = self._extract_bet_size(via_path[-1], ex.pot_bb)
-                ex.facing_bet_bb = facing_to_bb if facing_to_bb is not None else (ex.pot_bb * (facing_pct or 0)/100.0)
+                ex.facing_bet_bb = (
+                    facing_to_bb
+                    if facing_to_bb is not None
+                    else (ex.pot_bb * (facing_pct or 0) / 100.0)
+                )
+
                 ex.facing_mix, face_meta = self._read_node_action_mix(
-                    bet_node, mode="facing", pot_bb=ex.pot_bb, facing_bet_bb=ex.facing_bet_bb
+                    bet_node,
+                    mode="facing",
+                    pot_bb=ex.pot_bb,
+                    stack_bb=ex.stack_bb,
+                    facing_bet_bb=ex.facing_bet_bb,
+                    raise_mults=raise_mults,
+                    bet_sizing_id=ex.bet_sizing_id,
                 )
                 ex.meta["facing_meta"] = face_meta
 
-            # 3) Validate minimum contract
-            if (ex.root_mix and self._sum(ex.root_mix) > 0) or (ex.facing_mix and self._sum(ex.facing_mix) > 0):
-                # normalize just in case
-                if ex.root_mix:  ex.root_mix  = self._renorm_map(ex.root_mix)
-                if ex.facing_mix: ex.facing_mix = self._renorm_map(ex.facing_mix)
+            # --- 3️⃣  Validate minimum contract ---
+            if (ex.root_mix and self._sum(ex.root_mix) > 0) or (
+                    ex.facing_mix and self._sum(ex.facing_mix) > 0
+            ):
+                # normalize
+                if ex.root_mix:
+                    ex.root_mix = self._renorm_map(ex.root_mix)
+                if ex.facing_mix:
+                    ex.facing_mix = self._renorm_map(ex.facing_mix)
                 ex.ok = True
                 return ex
 
@@ -77,38 +107,142 @@ class TexasSolverExtractor:
     # ---------- core helpers ----------
 
     def _read_node_action_mix(
-        self, node: Dict[str, Any], *, mode: str, pot_bb: float, facing_bet_bb: Optional[float]=None
+            self,
+            node: Dict[str, Any],
+            *,
+            mode: str,  # "root" or "facing"
+            pot_bb: float,
+            stack_bb: Optional[float] = None,
+            facing_bet_bb: Optional[float] = None,
+            bet_sizes: Optional[List[float]] = None,  # e.g. [0.33, 0.66, 1.0]
+            raise_mults: Optional[List[float]] = None,  # e.g. [1.5, 2.0, 3.0, 4.0]
+            bet_sizing_id: Optional[str] = None,
     ) -> Tuple[Dict[str, float], Dict[str, Any]]:
         """
         Read actions/mix at a node using (1) strategy tables (several layouts),
-        (2) per-child weights, and map to ACTION_VOCAB. Includes robust size bucketing.
+        (2) per-child weights, and map to ACTION_VOCAB.
+
+        - Bets are bucketed by *fraction of pot* (33, 66, 100) with stake/menu-aware buckets if provided.
+        - Raises are bucketed by *raise-to / facing-bet* multiplier with stake/menu-aware ladders if provided.
         """
         acts, mix, where, raw_labels = self._find_any_strategy(node)
-        meta = {"where": where, "raw_actions": raw_labels}
+
+        # --- prepare bucket candidates ---
+        # BET candidates (in percent) — prefer configured bet_sizes; else standard buckets
+        if bet_sizes:
+            bet_bucket_pct = sorted({
+                int(round(100.0 * float(s)))
+                for s in bet_sizes
+                if s is not None and 0.0 < float(s) <= 2.0  # allow up to 200% if ever needed
+            })
+            # Ensure we have a sane fallback if somehow empty
+            if not bet_bucket_pct:
+                bet_bucket_pct = [25, 33, 50, 66, 75, 100]
+        else:
+            bet_bucket_pct = [25, 33, 50, 66, 75, 100]
+
+        # RAISE candidates (multipliers)
+        if raise_mults:
+            raise_cands = sorted({float(x) for x in raise_mults if x and float(x) > 1.0})
+            if not raise_cands:
+                raise_cands = [1.5, 2.0, 3.0, 4.0, 5.0]
+        else:
+            raise_cands = [1.5, 2.0, 3.0, 4.0, 5.0]
+
+        meta = {
+            "where": where,
+            "raw_actions": raw_labels,
+            "bet_buckets_pct": bet_bucket_pct,
+            "raise_buckets_mult": raise_cands,
+            "bet_sizing_id": bet_sizing_id,
+            "mode": mode,
+            "pot_bb": pot_bb,
+            "stack_bb": stack_bb,
+            "facing_bet_bb": facing_bet_bb,
+        }
 
         mapped: Dict[str, float] = {a: 0.0 for a in ACTION_VOCAB}
+
         for lbl, p in zip(acts, mix):
             lab = (lbl or "").lower().strip()
-            if not lab or p <= 0: continue
+            if not lab or p <= 0.0:
+                continue
 
-            if FOLD_RE.search(lab):  mapped["FOLD"]  += p; continue
-            if CHECK_RE.search(lab): mapped["CHECK"] += p; continue
-            if CALL_RE.search(lab):  mapped["CALL"]  += p; continue
-            if ALLIN_RE.search(lab): mapped["ALLIN"] += p; continue
+            # simple verbs
+            if FOLD_RE.search(lab):
+                mapped["FOLD"] += p
+                continue
+            if CHECK_RE.search(lab):
+                mapped["CHECK"] += p
+                continue
+            if CALL_RE.search(lab):
+                mapped["CALL"] += p
+                continue
+            if ALLIN_RE.search(lab):
+                mapped["ALLIN"] += p
+                continue
 
+            # BET — bucket by % of pot
             if BET_RE.search(lab):
                 pct, to_bb = self._extract_bet_size(lbl, pot_bb)
-                # root mode → bucket bet % of pot
-                tok = self._bucket_bet_pct(pct if pct is not None else self._pct_from_to_bb(to_bb, pot_bb))
-                mapped[tok] += p; continue
+                # use explicit % if present; otherwise derive from to_bb/pot_bb
+                if pct is None:
+                    pct = self._pct_from_to_bb(to_bb, pot_bb)
 
+                # pct may be fractional (0.33) or 33; normalize → percent space
+                if pct is not None:
+                    pct_val = float(pct)
+                    if pct_val <= 3.0:  # treat <= 3.0 as fraction of pot, e.g. 0.33
+                        pct_val *= 100.0
+                    # clamp
+                    pct_val = max(0.0, min(pct_val, 200.0))
+                else:
+                    pct_val = None
+
+                # choose nearest configured bucket
+                tok = "BET_50"
+                if pct_val is not None and bet_bucket_pct:
+                    nearest = min(bet_bucket_pct, key=lambda b: abs(b - pct_val))
+                    cand = f"BET_{int(nearest)}"
+                    if cand in ACTION_VOCAB:
+                        tok = cand
+                mapped[tok] += p
+                continue
+
+            # RAISE — bucket by raise-to/facing-bet multiplier
             if RAISE_RE.search(lab):
-                pct, to_bb = self._extract_bet_size(lbl, pot_bb)
-                # facing mode → bucket by raise-to / facing-bet
-                tok = self._bucket_raise_to(to_bb, facing_bet_bb)
-                mapped[tok] += p; continue
+                _, to_bb = self._extract_bet_size(lbl, pot_bb)
+                tok = "RAISE_300"
+                mult: Optional[float] = None
 
-            # Fallback: unknown verbs → ignore
+                if to_bb is not None and (facing_bet_bb is not None and facing_bet_bb > 1e-9):
+                    mult = float(to_bb) / float(facing_bet_bb)
+                else:
+                    # If we only got something like "2.0x" (rare), treat it directly
+                    m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
+                    if m:
+                        try:
+                            mult = float(m.group(1))
+                        except:
+                            mult = None
+                    # or allow direct multiplier in a bare number within plausible range
+                    if mult is None:
+                        m2 = re.search(r'\b(\d+(?:\.\d+)?)\b', lab)
+                        if m2:
+                            v = float(m2.group(1))
+                            if 1.1 <= v <= 6.0:
+                                mult = v
+
+                if mult is not None and mult > 1.0:
+                    nearest = min(raise_cands, key=lambda x: abs(x - mult))
+                    cand = f"RAISE_{int(round(nearest * 100))}"
+                    if cand in ACTION_VOCAB:
+                        tok = cand
+
+                mapped[tok] += p
+                continue
+
+            # Unknown verb → ignore
 
         return mapped, meta
 

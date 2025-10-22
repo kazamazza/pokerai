@@ -6,6 +6,64 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.utils.config import load_model_config
 
+# --- ADD helpers somewhere above main() ---
+
+def parse_bet_sizes_cell(cell) -> list[int]:
+    """
+    Manifest bet_sizes can be:
+      - None
+      - [0.33, 0.66]
+      - [{"element": 0.33}, {"element": 0.66}]
+    Return list of integer percents, e.g. [33, 66].
+    """
+    if cell is None:
+        return []
+    vals = []
+    if isinstance(cell, list):
+        for it in cell:
+            if it is None:
+                continue
+            if isinstance(it, dict):
+                v = it.get("element", None)
+            else:
+                v = it
+            try:
+                f = float(v)
+                # if user already stored percents (e.g. 33.0), keep; else convert 0.33->33
+                if f <= 3.0:
+                    vals.append(int(round(100.0 * f)))
+                else:
+                    vals.append(int(round(f)))
+            except Exception:
+                pass
+    else:
+        # single scalar
+        try:
+            f = float(cell)
+            vals.append(int(round(100.0 * f if f <= 3.0 else f)))
+        except Exception:
+            pass
+    # de-dup, sort
+    return sorted(set(x for x in vals if 1 <= x <= 200))
+
+
+def inject_size_into_s3_key(s3_key: str, size_pct: int) -> str:
+    """
+    Insert '/size=<NN>' before the shard/sha1 tail. Works with your current layout:
+      .../sizes=<menu_id>/<shard>/<sha1>/output_result.json.gz
+    -> .../sizes=<menu_id>/size=<NN>/<shard>/<sha1>/output_result.json.gz
+    """
+    # find last two slashes before filename
+    last = s3_key.rfind("/")
+    if last < 0:
+        return s3_key
+    last2 = s3_key.rfind("/", 0, last)
+    if last2 < 0:
+        return s3_key
+    base = s3_key[:last2]         # up to .../sizes=<menu_id>
+    tail = s3_key[last2:]         # /<shard>/<sha1>/output_result.json.gz
+    return f"{base}/size={int(size_pct)}{tail}"
+
 def main():
     import argparse, time, json, os
     import pandas as pd
@@ -74,27 +132,54 @@ def main():
         # keep simple scalars/strings
         return v if isinstance(v, (int, float, str)) else str(v)
 
-    def to_msg(row):
-        params = {}
-        for k in PARAM_WHITELIST:
-            if k in row and pd.notna(row[k]):
-                v = _coerce_param(k, row[k])
-                if v is not None:
-                    params[k] = v
+    def to_msgs(row):
+        """
+        Expand ONE manifest row into MULTIPLE SQS entries, one per bet size.
+        Falls back to a single entry with size=33 if bet_sizes is empty.
+        """
+        # 1) parse bet sizes
+        sizes_pct = parse_bet_sizes_cell(row.get("bet_sizes"))
+        if not sizes_pct:
+            sizes_pct = [33]  # safe default; your worker can still legalize at runtime
 
-        # Never overwrite accuracy/max_iter/allin_threshold here.
-        # (solver_cfg is only used above to fill missing benign fields)
+        entries = []
 
-        msg = {
-            "sha1": str(row["sha1"]),
-            "s3_key": str(row["s3_key"]),
-            "params": params,
-        }
-        return {"Id": str(row["sha1"])[:80], "MessageBody": json.dumps(msg)}
+        for size_pct in sizes_pct:
+            # 2) build params subset
+            params = {}
+            for k in PARAM_WHITELIST:
+                if k in row and pd.notna(row[k]):
+                    v = _coerce_param(k, row[k])
+                    if v is not None:
+                        params[k] = v
+            # stamp concrete size for this job
+            params["size_pct"] = int(size_pct)
+
+            # 3) size-aware s3_key
+            s3_key = inject_size_into_s3_key(str(row["s3_key"]), int(size_pct))
+
+            # 4) unique Id per (sha1,size)
+            msg = {
+                "sha1": str(row["sha1"]),
+                "s3_key": s3_key,
+                "params": params,
+            }
+            entries.append({
+                "Id": f"{str(row['sha1'])[:72]}_{int(size_pct)}",
+                "MessageBody": json.dumps(msg)
+            })
+
+        return entries
 
     if args.dry_run:
         print("🧪 dry-run: not sending to SQS")
-        print(df.head(min(3, len(df))).to_string(index=False))
+        sample_rows = df.head(min(2, len(df)))
+        for _, r in sample_rows.iterrows():
+            em = to_msgs(r)
+            print(f"row sha1={r['sha1']} → {len(em)} msgs")
+            for e in em[:min(3, len(em))]:
+                body = json.loads(e["MessageBody"])
+                print(" ", e["Id"], body["s3_key"], "size_pct=", body["params"].get("size_pct"))
         return
 
     sqs = boto3.client(
@@ -104,14 +189,21 @@ def main():
         region_name=os.getenv("AWS_REGION"),
     )
 
-    n, i, sent, retries = len(df), 0, 0, 0
-    while i < n:
-        chunk = df.iloc[i:i + args.batch]
-        entries = [to_msg(r) for _, r in chunk.iterrows()]
+    n = len(df)
+    sent = 0
+    retries = 0
+    entries_buf = []
+
+    def _send_batch(entries):
+        nonlocal sent, retries
+        if not entries:
+            return
         resp2 = {"Successful": []}
         try:
             resp = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=entries)
             failed = resp.get("Failed", []) or []
+            succ = len(resp.get("Successful", []))
+
             if failed:
                 fail_ids = {f["Id"] for f in failed}
                 retry_entries = [e for e in entries if e["Id"] in fail_ids]
@@ -119,21 +211,34 @@ def main():
                     time.sleep(0.5)
                     retries += 1
                     resp2 = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=retry_entries)
+                    succ += len(resp2.get("Successful", []))
                     failed2 = resp2.get("Failed", []) or []
                     if failed2:
-                        print(f"⚠️  batch @ {i}: {len(failed2)} entries failed after retry "
+                        print(f"⚠️  retry still failed for {len(failed2)} entries "
                               f"(e.g. {failed2[0] if failed2 else ''})")
-            sent += len(resp.get("Successful", [])) + len(resp2.get("Successful", []))
+
+            sent += succ
+
         except botocore.exceptions.BotoCoreError as e:
-            print(f"⚠️  SQS error at batch starting {i}: {e}")
+            print(f"⚠️  SQS error: {e}")
         except Exception as e:
-            print(f"⚠️  Unexpected error at batch starting {i}: {e}")
+            print(f"⚠️  Unexpected error: {e}")
 
-        i += args.batch
-        if sent and (sent % (args.batch * 20) == 0 or i >= n):
-            print(f"… progress: sent≈{sent}/{n}")
+    # Expand each manifest row into one-or-more messages and send in batches of ≤10
+    for _, row in df.iterrows():
+        entries_buf.extend(to_msgs(row))
+        while len(entries_buf) >= args.batch:
+            batch = entries_buf[:args.batch]
+            entries_buf = entries_buf[args.batch:]
+            _send_batch(batch)
+            if sent and (sent % (args.batch * 20) == 0):
+                print(f"… progress: sent≈{sent}")
 
-    print(f"✅ submitted ~{sent}/{n} jobs to SQS  (retries: {retries})")
+    # Flush any remainder
+    if entries_buf:
+        _send_batch(entries_buf)
+
+    print(f"✅ submitted ~{sent} messages to SQS  (retries: {retries})")
 
 if __name__ == "__main__":
     main()

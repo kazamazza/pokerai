@@ -174,6 +174,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=str, default="populationnet", help="Model name or YAML path")
+    ap.add_argument("--parquet", type=str, help="Override input parquet path for training/sweep")
     ap.add_argument("--sweep", action="store_true", help="Run hyperparameter sweep defined in config.sweep")
     # light overrides
     ap.add_argument("--batch_size", type=int)
@@ -182,6 +183,10 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     cfg = load_model_config(args.config)
+
+    # Inject CLI parquet override (works for both run_train and sweep)
+    if args.parquet:
+        cfg.setdefault("inputs", {})["parquet"] = args.parquet
 
     # Merge CLI overrides into cfg.train.*
     tr = cfg.setdefault("train", {})

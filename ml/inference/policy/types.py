@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal
 import numpy as np
 
+from ml.core.types import Stakes
+
 ActionKind = Literal["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALLIN"]
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class Action:
 
 @dataclass
 class PolicyRequest:
+    stakes: Stakes = Stakes.NL10
     street: int = 0
     hero_pos: Optional[str] = None
     villain_pos: Optional[str] = None

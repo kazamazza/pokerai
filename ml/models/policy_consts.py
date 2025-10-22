@@ -5,10 +5,19 @@ import torch
 from torch import nn
 
 ACTION_VOCAB = [
-    "FOLD","CHECK","CALL",
-    "BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
-    "DONK_33",
-    "RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500",
+    # passive
+    "FOLD", "CHECK", "CALL",
+
+    # bets (IP/OOP standard)
+    "BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100",
+
+    # donks (OOP only; mirror the bet buckets — needed at short stacks)
+    "DONK_25", "DONK_33", "DONK_50", "DONK_66", "DONK_75", "DONK_100",
+
+    # raises (raise-to / facing-bet multipliers)
+    "RAISE_150", "RAISE_200", "RAISE_250", "RAISE_300", "RAISE_400", "RAISE_500",
+
+    # shove
     "ALLIN",
 ]
 VOCAB_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}

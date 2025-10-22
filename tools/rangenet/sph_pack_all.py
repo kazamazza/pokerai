@@ -8,7 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from ml.range.solvers.utils.range_utils import parse_range_text_to_grid, parse_abs_text_to_vec169, \
-    abs_text_to_vec169, vec169_to_monker_string
+    vec169_to_monker_string
 from infra.storage.s3_client import S3Client
 
 
@@ -40,7 +40,7 @@ def write_canonical_json(out_path: Path, stack_bb: int, ip_pos: str, oop_pos: st
 
 # --------- pack logic ---------
 
-CTX_DIRS = ["SRP", "LIMP_SINGLE", "LIMP_MULTI"]
+CTX_DIRS = ["SRP", "LIMPED_SINGLE", "LIMP_MULTI"]
 
 def discover_pairs(ctx_dir: Path) -> List[Tuple[int, str]]:
     pairs = []
@@ -63,9 +63,9 @@ def pack_one(ctx: str, stack: int, pair: str,
     out_dir = cache_root / ctx / str(stack) / pair
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ip_open_path = in_dir / "ip_open.txt"
+    ip_open_path = in_dir / "oop_call.txt"
     if not ip_open_path.exists():
-        return False, f"missing ip_open.txt in {in_dir}", out_dir / "ip.csv"
+        return False, f"missing oop_call.txt in {in_dir}", out_dir / "ip.csv"
 
     # ✅ ABS .txt → 169 via the canonical helper
     ip_open_169 = parse_abs_text_to_vec169(ip_open_path)

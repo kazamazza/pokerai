@@ -15,7 +15,7 @@ from infra.storage.s3_client import S3Client
 from ml.features.boards import load_board_clusterer
 from ml.utils.config import load_model_config
 from ml.etl.rangenet.preflop.range_lookup import PreflopRangeLookup
-from ml.range.solvers.keying import s3_key_for_solve, solve_sha1
+from ml.range.solvers.keying import s3_key_for_solve, solve_sha1, s3_key_base
 from ml.etl.rangenet.postflop.helpers_topology import _infer_topology_and_roles, _menu_for, \
     _ctx_for_lookup, compute_pot_bb
 from ml.features.boards.representatives import discover_representative_flops
@@ -48,7 +48,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
     rake_tier = str(sv.get("rake_tier", "nl10_5pct_1bbcap"))
     mw_cfg  = cfg.get("multiway", {}) or {}
 
-    # --- NEW: stake-specific tables (centralized) ---
     stake_cfg       = STAKE_CFG[stake]
     board_clusters  = stake_cfg.get("board_clusters", 64)
 
@@ -65,8 +64,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
         "position_pairs": [("BTN", "BB")],
     }]
 
-    # --- stake-aware sampling knobs ---
-    # Use stake default for board cluster count unless explicitly overridden in config
     n_clusters_limit = int(mb.get("board_clusters_limit", board_clusters))
     boards_per_cluster = int(mb.get("boards_per_cluster", 2))
     sample_pool = int(mb.get("sample_pool", 50000))
@@ -80,7 +77,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
     except (TypeError, ValueError):
         max_stack_delta = None
 
-    # Preflop range lookup (Monker-only)
     lookup = PreflopRangeLookup(
         monker_manifest_parquet=inputs.get("monker_manifest", "data/artifacts/monker_manifest.parquet"),
         sph_manifest_parquet=inputs.get("sph_manifest", "data/artifacts/sph_manifest.parquet"),
@@ -113,7 +109,7 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
         ctx_up = str(ctx).upper()
         norm_ctx = {
             "LIMPED_SINGLE": "LIMPED_SINGLE",
-            "LIMP_SINGLE": "LIMPED_SINGLE",
+            "LIMPED_SINGLE": "LIMPED_SINGLE",
         }.get(ctx_up, ctx_up)
 
         pairs = sanitize_position_pairs(raw_pairs, ctx=norm_ctx)
@@ -128,7 +124,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
 
         sc_jobs = sc_kept = sc_missing = sc_skipped = 0
 
-        # Pick stacks based on context first, then fall back to generic stake stacks
         stacks_for_ctx = stake_cfg.get("stacks_by_ctx", {}).get(norm_ctx)
         if not stacks_for_ctx:
             stacks_for_ctx = stake_cfg.get("stacks", [])
@@ -139,8 +134,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
                 oop_pos = canon_pos(oop_pos)
                 if not ip_pos or not oop_pos or ip_pos == oop_pos:
                     continue
-
-                # --- roles + deterministic pot (stake-aware) ---
                 topo, opener, three_bettor = _infer_topology_and_roles(norm_ctx, ip_pos, oop_pos)
 
                 pot_bb = compute_pot_bb(
@@ -148,16 +141,14 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
                     opener=opener,
                     ip=ip_pos,
                     three_bettor=three_bettor,
-                    stake=stake,  # uses STAKE_CFG[stake] internally
+                    stake=stake,
                 )
 
-                # --- bet menu id + sizes from stake config ---
                 menu_tag = (sc.get("bet_menus") or [None])[0]
                 menu_id, bet_sizes = _menu_for(
                     norm_ctx, ip_pos, oop_pos, opener, three_bettor,
                     menu_tag=menu_tag, stake=stake
                 )
-
                 try:
                     rng_ip, rng_oop, meta = lookup.ranges_for_pair(
                         stack_bb=stack, ip=ip_pos, oop=oop_pos, ctx=_ctx_for_lookup(norm_ctx), strict=False
@@ -175,7 +166,7 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
                 for cluster_id in cluster_ids_sorted:
                     for board_tuple in boards_by_cluster[cluster_id]:
                         board_str = "".join(board_tuple)
-                        knobs = profile_for(menu_id)  # {"accuracy","max_iter","allin_threshold"}
+                        knobs = profile_for(menu_id)
 
                         params = {
                             "street": 1,
@@ -222,7 +213,7 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
                         }
 
                         sha = solve_sha1(params)
-                        s3_key = s3_key_for_solve(params, sha1=sha, prefix="solver/outputs/v1")
+                        s3_key = s3_key_base(params, sha=sha, prefix="solver/outputs/v1")
 
                         rows.append({
                             **params,
@@ -326,16 +317,12 @@ def main():
             mb["scenarios"] = scenarios
             cfg = {**cfg, "manifest_build": mb}
 
-    # >>> IMPORTANT: pass stake into your builder <<<
-    # Make sure build_manifest signature is: build_manifest(cfg, stake: Stakes)
     df = build_manifest(cfg, stake=stake)
 
-    # append stake suffix to filename
     out_path = _append_stake_suffix(args.out, stake)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # persist + log
     df.to_parquet(out, index=False)
     print(f"✅ wrote FLOP manifest: {out} rows={len(df):,} stake={stake.name}")
 

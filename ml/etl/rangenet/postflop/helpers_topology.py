@@ -157,7 +157,8 @@ _TAG_MAP_STATIC = {
     "bvs":        "srp_hu.PFR_IP",          # blind-vs-steal treated as SRP PFR_IP
     "3bet_ip":    "3bet_hu.Aggressor_IP",
     "3bet_oop":   "3bet_hu.Aggressor_OOP",
-    # "4bet" and "limp" handled dynamically below
+    "4bet_ip":    "4bet_hu.Aggressor_IP",
+    "4bet_oop":   "4bet_hu.Aggressor_OOP",
 }
 
 def _map_tag_dynamic(tag: str, topo: str, ip: str, oop: str) -> Optional[str]:
@@ -203,6 +204,7 @@ def _menu_for(ctx, ip, oop, opener, three_bettor,
 
         # validate against stake config
         if menu_id not in STAKE_CFG[stake]["bet_menus"]:
+            print(f"Unknown bet_menus tag '{menu_tag}'")
             # if not present, still return with default sizes (explicit but rare)
             return menu_id, bet_menu_for(menu_id, stake=stake)
         return menu_id, bet_menu_for(menu_id, stake=stake)

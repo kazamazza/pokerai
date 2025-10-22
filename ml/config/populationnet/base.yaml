@@ -1,12 +1,3 @@
-# =========================
-# PopulationNet (PROD BASE)
-# =========================
-
-# -------- Inputs --------
-inputs:
-  parquet: data/artifacts/decisions_enriched_nl10.parquet   # <- enriched decisions
-
-# -------- Dataset --------
 dataset:
   x_cols:
     - stakes_id
@@ -32,12 +23,6 @@ dataset:
   # Train/val split
   stratify_keys: ["ctx_id", "street_id"]  # preserves distribution across contexts/streets
   train_frac: 0.80
-
-
-board_clustering:
-  type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_128.json
-  n_clusters: 128
 
 # -------- Coverage (optional but recommended pre-train audit) --------
 coverage:

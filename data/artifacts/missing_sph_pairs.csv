@@ -1,0 +1,4 @@
+ctx,stack_bb,ip_pos,oop_pos,range_source,topology
+LIMPED_SINGLE,25,BB,SB,fallback:default,limped_single
+LIMPED_SINGLE,60,BB,SB,fallback:default,limped_single
+LIMPED_SINGLE,100,BB,SB,fallback:default,limped_single

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, hashlib, json, os, re, tarfile, tempfile
+import argparse, hashlib, json, re, tarfile, tempfile
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -255,49 +255,66 @@ def derive_ip_oop(topo: str, opener: Optional[str], three_bettor: Optional[str],
     return None, None
 
 # ---------- expected menu label (audit only) ----------
-def expected_menu_id(*, topo: str, ip: str, oop: str, opener: Optional[str], three_bettor: Optional[str]) -> str:
+def expected_menu_id(topo: str, ip: str, oop: str, opener: Optional[str], three_bettor: Optional[str]) -> str:
+    """
+    Decide which betting menu (srp_hu.PFR_IP, srp_hu.Caller_OOP, 3bet_hu.Aggressor_OOP, etc.)
+    applies to this topology, given the actor roles.
+    Ensures that IP and OOP are not assigned identical menus.
+    """
     topo = (topo or "").lower()
     ip, oop = (ip or "").upper(), (oop or "").upper()
     opener = (opener or "").upper()
     three_bettor = (three_bettor or "").upper()
 
-    # --- SRP (VS_OPEN / BvS / SRP) ---
+    # --- Single Raised Pots (SRP) ---
     if topo == "srp_hu":
         if opener == ip:
-            # IP opened → IP is PFR at root
+            # IP opened preflop → IP is PFR, OOP is caller
             return "srp_hu.PFR_IP"
         elif opener == oop:
-            # OOP opened → OOP is PFR at root
+            # OOP opened preflop → OOP is PFR, IP is caller
             return "srp_hu.PFR_OOP"
         else:
-            # If opener not resolved, choose by actor: default to IP PFR, but
-            # when we explicitly want caller-OOP data (SRP_OOP scenario),
-            # the caller is OOP, so give them the donk menu.
-            # Heuristic: if opener != ip and opener != oop → assume OOP is caller.
+            # Fallback heuristic:
+            # - If IP is late position (BTN/CO) vs blind → assume IP PFR
+            # - Otherwise default to OOP caller (defensive)
+            if ip in {"BTN", "CO"} and oop in {"SB", "BB"}:
+                return "srp_hu.PFR_IP"
             return "srp_hu.Caller_OOP"
 
-    # --- 3-bet HU ---
+    # --- 3-bet Pots (Heads-Up) ---
     if topo == "3bet_hu":
         if three_bettor == ip:
             return "3bet_hu.Aggressor_IP"
         elif three_bettor == oop:
             return "3bet_hu.Aggressor_OOP"
-        # fallback (rare): default to OOP aggressor
-        return "3bet_hu.Aggressor_OOP"
+        # Fallback heuristic:
+        # - Late-position (BTN/CO) usually opens, blind 3-bets
+        if oop in {"SB", "BB"}:
+            return "3bet_hu.Aggressor_OOP"
+        return "3bet_hu.Aggressor_IP"
 
-    # --- 4-bet HU ---
+    # --- 4-bet Pots (Heads-Up) ---
     if topo == "4bet_hu":
-        # We train vs 4-bettor; keep menus on aggressor only
-        # Use positions to decide aggressor side if needed; default to OOP to keep trees tiny
-        return "4bet_hu.Aggressor_OOP" if oop in {"SB","BB"} else "4bet_hu.Aggressor_IP"
+        # Explicit aggressor check first
+        if three_bettor == ip:
+            return "4bet_hu.Aggressor_OOP"  # IP 3-betted → OOP 4-bettor
+        elif three_bettor == oop:
+            return "4bet_hu.Aggressor_IP"   # OOP 3-betted → IP 4-bettor
+        # Fallback to position heuristics
+        if oop in {"SB", "BB"}:
+            return "4bet_hu.Aggressor_OOP"
+        return "4bet_hu.Aggressor_IP"
 
-    # --- Limped ---
+    # --- Limped Pots ---
     if topo == "limped_single":
+        # SB completes, BB checks
         return "limped_single.SB_IP"
     if topo == "limped_multi":
+        # BTN limps, multiway dynamic → any donk size
         return "limped_multi.Any"
 
-    # default
+    # --- Default (safety) ---
     return "srp_hu.PFR_IP"
 
 # ---------- scanner ----------
@@ -499,18 +516,15 @@ def scan_monker(root: Path, rake_tier: str = "nl10_5pct_1bbcap") -> pd.DataFrame
         seq_json = json.dumps(seq_canon, sort_keys=True)
         sig = sha1_str(f"{stack_bb}|{seq_json}|{scenario_key}")
 
-        rows.append({
+        base = {
             "topology": topo.topology,
             "stack_bb": stack_bb,
             "rake_tier": rake_tier,
             "opener": topo.opener,
             "three_bettor": topo.three_bettor,
             "defender": defender,
-            "ip_actor_flop": ip_pos,
-            "oop_actor_flop": oop_pos,
             "route": json.dumps(topo.route),
             "sizes_ref": json.dumps(topo.sizes_ref),
-            "expected_menu_id": expected_menu_id(topo.topology, ip_pos, oop_pos, topo.opener, topo.three_bettor),
             "hero_pos_hint": hero_pos,
             "sequence": seq_json,
             "sequence_raw": json.dumps(seq_raw, sort_keys=True),
@@ -525,7 +539,22 @@ def scan_monker(root: Path, rake_tier: str = "nl10_5pct_1bbcap") -> pd.DataFrame
             "sig": sig,
             "source": "MonkerGuy",
             "scenario_key": scenario_key,
-        })
+        }
+
+        # --- emit one row per role (IP + OOP) ---
+        for role, ipr, opr in [("IP", ip_pos, oop_pos), ("OOP", oop_pos, ip_pos)]:
+            menu_id = expected_menu_id(topo.topology, ipr, opr, topo.opener, topo.three_bettor)
+            role_key = f"{scenario_key}|{role}"
+
+            rows.append({
+                **base,
+                "role": role,
+                "ip_actor_flop": ipr,
+                "oop_actor_flop": opr,
+                "expected_menu_id": menu_id,
+                "scenario_key": role_key,
+                "file_sha1": f"{file_sha1}_{role.lower()}",
+            })
 
     print(f"\n[scan] total files seen: {c_total}")
     print(f"[scan] .txt considered  : {c_txt}")
@@ -595,7 +624,6 @@ def main():
     out = Path(args.out)
     cov = Path(args.coverage)
 
-    # 1) obtain tarball
     if args.tar:
         local_gz = Path(args.tar)
         if not local_gz.exists():
