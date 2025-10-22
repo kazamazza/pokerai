@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 Street = Literal["flop","turn","river"]
 Role   = Literal["ip","oop"]
@@ -14,9 +14,15 @@ def build_command_text(
     board: str,
     range_ip: str,
     range_oop: str,
-    bet_sizes: Optional[Dict[Literal["flop","turn","river"],
-                             Dict[Literal["ip","oop"],
-                                  Dict[str, List[int] | bool]]]] = None,
+    bet_sizes: Optional[
+        Dict[
+            Literal["flop", "turn", "river"],
+            Dict[
+                Literal["ip", "oop"],
+                Dict[str, Union[List[float], List[int], bool]]
+            ]
+        ]
+    ] = None,
     allin_threshold: float = 0.67,
     thread_num: int = 1,
     accuracy: float = 0.5,

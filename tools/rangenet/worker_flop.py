@@ -2,13 +2,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from ml.config.solver import STAKE_CFG
+from ml.core.types import Stakes
+from tools.rangenet.sanity.smoke_run_scenarios import stake_from_str
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from infra.utils.gzip_file import gzip_file
 from ml.etl.utils.monker_range_converter import to_monker
 from ml.etl.utils.range_lookup import monker_string_to_vec169
-from ml.config.bet_menus import build_contextual_bet_sizes
+from ml.config.bet_menus import build_contextual_bet_sizes, _parse_menu_id
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,7 +22,7 @@ from ml.range.solvers.command_text import build_command_text
 
 import os, json, time, gzip, shutil, tempfile, subprocess, random
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, cast, Literal, Union, List
 
 import numpy as np
 import boto3
@@ -151,7 +155,7 @@ def _upload_file_with_verify(
         backoff = min(10.0, backoff * 2)
     raise RuntimeError("S3 upload failed after retries/verify")
 
-# -------- solver IO --------
+
 def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str = "noid") -> tuple[str, Path]:
     pot_bb  = float(params["pot_bb"])
     eff_bb  = float(params["effective_stack_bb"])
@@ -160,17 +164,42 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     range_ip  = to_monker(params["range_ip"])
     range_oop = to_monker(params["range_oop"])
 
-    post_ip_nnz,  post_ip_sum  = _nnz_and_sum_from_monker(range_ip)
-    post_oop_nnz, post_oop_sum = _nnz_and_sum_from_monker(range_oop)
+    # required: int like 25, 33, 50, 66, 75, 100
+    size_pct = int(round(float(params["size_pct"])))          # ← comes from SQS job
+    size_fr  = max(0.0, min(2.0, size_pct / 100.0))           # keep as fraction for build_command_text
 
     menu_id = str(params.get("bet_sizing_id", "") or "")
-    ctx = _ctx_from_menu(menu_id)
-    if post_ip_nnz != -1 and post_oop_nnz != -1:
-        fail, msg = _sparse_decision(post_ip_nnz, post_oop_nnz, ctx)
-        if fail: raise RuntimeError(msg + f" – ctx={ctx}")
-        elif msg: print("[warn]", msg)
+    group, role = _parse_menu_id(menu_id)                     # e.g. ("srp_hu", "Caller_OOP"|"PFR_IP"|...)
 
-    bet_sizes = build_contextual_bet_sizes(menu_id)
+    # Console needs one size per solve. We mirror sizes to IP bet and either
+    # OOP donk (when the OOP profile is a caller) or OOP bet (otherwise).
+    allow_donk = role.endswith("Caller_OOP") or role == "Caller_OOP"
+
+    # Raise ladder & allin from stake config (keep your existing accessors)
+    stake = stake_from_str(str(params.get("stake", "NL10")))
+    cfg = STAKE_CFG.get(stake, STAKE_CFG[Stakes.NL10])
+    raise_mult = cfg["raise_mult"]
+    enable_allin = bool(cfg.get("flop_allin", True))
+
+    bet_sizes_untyped = {
+        "flop": {
+            "ip": {"bet": [size_fr], "raise": raise_mult, "allin": enable_allin},
+            "oop": ({"donk": [size_fr], "raise": raise_mult, "allin": enable_allin}
+                    if allow_donk
+                    else {"bet": [size_fr], "raise": raise_mult, "allin": enable_allin}),
+        },
+        "turn": {"ip": {"bet": []}, "oop": {"bet": []}},
+        "river": {"ip": {"bet": []}, "oop": {"bet": []}},
+    }
+
+    # explicitly cast to the expected type for build_command_text
+    bet_sizes = cast(
+        Dict[
+            Literal["flop", "turn", "river"],
+            Dict[Literal["ip", "oop"], Dict[str, Union[List[float], List[int], bool]]]
+        ],
+        bet_sizes_untyped
+    )
 
     accuracy = float(params.get("accuracy", 0.5))
     max_iter = int(params.get("max_iter", params.get("max_iterations", 200)))
@@ -199,6 +228,7 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
 
     def _clip(s): return s if len(s) <= 400 else s[:400] + "..."
     (dbg_dir / "ranges.txt").write_text(
+        f"size_pct={size_pct}\n\n"
         "RAW range_ip:\n"
         f"{str(params['range_ip'])[:400]}\n\n"
         "RAW range_oop:\n"
