@@ -8,6 +8,8 @@ inputs:
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
   policy_parts_dir_root: data/datasets/postflop_policy_parts_root
   policy_parts_dir_facing: data/datasets/postflop_policy_parts_facing
+  root_parquet: data/datasets/postflop_root.parquet
+  facing_parquet: data/datasets/postflop_facing.parquet
 
 builder:
   parts_s3_prefix_root: ""

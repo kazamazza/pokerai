@@ -1,32 +1,41 @@
 from __future__ import annotations
+
+import copy
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Mapping, Sequence, Tuple, List
-import torch
+from typing import Any, Mapping
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 from pytorch_lightning.loggers import TensorBoardLogger
+
+from ml.datasets.postflop_policy_root import PostflopPolicyDatasetRoot, postflop_policy_root_collate_fn
+from ml.models.postflop_policy_side_net import PostflopPolicySideLit
+from ml.models.vocab_actions import ROOT_ACTION_VOCAB
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from ml.datasets.utils_dataset import stratified_indices
-from ml.datasets.postflop_rangenet import postflop_policy_collate_fn, PostflopPolicyDatasetParquet
 from ml.utils.config import load_model_config
 from ml.utils.rangenet_postflop_sidecar import write_postflop_policy_sidecar
-from ml.models.postflop_policy_net import PostflopPolicyLit
 from ml.trainers.helpers import _get
 from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
 
 
+
 def run_postflop_sweep(cfg: dict):
-    base_dir = Path(cfg.get("train", {}).get("checkpoints_dir", "checkpoints/postflop_policy"))
+    # rebase dirs & parquet for ROOT
+    cfg = copy.deepcopy(cfg)
+    cfg.setdefault("inputs", {})
+    cfg["inputs"]["parquet"] = cfg["inputs"].get("root_parquet")  # point sweep to root set
+    base_dir = Path(cfg.get("train", {}).get("checkpoints_dir_root", "checkpoints/postflop_policy_root"))
+
     res = run_sweep(
         base_cfg=cfg,
         sweep=cfg["sweep"],
-        run_fn=run_train_postflop,
-        score_fn=parse_scalar_from_ckpt,   # if your ckpt filename encodes val metric
+        run_fn=run_train_postflop_root,     # ✅ root runner
+        score_fn=parse_scalar_from_ckpt,
         base_ckpt_dir=base_dir,
         monitor=cfg.get("train", {}).get("monitor", "val_loss"),
         max_trials=cfg.get("sweep", {}).get("max_trials"),
@@ -35,50 +44,45 @@ def run_postflop_sweep(cfg: dict):
         finalize_best_artifacts(Path(res["best"]["ckpt"]), base_dir)
     return res
 
-def run_train_postflop(cfg: Mapping[str, Any]) -> str:
+def run_train_postflop_root(cfg: Mapping[str, Any]) -> str:
     # -------- Repro --------
     seed = int(_get(cfg, "train.seed", 42))
     pl.seed_everything(seed)
 
     # -------- Dataset --------
-    parquet_path = _get(cfg, "inputs.parquet") or _get(cfg, "dataset.parquet")
+    parquet_path = (
+        _get(cfg, "inputs.root_parquet")  # ✅ root-specific parquet
+        or _get(cfg, "inputs.parquet")    # fallback for ad-hoc runs
+    )
     if not parquet_path:
-        raise ValueError("Missing inputs.parquet (or dataset.parquet) in config")
+        raise ValueError("Missing inputs.root_parquet for ROOT training")
 
-    # Pull schema from YAML
-    cat_features  = list(_get(cfg, "dataset.cat_features", []))
+    # Schema from YAML
+    cat_features = list(_get(cfg, "dataset.cat_features", []))
     cont_features = list(_get(cfg, "dataset.cont_features", []))
-    soft_y_cols   = _get(cfg, "dataset.soft_y_cols", None)     # list[str] or None
-    hard_y_col    = _get(cfg, "dataset.hard_y_col", None)      # str or None
-    weight_col    = _get(cfg, "dataset.weight_col", "weight")
-    strict_canon  = bool(_get(cfg, "dataset.strict_canon", True))
-    force_hard    = bool(_get(cfg, "dataset.force_hard", False))
+    weight_col = _get(cfg, "dataset.weight_col", "weight")
+    strict_canon = bool(_get(cfg, "dataset.strict_canon", True))
 
     # Optionally add board cluster categorical
     use_cluster = bool(_get(cfg, "model.use_board_cluster", True))
     if use_cluster and "board_cluster_id" not in cat_features:
         cat_features.append("board_cluster_id")
 
-    # Build dataset (config-driven; no class-level defaults)
-    ds = PostflopPolicyDatasetParquet(
+    ds = PostflopPolicyDatasetRoot(
         parquet_path=parquet_path,
         cat_features=cat_features,
         cont_features=cont_features,
-        soft_y_cols=soft_y_cols,
-        hard_y_col=hard_y_col,
         weight_col=weight_col,
-        device=torch.device("cpu"),
         strict_canon=strict_canon,
-        force_hard=force_hard,
     )
 
-    id_maps = ds.id_maps  # ✅ property (not callable)
-    cards = ds.cards  # ✅ property (returns dict)
+    id_maps = ds.id_maps
+    cards   = ds.cards
     feature_order = list(ds.cat_features)
 
     # -------- Split --------
     stratify_keys = _get(cfg, "dataset.stratify_keys", ["street", "ip_pos", "oop_pos"])
-    train_frac = float(_get(cfg, "train.train_frac", 0.8))
+    train_frac    = float(_get(cfg, "train.train_frac", 0.8))
     if stratify_keys:
         train_idx, val_idx = stratified_indices(ds._df, stratify_keys, train_frac, seed)
     else:
@@ -90,16 +94,16 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
 
     batch = int(_get(cfg, "train.batch_size", 1024))
     batch_train = max(1, min(batch, len(train_ds)))
-    batch_val = max(1, min(batch, len(val_ds))) if len(val_ds) > 0 else 1
+    batch_val   = max(1, min(batch, len(val_ds))) if len(val_ds) > 0 else 1
 
-    # -------- DataLoaders --------
+    # -------- Loaders --------
     train_dl = DataLoader(
         train_ds,
         batch_size=batch_train,
         shuffle=True,
         num_workers=int(_get(cfg, "train.num_workers", 0)),
         pin_memory=bool(_get(cfg, "train.pin_memory", True)),
-        collate_fn=postflop_policy_collate_fn,
+        collate_fn=postflop_policy_root_collate_fn,     # ✅ root-only
     )
     val_dl = DataLoader(
         val_ds,
@@ -107,11 +111,12 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
         shuffle=False,
         num_workers=int(_get(cfg, "train.num_workers", 0)),
         pin_memory=bool(_get(cfg, "train.pin_memory", True)),
-        collate_fn=postflop_policy_collate_fn,
+        collate_fn=postflop_policy_root_collate_fn,     # ✅ root-only
     )
 
-    # -------- Model --------
-    model = PostflopPolicyLit(
+    # -------- Model (single-side IP) --------
+    model = PostflopPolicySideLit(
+        side="ip",  # ✅ root side
         card_sizes=cards,
         cat_feature_order=feature_order,
         lr=float(_get(cfg, "model.lr", 1e-3)),
@@ -120,10 +125,11 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
         board_hidden=int(_get(cfg, "model.board_hidden", 64)),
         mlp_hidden=_get(cfg, "model.hidden_dims", [128, 128]),
         dropout=float(_get(cfg, "model.dropout", 0.10)),
+        action_vocab=ROOT_ACTION_VOCAB,  # ✅ restrict logits to root-legal tokens inside the module
     )
 
     # -------- Callbacks / Logger --------
-    ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/postflop_policy"))
+    ckpt_dir = Path(_get(cfg, "train.checkpoints_dir_root", "checkpoints/postflop_policy_root"))  # ✅ new dir
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     monitor  = _get(cfg, "train.monitor", "val_loss")
     mode     = _get(cfg, "train.mode", "min")
@@ -132,12 +138,12 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     logger_name = _get(cfg, "logging.logger", "tensorboard")
     logger = TensorBoardLogger(
         save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
-        name="postflop_policy"
+        name="postflop_policy_root"
     ) if logger_name == "tensorboard" else False
 
     ckpt_cb = pl.callbacks.ModelCheckpoint(
         dirpath=str(ckpt_dir),
-        filename="postflop_policy-{epoch:02d}-{" + monitor + ":.4f}",
+        filename="postflop_policy_root-{epoch:02d}-{" + monitor + ":.4f}",
         monitor=monitor, mode=mode,
         save_last=True, save_top_k=1,
         auto_insert_metric_name=False,
@@ -165,11 +171,16 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     except Exception:
         cfg_ser = dict(cfg)
     (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
+
+    # ✅ root-only sidecar (action vocab restricted)
     write_postflop_policy_sidecar(
         ckpt_dir=ckpt_dir,
-        feature_order=feature_order,  # list(ds.cat_features)
-        cards=cards,  # ds.cards()
-        id_maps=id_maps,  # ds.id_maps() (may be partial; still useful)
+        feature_order=feature_order,
+        cards=cards,
+        id_maps=id_maps,
+        cont_features=["board_mask_52","pot_bb","eff_stack_bb","board_cluster_id"],
+        action_vocab=ROOT_ACTION_VOCAB,
+        extras={"side": "ip"},
     )
 
     # Train
@@ -179,7 +190,7 @@ def run_train_postflop(cfg: Mapping[str, Any]) -> str:
     else:
         trainer.fit(model, train_dl, val_dl)
 
-    print(f"✅ postflop policy training complete. Best checkpoint: {ckpt_cb.best_model_path}")
+    print(f"✅ ROOT postflop policy training complete. Best checkpoint: {ckpt_cb.best_model_path}")
     return ckpt_cb.best_model_path or str(ckpt_dir / "last.ckpt")
 
 
@@ -235,4 +246,4 @@ if __name__ == "__main__":
         print("  val_metric:", best.get("val", best.get("val_loss", best.get("val_kl"))))
         print("  ckpt:", best.get("ckpt"))
     else:
-        run_train_postflop(cfg)
+        run_train_postflop_root(cfg)

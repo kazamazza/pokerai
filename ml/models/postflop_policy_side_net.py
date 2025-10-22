@@ -3,24 +3,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from ml.models.policy_consts import VOCAB_SIZE, CatEmbedBlock, BoardBlock
+from ml.models.policy_consts import VOCAB_SIZE, CatEmbedBlock, BoardBlock, ACTION_VOCAB
 
 
 class PostflopPolicySideLit(pl.LightningModule):
-    """
-    Single-side training module.
-      side ∈ {"ip","oop"} decides which head is trained & saved.
-      Dataset provides y, m for that side only.
-    """
     def __init__(self, *, side: str, card_sizes: Dict[str,int], cat_feature_order: Sequence[str],
                  board_hidden: int = 64, mlp_hidden: Sequence[int] = (128,128), dropout: float = 0.10,
                  lr: float = 1e-3, weight_decay: float = 1e-4, label_smoothing: float = 0.0,
-                 class_weights_path: Optional[str] = None):
+                 class_weights_path: Optional[str] = None,
+                 action_vocab: Optional[Sequence[str]] = None):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["action_vocab"])
         side = side.lower()
-        assert side in ("ip","oop"), "side must be 'ip' or 'oop'"
+        assert side in ("ip","oop")
         self.side = side
+
+        self.vocab = list(action_vocab) if action_vocab is not None else list(ACTION_VOCAB)
+        self.V = len(self.vocab)
 
         # --- embeddings & board ---
         self.cat_order = list(cat_feature_order)
