@@ -28,6 +28,7 @@ data/exploit/
 data/parsed/
 data/population/
 data/preflop/
+data/ts_smoke
 data/rangenet/
 data/ranges/
 data/solver_cache
@@ -36,3 +37,4 @@ postflop/strategy_templates/
 infra/terraform/terraform.tfvars
 debug_cmds
 /logs
+
