@@ -59,9 +59,31 @@ class PostflopPolicyDatasetRoot(Dataset):
         if "actor" in df.columns:
             df = df[df["actor"].astype(str).str.lower() == "ip"].reset_index(drop=True)
 
-        self.cat_features  = list(cat_features or [])
+
+        import numpy as np
+        if "size_frac" not in df.columns:
+            if "size_pct" in df.columns:
+                df["size_frac"] = pd.to_numeric(df["size_pct"], errors="coerce") / 100.0
+            elif "bet_size_frac" in df.columns:
+                df["size_frac"] = pd.to_numeric(df["bet_size_frac"], errors="coerce")
+            else:
+                df["size_frac"] = np.nan
+
+        df["size_frac"] = (
+            df["size_frac"]
+            .astype("float32")
+            .fillna(0.0)
+            .clip(lower=0.0, upper=1.5)
+        )
+
+        # --- standard setup ---
+        self.cat_features = list(cat_features or [])
         self.cont_features = list(cont_features or [])
-        self.weight_col    = weight_col
+        self.weight_col = weight_col
+
+        if "size_frac" not in self.cont_features:
+            self.cont_features.append("size_frac")
+
 
         # Validate columns we rely on
         needed = set(self.cat_features + self.cont_features + [self.weight_col, "size_pct"]) \

@@ -1,18 +1,10 @@
-# ml/policy/postflop_router.py
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Union, Sequence, Mapping, Any, Dict
-
 import torch
-
-from ml.inference.policy.types import PolicyResponse
+from ml.inference.policy.types import PolicyResponse, PolicyRequest
 from ml.inference.postflop_infer_single import PostflopPolicyInferSingle
 
-
-# expect these available in your project:
-# - PolicyRequest, PolicyResponse
-# - PostflopPolicyInferSingle (the class we just wrote)
-# - _to_device
 
 class PostflopPolicyRouter:
     """
@@ -77,24 +69,36 @@ class PostflopPolicyRouter:
 
     @torch.no_grad()
     def predict(
-        self,
-        req: "PolicyRequest",
-        *,
-        actor: str = "ip",        # for ROOT, decides DONK legality (OOP only)
-        temperature: float = 1.0,
-        side: Optional[str] = None,  # "root" | "facing" | None (auto from req.facing_bet)
+            self,
+            req: PolicyRequest,
+            *,
+            actor: str = "ip",
+            temperature: float = 1.0,
+            side: Optional[str] = None,  # "root" | "facing" | None (auto)
     ) -> "PolicyResponse":
         side_norm = (side or "").strip().lower()
         if side_norm not in ("root", "facing", ""):
             raise ValueError("side must be 'root', 'facing', or None")
 
-        use_facing = req.facing_bet if side_norm == "" else (side_norm == "facing")
-        if use_facing:
+        # Forced side wins
+        if side_norm == "root":
+            return self.root.predict(req, actor=actor, temperature=temperature)
+        if side_norm == "facing":
+            return self.facing.predict(req, actor=actor, temperature=temperature)
+
+        # Auto: infer from actions history (don’t mutate req)
+        try:
+            hero_is_ip = PolicyRequest.is_hero_ip(req.hero_pos or "", req.villain_pos or "")
+        except Exception:
+            hero_is_ip = True
+
+        # Reuse the single-infer helper; it returns (facing_flag, size_frac)
+        facing_flag, _ = self.facing.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+
+        if facing_flag:
             return self.facing.predict(req, actor=actor, temperature=temperature)
         else:
             return self.root.predict(req, actor=actor, temperature=temperature)
-
-    # -------- predict (batch convenience) --------
 
     @torch.no_grad()
     def predict_batch(

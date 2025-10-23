@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import copy
 import json
 import sys
@@ -9,10 +8,6 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 from pytorch_lightning.loggers import TensorBoardLogger
 
-from ml.datasets.postflop_policy_root import PostflopPolicyDatasetRoot, postflop_policy_root_collate_fn
-from ml.models.postflop_policy_side_net import PostflopPolicySideLit
-from ml.models.vocab_actions import ROOT_ACTION_VOCAB
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
@@ -21,7 +16,9 @@ from ml.utils.config import load_model_config
 from ml.utils.rangenet_postflop_sidecar import write_postflop_policy_sidecar
 from ml.trainers.helpers import _get
 from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
-
+from ml.datasets.postflop_policy_root import PostflopPolicyDatasetRoot, postflop_policy_root_collate_fn
+from ml.models.postflop_policy_side_net import PostflopPolicySideLit
+from ml.models.vocab_actions import ROOT_ACTION_VOCAB
 
 
 def run_postflop_sweep(cfg: dict):

@@ -122,7 +122,66 @@ class PostflopPolicyInferSingle:
         sidecar_path = ckpt_dir / "best_sidecar.json"
         return cls.from_checkpoint(checkpoint_path, sidecar_path, device=device)
 
-    # -------------------- internal checks --------------------
+    @staticmethod
+    def _parse_bet_size_from_token(tok: str) -> Optional[float]:
+        """
+        Accepts a variety of bet tokens, returns fraction in {0.25,0.33,0.50,0.66,0.75,1.00} (best-effort).
+        Examples accepted:
+          "BET 33", "BET_33", "BET33", "BET 0.33", "DONK_33", "DONK 50", "BET 100%"
+        """
+        if not tok:
+            return None
+        s = tok.strip().upper().replace("%", "")
+        # keep only last numeric-ish part
+        import re
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)$", s.replace("_", " "))
+        if not m:
+            return None
+        val = float(m.group(1))
+        # if looks like percent, convert
+        if val > 1.5:
+            val = val / 100.0
+        # snap to our known menu
+        CANDS = [0.25, 0.33, 0.50, 0.66, 0.75, 1.00]
+        best = min(CANDS, key=lambda c: abs(c - val))
+        return best if abs(best - val) <= 0.05 else None  # tolerant
+
+    @staticmethod
+    def _is_bet_like(tok: str) -> bool:
+        s = (tok or "").strip().upper()
+        return s.startswith("BET") or s.startswith("DONK")
+
+    def infer_facing_and_size(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[float]]:
+        """
+        Heuristic: if the last action in actions_hist is a bet (by opponent), we are facing.
+        We don't require actor tags; we just detect if a bet was made most recently on this street
+        and there hasn't been a call/raise from hero after it.
+        If facing, we extract the bet size fraction from that last token.
+        """
+        hist = list(req.actions_hist or [])
+        if not hist:
+            # fallback to raw payload hints (optional)
+            raw = req.raw or {}
+            f = raw.get("size_frac")
+            p = raw.get("size_pct")
+            frac = None
+            try:
+                if f is not None:
+                    frac = float(f)
+                elif p is not None:
+                    frac = float(p) / 100.0
+            except Exception:
+                frac = None
+            return (False, frac)
+
+        last = str(hist[-1])
+        # If last token is a bet-like action, assume hero is *facing* that bet.
+        if self._is_bet_like(last):
+            frac = self._parse_bet_size_from_token(last)
+            return (True, frac)
+
+        # If the last token is CALL/RAISE/CHECK from anyone, assume not currently facing.
+        return (False, None)
 
     def _assert_model_width_matches_vocab(self) -> None:
         B = 1
@@ -249,9 +308,23 @@ class PostflopPolicyInferSingle:
             except Exception:
                 pass
 
-        return row
+            # --- infer facing + size from actions_hist/raw (no payload changes required) ---
+        try:
+            hero_is_ip = PolicyRequest.is_hero_ip(hero, vill)  # if you have this util
+        except Exception:
+            hero_is_ip = True
 
-    # -------------------- legality masks --------------------
+        facing, size_frac = self.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+        row["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
+
+        # (optional) pass menu for legality gating if present
+        if isinstance(req.raw, dict) and "bet_sizes" in req.raw:
+            try:
+                row["bet_sizes"] = list(req.raw["bet_sizes"])
+            except:
+                pass
+
+        return row
 
     def _legal_mask_root(self, actor: str, bet_menu: Optional[Sequence[float]]) -> torch.Tensor:
         names = self.action_vocab

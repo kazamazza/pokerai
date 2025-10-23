@@ -30,6 +30,7 @@ dataset:
   cont_features:
     - pot_bb
     - stack_bb
+    - size_frac
 
   # use soft labels (one column per action)
   soft_y_cols:

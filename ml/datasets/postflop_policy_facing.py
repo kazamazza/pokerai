@@ -70,9 +70,29 @@ class PostflopPolicyDatasetFacing(Dataset):
         self.cont_features = list(cont_features or [])
         self.weight_col    = weight_col
 
+        import numpy as np
+        if "size_frac" not in df.columns:
+            if "size_pct" in df.columns:
+                df["size_frac"] = pd.to_numeric(df["size_pct"], errors="coerce") / 100.0
+            elif "faced_size_pct" in df.columns:
+                df["size_frac"] = pd.to_numeric(df["faced_size_pct"], errors="coerce") / 100.0
+            elif "faced_size_frac" in df.columns:
+                df["size_frac"] = pd.to_numeric(df["faced_size_frac"], errors="coerce")
+            else:
+                df["size_frac"] = np.nan
+
+        df["size_frac"] = (
+            df["size_frac"]
+            .astype("float32")
+            .fillna(0.0)
+            .clip(lower=0.0, upper=1.5)
+        )
+
+        if "size_frac" not in self.cont_features:
+            self.cont_features.append("size_frac")
+
         # Columns we must see
-        needed = set(self.cat_features + self.cont_features + [self.weight_col, "size_pct"]) \
-                 | set(ACTION_VOCAB)
+        needed = set(self.cat_features + self.cont_features + [self.weight_col]) | set(ACTION_VOCAB)
         missing = [c for c in needed if c not in df.columns]
         if missing:
             raise ValueError(f"Facing parquet missing columns: {missing}")

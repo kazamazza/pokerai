@@ -92,6 +92,36 @@ def _is_number_like(x) -> bool:
 def _mask52_cached(board: str) -> list[float]:
     return make_board_mask_52(board)
 
+def _normalize_bet_sizes(v) -> list[float]:
+    """Robustly normalize manifest.bet_sizes to a list of floats in (0, 2]."""
+    if v is None:
+        return []
+    # Avro style: [{"element": 0.33}, {"element": 0.66}, ...]
+    if isinstance(v, (list, tuple)):
+        if v and isinstance(v[0], dict) and "element" in v[0]:
+            out = [float(x["element"]) for x in v if x and x.get("element") is not None]
+        else:
+            try:
+                out = [float(x) for x in v]
+            except Exception:
+                out = []
+        # basic sanity
+        return [s for s in out if 0.0 < s <= 2.0]
+    # JSON string?
+    if isinstance(v, str):
+        try:
+            import json
+            arr = json.loads(v)
+            return _normalize_bet_sizes(arr)
+        except Exception:
+            return []
+    return []
+
+def s3_key_for_size(base_key: str, size_pct: int) -> str:
+    """Turns a base manifest s3_key into a concrete object key for a given size."""
+    base = str(base_key).rstrip("/")
+    return f"{base}/size={int(size_pct)}p/output_result.json.gz"
+
 def build_postflop_policy(
     manifest_path: Path,
     cfg: Mapping[str, Any],
@@ -102,8 +132,8 @@ def build_postflop_policy(
     parts_s3_prefix_root: Optional[str] = None,
     parts_s3_prefix_facing: Optional[str] = None,
     shard_label: Optional[str] = None,
-    strict_mode: str = "fail",
-    debug_dump: Optional[str] = None,
+    strict_mode: str = "fail",                 # 'fail' | 'emit_sentinel' | 'skip'
+    debug_dump: Optional[str] = None,          # path to .jsonl for problematic rows
 ) -> None:
     s3c = S3Client()
     df = pd.read_parquet(manifest_path)
@@ -113,12 +143,11 @@ def build_postflop_policy(
 
     rows_root:   list[dict] = []
     rows_facing: list[dict] = []
-
     parts_written_root   = 0
     parts_written_facing = 0
-    x = TexasSolverExtractor()
 
-    diag = {"ok": 0, "sentinel": 0, "zero_mass": 0}
+    x = TexasSolverExtractor()
+    diag = {"ok": 0, "sentinel": 0}
     dump_fh = open(debug_dump, "a", encoding="utf-8") if debug_dump else None
 
     def _emit_sentinel(base_row: dict, reason: str, *, target: str):
@@ -128,27 +157,30 @@ def build_postflop_policy(
             raise RuntimeError(f"{reason}: {str(base_row.get('s3_key', '?'))} [{target}]")
         elif strict_mode in {"emit_sentinel", "skip"}:
             row = {**base_row, "valid": 0, "weight": 0.0, "action": "CHECK"}
-            for a in ACTION_VOCAB: row[a] = 0.0
-            if target == "root":
-                rows_root.append(row)
-            else:
-                rows_facing.append(row)
+            for a in ACTION_VOCAB:
+                row[a] = 0.0
+            (rows_root if target == "root" else rows_facing).append(row)
             diag["sentinel"] += 1
 
     def _part_name(kind: str, i: int) -> str:
         pref = f"shard-{shard_label}-" if shard_label else ""
         return f"{pref}{kind}-part-{i:05d}.parquet"
 
-    def _ensure_vocab_cols(df: pd.DataFrame) -> pd.DataFrame:
+    def _ensure_schema_cols(df: pd.DataFrame) -> pd.DataFrame:
+        # add missing vocab cols + the new size columns + bet_sizes menu
         for a in ACTION_VOCAB:
             if a not in df.columns:
                 df[a] = 0.0
+        for c in ("bet_sizes", "size_pct", "faced_size_pct"):
+            if c not in df.columns:
+                df[c] = None
         return df
 
     def flush_root():
         nonlocal rows_root, parts_written_root
-        if not rows_root: return
-        part_df = _ensure_vocab_cols(pd.DataFrame(rows_root))
+        if not rows_root:
+            return
+        part_df = _ensure_schema_cols(pd.DataFrame(rows_root))
         path = out_root / _part_name("root", parts_written_root)
         part_df.to_parquet(path, index=False, engine="pyarrow")
         if parts_s3_prefix_root:
@@ -156,13 +188,13 @@ def build_postflop_policy(
         print(f"💾 wrote {path} (rows={len(part_df)})")
         parts_written_root += 1
         rows_root = []
-        del part_df;
-        gc.collect()
+        del part_df; gc.collect()
 
     def flush_facing():
         nonlocal rows_facing, parts_written_facing
-        if not rows_facing: return
-        part_df = _ensure_vocab_cols(pd.DataFrame(rows_facing))
+        if not rows_facing:
+            return
+        part_df = _ensure_schema_cols(pd.DataFrame(rows_facing))
         path = out_facing / _part_name("facing", parts_written_facing)
         part_df.to_parquet(path, index=False, engine="pyarrow")
         if parts_s3_prefix_facing:
@@ -170,50 +202,46 @@ def build_postflop_policy(
         print(f"💾 wrote {path} (rows={len(part_df)})")
         parts_written_facing += 1
         rows_facing = []
-        del part_df;
-        gc.collect()
+        del part_df; gc.collect()
 
     def _resolve_solver_path(cfg: Mapping[str, Any], s3_key: Any) -> Path:
-        """Return a local filesystem path for the given s3_key.
-        1) Try inputs.local_solver_dir + s3_key
-        2) Fall back to cache path (which may download if missing, depending on your cache impl)
-        """
         s3_key = _normalize_s3_key(s3_key)
         local_dir = _get(cfg, "inputs.local_solver_dir", None)
         if local_dir:
             p = Path(local_dir) / Path(s3_key)
             if p.is_file():
                 return p
-            # Optional: warn once if not found locally
             print(f"[warn] not found locally, will fall back to cache: {p}")
-
         return _cache_path_for_key(cfg, s3_key)
 
-    # === Loop rows ===
+    # === Loop manifest rows ===
     for r in tqdm(df.itertuples(index=False, name="Row"), total=len(df), desc="Building postflop policy"):
         base_row = {}
         try:
-            # --- read from namedtuple safely ---
-            raw_key = getattr(r, "s3_key", None)
-            s3_key = _normalize_s3_key(raw_key)
-            node_key = str(getattr(r, "node_key", "root"))
+            base_key  = _normalize_s3_key(getattr(r, "s3_key", None))
+            node_key  = str(getattr(r, "node_key", "root"))
             positions = str(getattr(r, "positions", "") or "")
             ip_pos, oop_pos = _split_positions(positions)
 
             stack_bb = float(getattr(r, "effective_stack_bb", 0.0) or 0.0)
-            pot_bb = float(getattr(r, "pot_bb", 0.0) or 0.0)
-            street = int(getattr(r, "street", 1) or 1)
-            ctx = str(getattr(r, "ctx", "") or "")
-            menu_id = str(getattr(r, "bet_sizing_id", "") or "")
+            pot_bb   = float(getattr(r, "pot_bb", 0.0) or 0.0)
+            street   = int(getattr(r, "street", 1) or 1)
+            ctx      = str(getattr(r, "ctx", "") or "")
+            menu_id  = str(getattr(r, "bet_sizing_id", "") or "")
 
-            solver_path = _resolve_solver_path(cfg, s3_key)
-            board = str(getattr(r, "board", "") or "")
-            cluster_id = getattr(r, "board_cluster_id", None)
-            stake = getattr(r, "stake", 0)
-            hero_pos = ip_pos
+            board     = str(getattr(r, "board", "") or "")
+            cluster_id= getattr(r, "board_cluster_id", None)
+            stake     = getattr(r, "stake", 0)
+
+            # pull the per-scenario menu (REQUIRED)
+            menu_sizes = _normalize_bet_sizes(getattr(r, "bet_sizes", None))
+            if not menu_sizes:
+                _emit_sentinel({"s3_key": base_key}, "no_bet_sizes", target="root")
+                _emit_sentinel({"s3_key": base_key}, "no_bet_sizes", target="facing")
+                continue
 
             base_row = {
-                "s3_key": _normalize_s3_key(s3_key),
+                "s3_key": base_key,              # base dir (no size)
                 "node_key": node_key,
                 "stack_bb": int(round(stack_bb)),
                 "effective_stack_bb": float(stack_bb),
@@ -221,81 +249,94 @@ def build_postflop_policy(
 
                 "ip_pos": ip_pos,
                 "oop_pos": oop_pos,
-                "hero_pos": hero_pos,
+                "hero_pos": ip_pos,              # convention
 
                 "street": int(street),
                 "ctx": ctx,
-                "stake": stake,  # 👈 keep for lineage
+                "stake": stake,
 
                 "board": board,
                 "board_cluster_id": int(cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None,
                 "board_mask_52": _mask52_cached(board) if board else [0.0] * 52,
 
                 "bet_sizing_id": menu_id,
+                "bet_sizes": menu_sizes,         # keep full menu for gating later
+                "size_pct": None,                # filled per-root emit
+                "faced_size_pct": None,          # filled per-facing emit
 
                 "valid": 1,
             }
 
-            # --- parse with the new extractor (robust to schema/layout) ---
-            ex = x.extract(
-                str(solver_path),
-                ctx=ctx,
-                ip_pos=ip_pos,
-                oop_pos=oop_pos,
-                board=board,
-                pot_bb=pot_bb,
-                stack_bb=stack_bb,
-                bet_sizing_id=menu_id,
-            )
+            # === fan out per size ===
+            for s in menu_sizes:
+                try:
+                    size_pct = int(round(float(s) * 100))
+                except Exception:
+                    continue
 
-            emitted_any = False
+                s3_key_sz   = s3_key_for_size(base_key, size_pct)
+                solver_path = _resolve_solver_path(cfg, s3_key_sz)
 
-            def _emit_row(probs: dict, *, actor: str, facing_flag: int, target: str):
-                if not probs:
-                    _emit_sentinel(base_row, "empty_probs", target=target)
-                    return
-                vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
-                s = float(vec.sum())
-                if s <= 1e-12:
-                    _emit_sentinel(base_row, "zero_mass", target=target)
-                    return
-                vec /= s
-                argmax_action = ACTION_VOCAB[int(vec.argmax())]
+                ex = x.extract(
+                    str(solver_path),
+                    ctx=ctx,
+                    ip_pos=ip_pos,
+                    oop_pos=oop_pos,
+                    board=board,
+                    pot_bb=pot_bb,
+                    stack_bb=stack_bb,
+                    bet_sizing_id=menu_id,
+                )
 
-                out_row = {
-                    **base_row,
-                    "actor": actor,  # "ip" for root, "oop" for facing (convention)
-                    "facing_bet": facing_flag,  # 0/1
-                    "action": argmax_action,
-                    "weight": 1.0,
-                }
-                for a, p in zip(ACTION_VOCAB, vec.tolist()):
-                    out_row[a] = float(p)
+                def _emit_row(probs: dict, *, actor: str, facing_flag: int, target: str):
+                    if not probs:
+                        _emit_sentinel({**base_row, "s3_key": s3_key_sz}, "empty_probs", target=target)
+                        return
+                    vec = np.array([probs.get(a, 0.0) for a in ACTION_VOCAB], dtype=np.float32)
+                    ssum = float(vec.sum())
+                    if ssum <= 1e-12:
+                        _emit_sentinel({**base_row, "s3_key": s3_key_sz}, "zero_mass", target=target)
+                        return
+                    vec /= ssum
+                    argmax_action = ACTION_VOCAB[int(vec.argmax())]
 
-                if target == "root":
-                    rows_root.append(out_row)
+                    out_row = {
+                        **base_row,
+                        "s3_key": s3_key_sz,            # concrete file we parsed
+                        "actor": actor,                  # "ip" for root, "oop" for facing (our convention)
+                        "facing_bet": facing_flag,       # 0/1
+                        "action": argmax_action,
+                        "weight": 1.0,
+                    }
+                    for a, p in zip(ACTION_VOCAB, vec.tolist()):
+                        out_row[a] = float(p)
+
+                    if target == "root":
+                        out_row["size_pct"] = size_pct
+                        out_row["faced_size_pct"] = None
+                        rows_root.append(out_row)
+                    else:
+                        out_row["size_pct"] = None
+                        out_row["faced_size_pct"] = size_pct
+                        rows_facing.append(out_row)
+
+                    diag["ok"] += 1
+
+                if ex.ok:
+                    _emit_row(ex.root_mix,   actor="ip",  facing_flag=0, target="root")
+                    _emit_row(ex.facing_mix, actor="oop", facing_flag=1, target="facing")
                 else:
-                    rows_facing.append(out_row)
+                    _emit_sentinel({**base_row, "s3_key": s3_key_sz}, ex.reason or "extract_failed", target="root")
+                    _emit_sentinel({**base_row, "s3_key": s3_key_sz}, ex.reason or "extract_failed", target="facing")
 
-                diag["ok"] += 1
-
-            if ex.ok:
-                _emit_row(ex.root_mix, actor="ip", facing_flag=0, target="root")
-                _emit_row(ex.facing_mix, actor="oop", facing_flag=1, target="facing")
-            else:
-                # emit a sentinel to BOTH targets so downstream counts match
-                _emit_sentinel(base_row, ex.reason or "extract_failed", target="root")
-                _emit_sentinel(base_row, ex.reason or "extract_failed", target="facing")
-
-            # flush each independently when it hits the threshold
-            if len(rows_root) >= part_rows: flush_root()
-            if len(rows_facing) >= part_rows: flush_facing()
+                if len(rows_root)   >= part_rows: flush_root()
+                if len(rows_facing) >= part_rows: flush_facing()
 
         except Exception as e:
-            # ensure dict for sentinel path
             if not isinstance(base_row, dict):
                 base_row = {}
-            _emit_sentinel(base_row, f"exception: {e}")
+            _emit_sentinel(base_row, f"exception: {e}", target="root")
+            _emit_sentinel(base_row, f"exception: {e}", target="facing")
 
     flush_root()
     flush_facing()
@@ -309,7 +350,6 @@ def build_postflop_policy(
           sep="  ")
 
 
-# === Shard runner ===
 def run_from_config(
     cfg: Mapping[str, Any],
     *,
@@ -395,7 +435,7 @@ if __name__ == "__main__":
     from ml.utils.config import load_model_config
 
     ap = argparse.ArgumentParser("Build Postflop Policy (sharded, streaming parquet parts)")
-    ap.add_argument("--manifest", type=str, required=True,  # <— NEW: explicit parquet path
+    ap.add_argument("--manifest", type=str, required=True,
                     help="Path to the manifest parquet to consume")
     ap.add_argument("--config", type=str, default="rangenet/postflop")
     ap.add_argument("--shard-index", type=int, default=None)
