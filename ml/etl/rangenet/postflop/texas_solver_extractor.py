@@ -1,14 +1,7 @@
 import json, gzip, re
-from typing import Any, Dict, Tuple, Optional, List, Sequence
+from typing import Any, Dict, Tuple, Optional, List, Sequence, Literal
+from ml.models.policy_consts import ACTION_VOCAB
 from .solver_schema import SolverExtraction
-
-ACTION_VOCAB = [
-    "FOLD","CHECK","CALL",
-    "BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
-    "DONK_33",
-    "RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500",
-    "ALLIN",
-]
 
 FOLD_RE  = re.compile(r"\bfold\b", re.IGNORECASE)
 CALL_RE  = re.compile(r"\bcall\b", re.IGNORECASE)
@@ -17,11 +10,53 @@ BET_RE   = re.compile(r"\bbet\b", re.IGNORECASE)
 RAISE_RE = re.compile(r"\braise\b", re.IGNORECASE)
 ALLIN_RE = re.compile(r"\ball[-\s]*in\b|\bjam\b", re.IGNORECASE)
 
+
+
 class TexasSolverExtractor:
     def __init__(self) -> None:
         pass
 
-    # ---------- public API ----------
+    # --- UPDATE helper to honor root_bet_kind ---
+    def _override_root_mix(
+            self,
+            mix: Dict[str, float],
+            *,
+            root_actor: str,
+            root_bet_kind: Literal["donk", "bet"],  # NEW
+            size_pct: Optional[int],
+    ) -> Dict[str, float]:
+        """Force root to legal tokens; tie bet/donk to requested size; preserve ALLIN if present."""
+        allin_mass = float(mix.get("ALLIN", 0.0))
+
+        out = {a: 0.0 for a in ACTION_VOCAB}
+        out["CHECK"] = float(mix.get("CHECK", 0.0))
+
+        if size_pct is not None:
+            prefix = "DONK" if root_bet_kind == "donk" else "BET"
+            size_tok = f"{prefix}_{int(size_pct)}"
+            if size_tok in out:
+                betlike_mass = sum(v for k, v in mix.items() if k.startswith("BET_") or k.startswith("DONK_"))
+                out[size_tok] = betlike_mass
+
+        if allin_mass > 0.0:
+            out["ALLIN"] = allin_mass  # keep shove if stack-capped
+
+        # forbid call/raise at root
+        for k in list(out.keys()):
+            if k.startswith("RAISE_") or k in ("CALL", "FOLD"):
+                out[k] = 0.0
+        return out
+
+    def _filter_facing_only(self, mix: Dict[str, float]) -> Dict[str, float]:
+        """
+        Keep only FOLD/CALL/RAISE_* (and ALLIN). Zero everything else.
+        WHY: facing model learns responses vs a bet.
+        """
+        out = {a: 0.0 for a in ACTION_VOCAB}
+        for k, v in mix.items():
+            if k in ("FOLD", "CALL", "ALLIN") or k.startswith("RAISE_"):
+                out[k] = float(v)
+        return out
 
     def extract(
             self,
@@ -36,6 +71,9 @@ class TexasSolverExtractor:
             bet_sizing_id: str,
             bet_sizes: Optional[List[float]] = None,
             raise_mults: Optional[List[float]] = None,
+            size_pct: Optional[int] = None,  # requested size (33/66/100)
+            root_actor: str = "oop",  # "ip" or "oop"
+            root_bet_kind: Literal["donk", "bet"] = "donk"  # NEW: OOP root menu kind
     ) -> SolverExtraction:
         """Single entry point. Returns a filled SolverExtraction (ok=True) or reason."""
         ex = SolverExtraction(
@@ -54,7 +92,12 @@ class TexasSolverExtractor:
             if not isinstance(root, dict):
                 return self._fail(ex, "malformed_root")
 
-            # --- 1️⃣  Root (IP) mix: CHECK / BET_xx ---
+            # keep for diagnostics
+            ex.meta["root_actor"] = root_actor
+            ex.meta["root_bet_kind"] = root_bet_kind
+            ex.meta["requested_size_pct"] = int(size_pct) if size_pct is not None else None
+
+            # --- 1) Root mix ---
             ex.root_mix, root_meta = self._read_node_action_mix(
                 root,
                 mode="root",
@@ -65,17 +108,24 @@ class TexasSolverExtractor:
             )
             ex.meta["root_meta"] = root_meta
 
-            # --- 2️⃣  Facing mix: OOP’s response to first IP bet ---
+            # deterministic override to legal tokens + correct size bucket
+            if ex.root_mix:
+                ex.root_mix = self._override_root_mix(
+                    ex.root_mix,
+                    root_actor=root_actor,
+                    root_bet_kind=root_bet_kind,  # NEW
+                    size_pct=size_pct,
+                )
+
+            # --- 2) Facing (response to first bet) ---
             bet_node, via_path = self._find_first_bet_node(root)
             ex.meta["facing_path"] = via_path
             if bet_node is not None:
                 facing_pct, facing_to_bb = self._extract_bet_size(via_path[-1], ex.pot_bb)
                 ex.facing_bet_bb = (
-                    facing_to_bb
-                    if facing_to_bb is not None
+                    facing_to_bb if facing_to_bb is not None
                     else (ex.pot_bb * (facing_pct or 0) / 100.0)
                 )
-
                 ex.facing_mix, face_meta = self._read_node_action_mix(
                     bet_node,
                     mode="facing",
@@ -87,11 +137,11 @@ class TexasSolverExtractor:
                 )
                 ex.meta["facing_meta"] = face_meta
 
-            # --- 3️⃣  Validate minimum contract ---
-            if (ex.root_mix and self._sum(ex.root_mix) > 0) or (
-                    ex.facing_mix and self._sum(ex.facing_mix) > 0
-            ):
-                # normalize
+                if ex.facing_mix:
+                    ex.facing_mix = self._filter_facing_only(ex.facing_mix)
+
+            # --- 3) validate ---
+            if (ex.root_mix and self._sum(ex.root_mix) > 0) or (ex.facing_mix and self._sum(ex.facing_mix) > 0):
                 if ex.root_mix:
                     ex.root_mix = self._renorm_map(ex.root_mix)
                 if ex.facing_mix:
@@ -182,24 +232,43 @@ class TexasSolverExtractor:
                 mapped["ALLIN"] += p
                 continue
 
-            # BET — bucket by % of pot
+            # BET label
             if BET_RE.search(lab):
                 pct, to_bb = self._extract_bet_size(lbl, pot_bb)
-                # use explicit % if present; otherwise derive from to_bb/pot_bb
-                if pct is None:
-                    pct = self._pct_from_to_bb(to_bb, pot_bb)
+                # prefer absolute bb if present; else derive from % of pot
+                if to_bb is None and pct is not None:
+                    pv = float(pct)
+                    pct_val = pv * 100.0 if pv <= 3.0 else pv
+                    to_bb = (pct_val / 100.0) * pot_bb
 
-                # pct may be fractional (0.33) or 33; normalize → percent space
+                if mode == "facing":
+                    # At facing nodes, "BET ..." == raise-to target
+                    tok = "RAISE_300"
+                    mult = None
+                    if facing_bet_bb is not None and facing_bet_bb > 1e-9 and to_bb is not None:
+                        mult = float(to_bb) / float(facing_bet_bb)
+                    if mult is None:
+                        m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
+                        if m:
+                            try:
+                                mult = float(m.group(1))
+                            except:
+                                mult = None
+                    if mult is not None and mult > 1.01:
+                        nearest = min(raise_cands, key=lambda x: abs(x - mult))
+                        cand = f"RAISE_{int(round(nearest * 100))}"
+                        if cand in ACTION_VOCAB:
+                            tok = cand
+                        mapped[tok] += p
+                    # else ignore non-raise bet label at facing
+                    continue
+
+                # Root mode: treat as normal bet bucket
+                pct_val = None
                 if pct is not None:
-                    pct_val = float(pct)
-                    if pct_val <= 3.0:  # treat <= 3.0 as fraction of pot, e.g. 0.33
-                        pct_val *= 100.0
-                    # clamp
+                    pv = float(pct)
+                    pct_val = pv * 100.0 if pv <= 3.0 else pv
                     pct_val = max(0.0, min(pct_val, 200.0))
-                else:
-                    pct_val = None
-
-                # choose nearest configured bucket
                 tok = "BET_50"
                 if pct_val is not None and bet_bucket_pct:
                     nearest = min(bet_bucket_pct, key=lambda b: abs(b - pct_val))
@@ -317,22 +386,25 @@ class TexasSolverExtractor:
 
     def _extract_bet_size(self, label: str, pot_bb: float) -> Tuple[Optional[float], Optional[float]]:
         t = label.lower()
-        # 33%
         m = re.search(r'(\d+(?:\.\d+)?)\s*%', t)
         if m:
-            pct = float(m.group(1)); return pct, (pct/100.0)*pot_bb
-        # 0.66x pot | 0.66 pot
+            pct = float(m.group(1));
+            return pct, (pct / 100.0) * pot_bb
         m = re.search(r'(\d+(?:\.\d+)?)\s*(?:x\s*)?pot', t)
         if m:
-            pct = float(m.group(1))*100.0; return pct, (pct/100.0)*pot_bb
-        # to 6.0bb
+            pct = float(m.group(1)) * 100.0;
+            return pct, (pct / 100.0) * pot_bb
         m = re.search(r'to\s*(\d+(?:\.\d+)?)\s*bb', t)
         if m:
-            to_bb = float(m.group(1)); return None, to_bb
-        # bare number → assume bb
+            to_bb = float(m.group(1));
+            return None, to_bb
         m = re.search(r'\b(\d+(?:\.\d+)?)\b', t)
         if m:
-            val = float(m.group(1)); return None, val
+            v = float(m.group(1))
+            # Heuristic: small number is x pot; big number is bb
+            if 0.05 <= v <= 3.0:
+                return v * 100.0, (v * pot_bb)
+            return None, v
         return None, None
 
     def _pct_from_to_bb(self, to_bb: Optional[float], pot_bb: float) -> Optional[float]:
@@ -389,8 +461,6 @@ class TexasSolverExtractor:
         nearest = min(candidates, key=lambda x: abs(x - mult))
         tok = f"RAISE_{int(round(nearest * 100))}"
         return tok if tok in ACTION_VOCAB else default
-
-    # ----- structure utilities -----
 
     def _normalize_children(self, node: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         for k in ("childrens", "children"):

@@ -1,68 +1,72 @@
 import sys
 from pathlib import Path
+from decimal import Decimal, ROUND_HALF_UP
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from ml.utils.config import load_model_config
 
-# --- ADD helpers somewhere above main() ---
-
 def parse_bet_sizes_cell(cell) -> list[int]:
     """
-    Manifest bet_sizes can be:
+    Robustly parse bet_sizes:
       - None
-      - [0.33, 0.66]
-      - [{"element": 0.33}, {"element": 0.66}]
-    Return list of integer percents, e.g. [33, 66].
+      - [0.33, 0.66] or [33, 66]
+      - [{"element": 0.33}, ...] (pyarrow-struct style)
+      - pyarrow List/Scalar, numpy arrays
+    Returns **ordered unique** integer percents using ROUND_HALF_UP, e.g. [33, 67].
     """
     if cell is None:
         return []
-    vals = []
-    if isinstance(cell, list):
-        for it in cell:
-            if it is None:
-                continue
-            if isinstance(it, dict):
-                v = it.get("element", None)
-            else:
-                v = it
-            try:
-                f = float(v)
-                # if user already stored percents (e.g. 33.0), keep; else convert 0.33->33
-                if f <= 3.0:
-                    vals.append(int(round(100.0 * f)))
-                else:
-                    vals.append(int(round(f)))
-            except Exception:
-                pass
-    else:
-        # single scalar
+
+    # Unwrap pyarrow / numpy containers if present
+    try:
+        import pyarrow as pa  # optional
+        if isinstance(cell, (pa.ListScalar, pa.ListValue, pa.ChunkedArray)):
+            cell = cell.as_py()
+    except Exception:
+        pass
+    try:
+        import numpy as np
+        if isinstance(cell, np.ndarray):
+            cell = cell.tolist()
+    except Exception:
+        pass
+
+    seq = cell if isinstance(cell, list) else [cell]
+    out: list[int] = []
+    seen = set()
+
+    for it in seq:
+        if it is None:
+            continue
+        v = it.get("element") if isinstance(it, dict) else it
         try:
-            f = float(cell)
-            vals.append(int(round(100.0 * f if f <= 3.0 else f)))
+            f = float(v)
         except Exception:
-            pass
-    # de-dup, sort
-    return sorted(set(x for x in vals if 1 <= x <= 200))
+            continue
+
+        # If ≤3.0 treat as fraction (0.33→33), else already percent (33→33)
+        if f <= 3.0:
+            pct = int(Decimal(str(f * 100.0)).quantize(0, rounding=ROUND_HALF_UP))
+        else:
+            pct = int(Decimal(str(f)).quantize(0, rounding=ROUND_HALF_UP))
+
+        if 1 <= pct <= 200 and pct not in seen:
+            out.append(pct); seen.add(pct)
+
+    return out
 
 
 def inject_size_into_s3_key(s3_key: str, size_pct: int) -> str:
     """
-    Insert '/size=<NN>' before the shard/sha1 tail. Works with your current layout:
-      .../sizes=<menu_id>/<shard>/<sha1>/output_result.json.gz
-    -> .../sizes=<menu_id>/size=<NN>/<shard>/<sha1>/output_result.json.gz
+    Appends a size-specific suffix for the given size, storing compressed results (.json.gz).
+    Example:
+      base: solver/outputs/v1/street=1/.../Ah9hAs
+      → solver/outputs/v1/street=1/.../Ah9hAs/size=50p/output_result.json.gz
     """
-    # find last two slashes before filename
-    last = s3_key.rfind("/")
-    if last < 0:
-        return s3_key
-    last2 = s3_key.rfind("/", 0, last)
-    if last2 < 0:
-        return s3_key
-    base = s3_key[:last2]         # up to .../sizes=<menu_id>
-    tail = s3_key[last2:]         # /<shard>/<sha1>/output_result.json.gz
-    return f"{base}/size={int(size_pct)}{tail}"
+    base = str(s3_key).rstrip("/")
+    return f"{base}/size={int(size_pct)}p/output_result.json.gz"
 
 def main():
     import argparse, time, json, os
@@ -78,7 +82,6 @@ def main():
     ap.add_argument("--config", default=None, help="Optional YAML to fill *missing* non-critical fields")
     args = ap.parse_args()
 
-    # Optional config (only for filler defaults, never to override manifest)
     solver_cfg = {}
     if args.config:
         try:
@@ -140,6 +143,8 @@ def main():
         # 1) parse bet sizes
         sizes_pct = parse_bet_sizes_cell(row.get("bet_sizes"))
         if not sizes_pct:
+            sizes_pct = [33]
+        if not sizes_pct:
             sizes_pct = [33]  # safe default; your worker can still legalize at runtime
 
         entries = []
@@ -165,8 +170,8 @@ def main():
                 "params": params,
             }
             entries.append({
-                "Id": f"{str(row['sha1'])[:72]}_{int(size_pct)}",
-                "MessageBody": json.dumps(msg)
+                "Id": f"{str(row['sha1'])[:68]}_{int(size_pct):03d}",  # keep ≤80 chars, stable width
+                "MessageBody": json.dumps(msg),
             })
 
         return entries
@@ -189,7 +194,6 @@ def main():
         region_name=os.getenv("AWS_REGION"),
     )
 
-    n = len(df)
     sent = 0
     retries = 0
     entries_buf = []
@@ -198,7 +202,6 @@ def main():
         nonlocal sent, retries
         if not entries:
             return
-        resp2 = {"Successful": []}
         try:
             resp = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=entries)
             failed = resp.get("Failed", []) or []

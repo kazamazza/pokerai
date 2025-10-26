@@ -29,6 +29,7 @@ data/parsed/
 data/population/
 data/preflop/
 data/ts_smoke
+data/peek
 data/rangenet/
 data/ranges/
 data/solver_cache

@@ -32,21 +32,14 @@ def build_command_text(
     dump_path: str = "output_result.json",
 ) -> str:
     lines: List[str] = []
-
-    # Required state
     lines.append(f"set_pot {_fmt_num(pot_bb)}")
     lines.append(f"set_effective_stack {_fmt_num(effective_stack_bb)}")
 
-    # BOARD: comma-separated tokens (e.g. "Qs,Jh,2h")
     board_csv = ",".join([board[i:i+2] for i in range(0, len(board), 2)])
     lines.append(f"set_board {board_csv}")
-
-    # RANGES: pass-through
     lines.append(f"set_range_ip {range_ip}")
     lines.append(f"set_range_oop {range_oop}")
 
-    # Bet menus (comma-separated fields: role,street,kind[,sizes...])
-    # If multiple sizes exist, emit them on a single line: ... raise,60,100
     if bet_sizes:
         for street, per_role in bet_sizes.items():
             for role, kinds in per_role.items():
@@ -60,7 +53,6 @@ def build_command_text(
                 if kinds.get("allin"):
                     lines.append(f"set_bet_sizes {role},{street},allin")
 
-    # Follow the example’s ordering
     lines.append(f"set_allin_threshold {allin_threshold}")
     lines.append("build_tree")
     lines.append(f"set_thread_num {int(thread_num)}")
@@ -71,7 +63,5 @@ def build_command_text(
     lines.append("start_solve")
     lines.append("set_dump_rounds 3")
     lines.append(f"dump_result {dump_path}")
-    # optional but harmless
-    # lines.append("quit")
 
     return "\n".join(lines) + "\n"

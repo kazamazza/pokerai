@@ -2,18 +2,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from ml.config.solver import STAKE_CFG
-from ml.core.types import Stakes
-from tools.rangenet.sanity.smoke_run_scenarios import stake_from_str
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
 from infra.utils.gzip_file import gzip_file
 from ml.etl.utils.monker_range_converter import to_monker
 from ml.etl.utils.range_lookup import monker_string_to_vec169
-from ml.config.bet_menus import build_contextual_bet_sizes, _parse_menu_id
+from ml.config.bet_menus import _parse_menu_id
 from dotenv import load_dotenv
+from tools.rangenet.sanity.smoke_run_scenarios import stake_from_str
+from ml.config.solver import STAKE_CFG
+from ml.core.types import Stakes
 
 load_dotenv()
 
@@ -165,17 +164,58 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     range_oop = to_monker(params["range_oop"])
 
     # required: int like 25, 33, 50, 66, 75, 100
-    size_pct = int(round(float(params["size_pct"])))          # ← comes from SQS job
-    size_fr  = max(0.0, min(2.0, size_pct / 100.0))           # keep as fraction for build_command_text
+    size_pct = int(round(float(params["size_pct"])))
+    size_fr  = max(0.0, min(2.0, size_pct / 100.0))  # keep as fraction for build_command_text
 
     menu_id = str(params.get("bet_sizing_id", "") or "")
-    group, role = _parse_menu_id(menu_id)                     # e.g. ("srp_hu", "Caller_OOP"|"PFR_IP"|...)
+    group, role = _parse_menu_id(menu_id)  # e.g. ("srp_hu", "Caller_OOP")
 
-    # Console needs one size per solve. We mirror sizes to IP bet and either
-    # OOP donk (when the OOP profile is a caller) or OOP bet (otherwise).
-    allow_donk = role.endswith("Caller_OOP") or role == "Caller_OOP"
+    # --- Decide OOP root menu kind (donk vs bet) from (group, role)
+    def _oop_root_menu_kind(group: str, role: str) -> str:
+        """
+        Returns 'donk' if OOP is the caller at flop root, else 'bet' (OOP is aggressor).
+        WHY: solver expects 'donk' for caller-led root, 'bet' for aggressor-led root.
+        """
+        g = (group or "").strip()
+        r = (role or "").strip()
 
-    # Raise ladder & allin from stake config (keep your existing accessors)
+        # Limped pots: OOP (BB) is caller → donk
+        if g.startswith("limped_single"):
+            return "donk"
+
+        # Single-raised pots
+        if g == "srp_hu":
+            if r.endswith("PFR_IP"):
+                # IP is preflop aggressor ⇒ OOP is caller
+                return "donk"
+            if r.endswith("Caller_OOP"):
+                # OOP explicitly labeled caller
+                return "donk"
+            # Fallback: default to donk in SRP if unknown
+            return "donk"
+
+        # 3-bet pots
+        if g == "3bet_hu":
+            if r.endswith("Aggressor_OOP"):
+                return "bet"   # OOP is preflop aggressor
+            if r.endswith("Aggressor_IP"):
+                return "donk"  # IP aggressor ⇒ OOP caller
+            return "donk"      # safe default
+
+        # 4-bet pots
+        if g == "4bet_hu":
+            if r.endswith("Aggressor_OOP"):
+                return "bet"
+            if r.endswith("Aggressor_IP"):
+                return "donk"
+            return "donk"
+
+        # Default conservative choice: assume OOP is caller → donk
+        return "donk"
+
+    oop_menu_kind = _oop_root_menu_kind(group, role)  # 'donk' or 'bet'
+
+    # Raise ladder & all-in from stake config
     stake = stake_from_str(str(params.get("stake", "NL10")))
     cfg = STAKE_CFG.get(stake, STAKE_CFG[Stakes.NL10])
     raise_mult = cfg["raise_mult"]
@@ -184,15 +224,16 @@ def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str 
     bet_sizes_untyped = {
         "flop": {
             "ip": {"bet": [size_fr], "raise": raise_mult, "allin": enable_allin},
-            "oop": ({"donk": [size_fr], "raise": raise_mult, "allin": enable_allin}
-                    if allow_donk
-                    else {"bet": [size_fr], "raise": raise_mult, "allin": enable_allin}),
+            "oop": {
+                "bet": [size_fr],
+                "raise": raise_mult,
+                "allin": enable_allin,
+            },
         },
         "turn": {"ip": {"bet": []}, "oop": {"bet": []}},
         "river": {"ip": {"bet": []}, "oop": {"bet": []}},
     }
 
-    # explicitly cast to the expected type for build_command_text
     bet_sizes = cast(
         Dict[
             Literal["flop", "turn", "river"],
@@ -279,7 +320,6 @@ def _run_solver(cmd_file: Path) -> None:
 def handle_message(body: str) -> bool:
     if not S3_BUCKET:
         raise RuntimeError("AWS_BUCKET_NAME env var is required")
-    print("incoming message:", body)
     msg = json.loads(body)
     sha1 = msg["sha1"]
     s3_key = msg["s3_key"]

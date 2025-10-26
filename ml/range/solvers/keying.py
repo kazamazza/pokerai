@@ -31,12 +31,28 @@ def s3_key_base(
     sha: str,
     prefix: str = "solver/outputs/v1",
 ) -> str:
+    """
+    Build a fully descriptive S3 key path for solver outputs.
+    Keeps true float precision for pot, stack, and accuracy — no rounding.
+    """
+
     street = int(params.get("street", 1))
     pos = str(params.get("positions", "UNKvUNK"))
-    stack = int(round(float(params.get("effective_stack_bb", 0))))
-    pot = int(round(float(params.get("pot_bb", 0))))
-    board = _sanitize_board(params.get("board") or f"cluster_{int(params.get('board_cluster_id', -1))}")
-    acc = float(params.get("accuracy", 0.01))
+
+    # preserve full numeric precision but strip trailing zeros
+    stack_val = float(params.get("effective_stack_bb", 0))
+    stack_str = f"{stack_val:.2f}".rstrip("0").rstrip(".")
+
+    pot_val = float(params.get("pot_bb", 0))
+    pot_str = f"{pot_val:.2f}".rstrip("0").rstrip(".")
+
+    acc_val = float(params.get("accuracy", 0.01))
+    acc_str = f"{acc_val:.3f}".rstrip("0").rstrip(".")
+
+    board = _sanitize_board(
+        params.get("board") or f"cluster_{int(params.get('board_cluster_id', -1))}"
+    )
+
     sizes = str(params.get("bet_sizing_id", "std"))
     shard = solve_sha1(params)[:2]  # same sha1, no size in params
 
@@ -44,10 +60,10 @@ def s3_key_base(
         f"{prefix}"
         f"/street={street}"
         f"/pos={pos}"
-        f"/stack={stack}"
-        f"/pot={pot}"
+        f"/stack={stack_str}"
+        f"/pot={pot_str}"
         f"/board={board}"
-        f"/acc={acc:.2f}"
+        f"/acc={acc_str}"
         f"/sizes={sizes}"
         f"/{shard}/{sha}"
     )
