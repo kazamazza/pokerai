@@ -1,5 +1,3 @@
-# ml/datasets/postflop_policy_root.py
-
 import json
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -12,33 +10,26 @@ from ml.models.policy_consts import ACTION_VOCAB
 BET_BUCKETS = {"BET_25","BET_33","BET_50","BET_66","BET_75","BET_100"}
 DONK_BUCKETS = {"DONK_25","DONK_33","DONK_50","DONK_66","DONK_75","DONK_100"}
 
+ROOT_PREFIXES   = ("CHECK", "BET_", "DONK_")
+FACING_PREFIXES = ("FOLD", "CALL", "RAISE_", "ALLIN")
+
 VOCAB_INDEX = {a:i for i,a in enumerate(ACTION_VOCAB)}
-VOCAB_SIZE = len(ACTION_VOCAB)
+VOCAB_SIZE  = len(ACTION_VOCAB)
 
 class PostflopPolicyDatasetRoot(Dataset):
-    """
-    Root-only postflop policy dataset (IP first action on flop).
-    - Targets are soft labels over ACTION_VOCAB, but only {CHECK, BET_size} are legal (DONK_size if actor=OOP).
-    - Returns (x_cat, x_cont, y, m, w) per item:
-        x_cat: Dict[str, LongTensor]
-        x_cont: Dict[str, Float/Long Tensor] (incl. board_mask_52 as [52]-tensor)
-        y: FloatTensor[V]   (soft label, normalized over legal actions)
-        m: FloatTensor[V]   (1 for legal, 0 for illegal)
-        w: FloatTensor[]    (scalar sample weight)
-    """
     def __init__(
         self,
         parquet_path: str | Path,
         *,
-        cat_features: List[str],         # from YAML (e.g., ["ctx","ip_pos","oop_pos"])
-        cont_features: List[str],        # from YAML (e.g., ["pot_bb","effective_stack_bb"])
+        cat_features: List[str],
+        cont_features: List[str],
         weight_col: str = "weight",
         strict_canon: bool = True,
     ):
         self.parquet_path = Path(parquet_path)
         df = pd.read_parquet(str(self.parquet_path)).copy()
 
-        # --- light canon for a few common categoricals ---
+        # ---- canon helpers ----
         def _canon_pos(v):
             if v is None: return None
             v = str(v).strip().upper()
@@ -55,11 +46,11 @@ class PostflopPolicyDatasetRoot(Dataset):
         if "board_cluster" in df.columns and "board_cluster_id" not in df.columns:
             df = df.rename(columns={"board_cluster": "board_cluster_id"})
 
-        # Root parquet should be IP rows only, but be robust:
+        # Root parquet should be IP rows only
         if "actor" in df.columns:
             df = df[df["actor"].astype(str).str.lower() == "ip"].reset_index(drop=True)
 
-
+        # ---- derive size_frac for menu gating or analysis ----
         import numpy as np
         if "size_frac" not in df.columns:
             if "size_pct" in df.columns:
@@ -76,23 +67,33 @@ class PostflopPolicyDatasetRoot(Dataset):
             .clip(lower=0.0, upper=1.5)
         )
 
-        # --- standard setup ---
-        self.cat_features = list(cat_features or [])
+        # ---- standard setup ----
+        self.cat_features  = list(cat_features or [])
         self.cont_features = list(cont_features or [])
-        self.weight_col = weight_col
-
+        self.weight_col    = weight_col
         if "size_frac" not in self.cont_features:
             self.cont_features.append("size_frac")
 
+        # ---- normalize label space to ROOT only ----
+        # 1) drop any facing-only columns if present
+        drop_cols = [c for c in df.columns if any(c.startswith(p) for p in FACING_PREFIXES)]
+        if drop_cols:
+            df = df.drop(columns=drop_cols, errors="ignore")
 
-        # Validate columns we rely on
-        needed = set(self.cat_features + self.cont_features + [self.weight_col, "size_pct"]) \
-                 | set(ACTION_VOCAB)
-        missing = [c for c in needed if c not in df.columns]
-        if missing:
-            raise ValueError(f"Root parquet missing columns: {missing}")
+        # 2) guarantee root tokens exist; synthesize zeros if missing
+        root_targets = {"CHECK"} | BET_BUCKETS | DONK_BUCKETS
+        for tok in root_targets:
+            if tok not in df.columns:
+                df[tok] = 0.0
+        self.target_cols = sorted(list(root_targets))
 
-        # --- category id maps ---
+        # ---- required meta/feature columns present? ----
+        needed_meta = set(self.cat_features + self.cont_features + [self.weight_col, "size_pct"])
+        missing_meta = [c for c in needed_meta if c not in df.columns]
+        if missing_meta:
+            raise ValueError(f"Root parquet missing columns: {missing_meta}")
+
+        # ---- encode categoricals ----
         self._id_maps: dict[str, dict[str,int]] = {}
         self._cards: dict[str, int] = {}
         def _encode_cat(col: str):
@@ -112,15 +113,13 @@ class PostflopPolicyDatasetRoot(Dataset):
                 if df[c].isna().any():
                     raise ValueError(f"Invalid values in '{c}' (NaNs after encoding)")
 
-        # Weights
+        # ---- weights ----
         w = df[self.weight_col].astype(float).to_numpy()
         w = np.where(np.isnan(w), 1.0, w)
         self.weights = torch.tensor(w, dtype=torch.float32)
 
-        # Stash df
+        # ---- stash df ----
         self._df = df.reset_index(drop=True)
-
-    # ---- helpers --------------------------------------------------------
 
     @staticmethod
     def _to_mask_52(v) -> torch.Tensor:

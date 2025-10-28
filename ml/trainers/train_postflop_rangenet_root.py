@@ -73,6 +73,17 @@ def run_train_postflop_root(cfg: Mapping[str, Any]) -> str:
         strict_canon=strict_canon,
     )
 
+    df_cols = set(ds._df.columns)
+
+    ROOT_PREFIXES = ("CHECK", "BET_", "DONK_")
+    FACING_PREFIXES = ("FOLD", "CALL", "RAISE_", "ALLIN")
+
+    missing = [a for a in ROOT_ACTION_VOCAB if a not in df_cols]
+    extra_facingish = [c for c in df_cols if any(c.startswith(p) for p in FACING_PREFIXES)]
+
+    assert not missing, f"Missing root targets: {missing}"
+    assert not extra_facingish, f"Unexpected facing tokens in ROOT dataset: {extra_facingish}"
+
     id_maps = ds.id_maps
     cards   = ds.cards
     feature_order = list(ds.cat_features)
@@ -172,13 +183,17 @@ def run_train_postflop_root(cfg: Mapping[str, Any]) -> str:
     # ✅ root-only sidecar (action vocab restricted)
     write_postflop_policy_sidecar(
         ckpt_dir=ckpt_dir,
-        feature_order=feature_order,
+        feature_order=feature_order,  # includes 'board_cluster_id'
         cards=cards,
-        id_maps=id_maps,
-        cont_features=["board_mask_52","pot_bb","eff_stack_bb","board_cluster_id"],
+        id_maps=ds.id_maps,
+        cont_features=["board_mask_52", "pot_bb", "eff_stack_bb"],  # ← drop board_cluster_id here
         action_vocab=ROOT_ACTION_VOCAB,
         extras={"side": "ip"},
     )
+
+    sc = json.loads((ckpt_dir / "best_sidecar.json").read_text())
+    assert ("board_cluster_id" in sc["feature_order"]) == ("board_cluster_id" in ds.cat_features)
+    assert "board_cluster_id" not in sc["cont_features"]
 
     # Train
     resume_from = _get(cfg, "train.resume_from", None)

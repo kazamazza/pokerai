@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import copy
 import json
 import sys
 from pathlib import Path
@@ -8,8 +6,6 @@ from typing import Any, Mapping
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Subset
 from pytorch_lightning.loggers import TensorBoardLogger
-
-
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
@@ -61,7 +57,6 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
     if bool(_get(cfg, "model.use_board_cluster", True)) and "board_cluster_id" not in cat_features:
         cat_features.append("board_cluster_id")
 
-    # --- Dataset (facing only) ---
     ds = PostflopPolicyDatasetFacing(
         parquet_path=parquet_path,
         cat_features=cat_features,
@@ -69,10 +64,9 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         weight_col=weight_col,
         strict_canon=strict_canon,
     )
+
     cards = ds.cards
     feature_order = list(ds.cat_features)
-
-    # --- Split (same stratification keys as root) ---
     stratify_keys = _get(cfg, "dataset.stratify_keys", ["street","ip_pos","oop_pos"])
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
     if stratify_keys:
@@ -82,7 +76,6 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         train_idx, val_idx = idx[:cut], idx[cut:]
 
     train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
-
     # --- Loaders (use the facing collate) ---
     batch = int(_get(cfg, "train.batch_size", 1024))
     train_dl = DataLoader(
@@ -96,7 +89,6 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         collate_fn=postflop_policy_facing_collate_fn,
     )
 
-    # --- Model (OOP side; facing vocab) ---
     model = PostflopPolicySideLit(
         side="oop",
         card_sizes=cards,
@@ -110,7 +102,6 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         action_vocab=FACING_ACTION_VOCAB,  # only {FOLD, CALL, raises..., ALLIN}
     )
 
-    # --- Checkpoints / logger ---
     ckpt_dir = Path(_get(cfg, "train.checkpoints_dir_facing", "checkpoints/postflop_policy_facing"))
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     monitor  = _get(cfg,"train.monitor","val_loss")
@@ -143,15 +134,19 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         gradient_clip_val=float(_get(cfg,"train.grad_clip",1.0)),
     )
 
-    # --- Sidecar (facing) ---
     write_postflop_policy_sidecar(
         ckpt_dir=ckpt_dir,
         feature_order=feature_order,
         cards=cards,
         id_maps=ds.id_maps,
-        cont_features=["board_mask_52","pot_bb","eff_stack_bb","board_cluster_id"],
+        # drop board_cluster_id from conts; it is a categorical
+        cont_features=["board_mask_52", "pot_bb", "eff_stack_bb"],
         action_vocab=FACING_ACTION_VOCAB,
     )
+
+    sc = json.loads((ckpt_dir / "best_sidecar.json").read_text())
+    assert ("board_cluster_id" in sc["feature_order"]) == ("board_cluster_id" in ds.cat_features)
+    assert "board_cluster_id" not in sc["cont_features"]
 
     # --- Train ---
     resume_from = _get(cfg,"train.resume_from",None)

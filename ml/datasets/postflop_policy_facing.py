@@ -6,28 +6,12 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from ml.models.policy_consts import ACTION_VOCAB
-
+from ml.models.vocab_actions import FACING_ACTION_VOCAB
 
 VOCAB_INDEX = {a: i for i, a in enumerate(ACTION_VOCAB)}
 VOCAB_SIZE = len(ACTION_VOCAB)
 
 class PostflopPolicyDatasetFacing(Dataset):
-    """
-    Facing-only postflop policy dataset (OOP responding to an IP bet on flop).
-    Returns (x_cat, x_cont, y, m, w):
-
-      x_cat: Dict[str, LongTensor]      # categorical features (encoded)
-      x_cont: Dict[str, Float/Long]     # continuous features (incl. board_mask_52 if supplied)
-      y: FloatTensor[V]                 # soft targets (renormalized over legal)
-      m: FloatTensor[V]                 # legal-action mask
-      w: FloatTensor[]                  # sample weight
-
-    Parquet requirements:
-      - one soft column per action in ACTION_VOCAB
-      - 'size_pct' = bet you are facing (25/33/50/66/75/100)
-      - 'weight'
-      - typical meta columns (ctx, positions, etc.) consumed via cat/cont configs
-    """
     def __init__(
         self,
         parquet_path: str | Path,
@@ -36,14 +20,13 @@ class PostflopPolicyDatasetFacing(Dataset):
         cont_features: List[str],
         weight_col: str = "weight",
         strict_canon: bool = True,
-        # Which raise buckets to allow as legal (tokens must exist in ACTION_VOCAB):
-        allowed_raises: Optional[List[int]] = None,   # e.g. [150, 200, 300]
+        allowed_raises: Optional[List[int]] = None,
         allow_allin: bool = True,
     ):
         self.parquet_path = Path(parquet_path)
         df = pd.read_parquet(str(self.parquet_path)).copy()
 
-        # --- canonicalize some categoricals (same style as root) ---
+        # ---- canon helpers ----
         def _canon_pos(v):
             if v is None: return None
             v = str(v).strip().upper()
@@ -70,6 +53,7 @@ class PostflopPolicyDatasetFacing(Dataset):
         self.cont_features = list(cont_features or [])
         self.weight_col    = weight_col
 
+        # ---- size frac (faced bet) ----
         import numpy as np
         if "size_frac" not in df.columns:
             if "size_pct" in df.columns:
@@ -91,13 +75,27 @@ class PostflopPolicyDatasetFacing(Dataset):
         if "size_frac" not in self.cont_features:
             self.cont_features.append("size_frac")
 
-        # Columns we must see
-        needed = set(self.cat_features + self.cont_features + [self.weight_col]) | set(ACTION_VOCAB)
-        missing = [c for c in needed if c not in df.columns]
-        if missing:
-            raise ValueError(f"Facing parquet missing columns: {missing}")
+        # ---- normalize label space to FACING only ----
+        ROOT_PREFIXES = ("CHECK", "BET_", "DONK_")
 
-        # --- encode categoricals ---
+        # 1) drop any root-ish columns that may be present for diagnostics
+        drop_cols = [c for c in df.columns if any(c.startswith(p) for p in ROOT_PREFIXES)]
+        if drop_cols:
+            df = df.drop(columns=drop_cols, errors="ignore")
+
+        # 2) ensure the full facing label space exists; synthesize missing with zeros
+        self.target_cols = list(FACING_ACTION_VOCAB)
+        for tok in self.target_cols:
+            if tok not in df.columns:
+                df[tok] = 0.0
+
+        # ---- meta/feature columns must exist (targets are now guaranteed) ----
+        needed_meta = set(self.cat_features + self.cont_features + [self.weight_col])
+        missing_meta = [c for c in needed_meta if c not in df.columns]
+        if missing_meta:
+            raise ValueError(f"Facing parquet missing columns: {missing_meta}")
+
+        # ---- encode categoricals ----
         self._id_maps: dict[str, dict[str, int]] = {}
         self._cards: dict[str, int] = {}
 
@@ -118,19 +116,17 @@ class PostflopPolicyDatasetFacing(Dataset):
                 if df[c].isna().any():
                     raise ValueError(f"Invalid values in '{c}' (NaNs after encoding)")
 
-        # Weights
+        # ---- weights ----
         w = df[self.weight_col].astype(float).to_numpy()
         w = np.where(np.isnan(w), 1.0, w)
         self.weights = torch.tensor(w, dtype=torch.float32)
 
-        # Config for legality
+        # ---- legality config used in collate/__getitem__ ----
         self.allowed_raises = list(allowed_raises or [150, 200, 300])
         self.allow_allin = bool(allow_allin)
 
-        # Stash df
+        # ---- stash df ----
         self._df = df.reset_index(drop=True)
-
-    # ---- helpers --------------------------------------------------------
 
     @staticmethod
     def _to_mask_52(v) -> torch.Tensor:
@@ -168,8 +164,6 @@ class PostflopPolicyDatasetFacing(Dataset):
         if self.allow_allin and "ALLIN" in VOCAB_INDEX:
             toks.append("ALLIN")
         return toks
-
-    # ---- public ---------------------------------------------------------
 
     @property
     def id_maps(self) -> dict[str, dict[str, int]]:

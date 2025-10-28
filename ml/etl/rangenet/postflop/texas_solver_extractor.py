@@ -302,6 +302,15 @@ class TexasSolverExtractor:
                             if 1.1 <= v <= 6.0:
                                 mult = v
 
+                # If the solver encoded jam as "RAISE to <stack_bb>", treat it as ALLIN.
+                if (to_bb is not None) and (stack_bb is not None):
+                    try:
+                        if float(to_bb) >= 0.98 * float(stack_bb):  # tolerant threshold
+                            mapped["ALLIN"] += p
+                            continue
+                    except Exception:
+                        pass
+
                 if mult is not None and mult > 1.0:
                     nearest = min(raise_cands, key=lambda x: abs(x - mult))
                     cand = f"RAISE_{int(round(nearest * 100))}"

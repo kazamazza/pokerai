@@ -22,24 +22,22 @@ class PolicyInfer:
         if deps.range_pre is None:
             raise ValueError("range_pre (PreflopPolicy) is required")
         if deps.policy_post is None:
-            raise ValueError("policy_post (PostflopPolicyInfer) is required")
+            raise ValueError("policy_post (PostflopPolicyRouter) is required")
 
-        # deps
+
         self.pol_post   = deps.policy_post
         self.pop        = deps.pop
         self.expl       = deps.exploit
         self.eq         = deps.equity
-        self.rng_pre    = deps.range_pre     # <- keep the original object
+        self.rng_pre    = deps.range_pre
         self.clusterer  = deps.clusterer
 
-        # if the postflop infer supports an explicit setter, pass it through
         if self.clusterer is not None and hasattr(self.pol_post, "set_clusterer"):
             try:
                 self.pol_post.set_clusterer(self.clusterer)
             except Exception:
                 pass
 
-        # (optional) quick visibility on what the postflop model expects
         try:
             bcf = getattr(self.pol_post, "board_cluster_feat", None)
             if bcf:
@@ -49,11 +47,7 @@ class PolicyInfer:
 
 
         self.p          = deps.params or {}
-
-        # ✅ preflop module: use what we were passed; do NOT re-wrap
         self._preflop = self.rng_pre
-
-        # action vocab (shared with postflop model)
         try:
             from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX
             self.action_vocab = list(_VOC)
@@ -62,8 +56,6 @@ class PolicyInfer:
             self.action_vocab = ["FOLD","CHECK","CALL","BET_25","BET_33","BET_50","BET_66","BET_75","BET_100",
                                  "DONK_33","RAISE_150","RAISE_200","RAISE_300","RAISE_400","RAISE_500","ALLIN"]
             self._vocab_index = {a:i for i,a in enumerate(self.action_vocab)}
-
-        # 🔒 Fail fast on wiring mistakes
         if not hasattr(self.pol_post, "predict_proba"):
             raise TypeError(
                 "deps.policy_post is not a PostflopPolicyInfer (missing predict_proba). "
@@ -452,15 +444,21 @@ class PolicyInfer:
             # Failsafe: never send an all-zero mask downstream
             hero_mask = torch.ones(V, dtype=torch.float32)
 
-        # 3) Model inference (logits for both sides)
-        out = self.pol_post.predict_proba([row], actor=actor, return_logits=True)
-        z_ip, z_oop = out["logits_ip"], out["logits_oop"]  # [1, V]
-        z_hero = z_ip.clone() if hero_is_ip else z_oop.clone()  # start from hero side
+        router_resp = self.pol_post.predict(
+            req,
+            actor=actor,
+            temperature=float(self.blend.temperature),
+            side=None,  # let the router auto-decide from req.facing_bet / actions_hist
+        )
+        self.action_vocab = list(router_resp.actions)
+        V = len(self.action_vocab)
 
-        # 4a) Equity tilt (optional, controlled by blend.lambda_eq)
+        eps = 1e-8
+        p = torch.tensor(router_resp.probs, dtype=torch.float32).view(1, V)
+        z_hero = torch.log(torch.clamp(p, min=eps))  # [1, V]
+        hero_mask = torch.ones(V, dtype=torch.float32)
         equity_debug = {}
 
-        # Backward-compatible unpack: supports either dict OR (dict, err)
         _res = self._infer_equity_postflop(req)
         if isinstance(_res, tuple):
             equity, eq_err = _res
@@ -500,7 +498,6 @@ class PolicyInfer:
                     "sum_abs": float(d.abs().sum().item()),
                 })
 
-        # 4b) Exploit integration (optional)
         exploit_debug = None
         try:
             if self.expl is not None and getattr(req, "villain_id", None) and (self.pop is not None):
@@ -515,7 +512,6 @@ class PolicyInfer:
         except Exception as e:
             exploit_debug = {"error": str(e)}
 
-        # 5) Convert to probabilities with masking & blending niceties
         blend = self.blend
         p_hero = self._masked_softmax(z_hero, hero_mask, T=blend.temperature, eps=blend.min_legal_prob)
         p_hero = self._mix_ties_if_close(p_hero, blend.tie_mix_threshold)
@@ -524,7 +520,6 @@ class PolicyInfer:
 
         probs = p_hero[0].tolist()
 
-        # 6) Debug helpers
         bcf = getattr(self.pol_post, "board_cluster_feat", None)  # "board_cluster" or "board_cluster_id" or None
         debug = {
             "hero_is_ip": hero_is_ip,
@@ -545,14 +540,6 @@ class PolicyInfer:
         )
 
     def predict(self, req_input: Union[Dict[str, Any], PolicyRequest]) -> PolicyResponse:
-        """
-        Unified entrypoint for both preflop and postflop policies.
-
-        Accepts either:
-          • a raw dict (JSON-style API call), or
-          • a pre-built PolicyRequest object (already validated/legalized).
-        """
-        # --- normalize input ---
         if isinstance(req_input, PolicyRequest):
             req = req_input
             req_dict = req.__dict__  # for downstream convenience
@@ -562,7 +549,6 @@ class PolicyInfer:
         else:
             raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
 
-        # --- derive street ---
         try:
             street = int(req.street or 0)
         except Exception:
@@ -573,7 +559,6 @@ class PolicyInfer:
             n = len(board)
             street = 3 if n >= 10 else 2 if n >= 8 else 1 if n >= 6 else 0
 
-        # === Preflop ===
         if street == 0:
             equity = None
             if self.eq and req.hero_hand:
@@ -585,7 +570,6 @@ class PolicyInfer:
                 except Exception:
                     equity = None
 
-            # NEW: allow request override, else fall back to blend
             req_nudge = None
             try:
                 req_nudge = float(req.raw.get("equity_nudge"))
@@ -599,7 +583,4 @@ class PolicyInfer:
                 temperature=self.blend.temperature,
                 equity_nudge=eq_nudge,
             )
-
-        # === Postflop ===
-        # Pass normalized dict downstream (postflop pipeline often expects a mapping)
         return self._predict_postflop(dict(req_dict, street=street))

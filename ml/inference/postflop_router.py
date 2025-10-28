@@ -33,6 +33,9 @@ class PostflopPolicyRouter:
         assert "CHECK" in self.root.action_vocab, "root model should include CHECK"
         assert "CALL" in self.facing.action_vocab and "FOLD" in self.facing.action_vocab, \
             "facing model should include CALL/FOLD"
+        self.board_cluster_feat = (
+                self.root.board_cluster_feat or self.facing.board_cluster_feat
+        )
 
     # -------- loaders --------
 
@@ -74,25 +77,31 @@ class PostflopPolicyRouter:
             *,
             actor: str = "ip",
             temperature: float = 1.0,
-            side: Optional[str] = None,  # "root" | "facing" | None (auto)
+            side: Optional[str] = None,
     ) -> "PolicyResponse":
+        """
+        If `side` is provided, route explicitly.
+        Else, prefer req.facing_bet; if missing, infer from actions_hist using the FACING model's helper.
+        """
         side_norm = (side or "").strip().lower()
         if side_norm not in ("root", "facing", ""):
             raise ValueError("side must be 'root', 'facing', or None")
 
-        # Forced side wins
+        # 1) Explicit override
         if side_norm == "root":
             return self.root.predict(req, actor=actor, temperature=temperature)
         if side_norm == "facing":
             return self.facing.predict(req, actor=actor, temperature=temperature)
 
-        # Auto: infer from actions history (don’t mutate req)
+        # 2) Auto — prefer explicit flag on the request
+        if bool(getattr(req, "facing_bet", False)):
+            return self.facing.predict(req, actor=actor, temperature=temperature)
+
+        # 3) Auto — infer from action history
         try:
             hero_is_ip = PolicyRequest.is_hero_ip(req.hero_pos or "", req.villain_pos or "")
         except Exception:
             hero_is_ip = True
-
-        # Reuse the single-infer helper; it returns (facing_flag, size_frac)
         facing_flag, _ = self.facing.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
 
         if facing_flag:
@@ -102,33 +111,44 @@ class PostflopPolicyRouter:
 
     @torch.no_grad()
     def predict_batch(
-        self,
-        reqs: Sequence["PolicyRequest"],
-        *,
-        actor: str = "ip",
-        temperature: float = 1.0,
+            self,
+            reqs: Sequence["PolicyRequest"],
+            *,
+            actor: str = "ip",
+            temperature: float = 1.0,
     ) -> Sequence["PolicyResponse"]:
         """
-        Small helper: splits into root/facing groups and calls underlying
-        models per group to avoid head mismatch; preserves input order.
+        Splits into root/facing groups per-request (explicit req.facing_bet wins; else infer),
+        runs each side once, then restores input order.
         """
         if not reqs:
             return []
 
-        # partition
-        idx_root, idx_facing = [], []
-        for i, r in enumerate(reqs):
-            (idx_facing if r.facing_bet else idx_root).append(i)
+        # Decide side per request
+        decisions: list[str] = []
+        for r in reqs:
+            if bool(getattr(r, "facing_bet", False)):
+                decisions.append("facing")
+                continue
+            try:
+                hero_is_ip = PolicyRequest.is_hero_ip(r.hero_pos or "", r.villain_pos or "")
+            except Exception:
+                hero_is_ip = True
+            facing_flag, _ = self.facing.infer_facing_and_size(r, hero_is_ip=hero_is_ip)
+            decisions.append("facing" if facing_flag else "root")
+
+        # Partition indices
+        idx_root = [i for i, d in enumerate(decisions) if d == "root"]
+        idx_facing = [i for i, d in enumerate(decisions) if d == "facing"]
 
         out: Dict[int, PolicyResponse] = {}
 
-        # root group
+        # Root group
         for i in idx_root:
             out[i] = self.root.predict(reqs[i], actor=actor, temperature=temperature)
 
-        # facing group
+        # Facing group
         for i in idx_facing:
             out[i] = self.facing.predict(reqs[i], actor=actor, temperature=temperature)
 
-        # restore order
         return [out[i] for i in range(len(reqs))]

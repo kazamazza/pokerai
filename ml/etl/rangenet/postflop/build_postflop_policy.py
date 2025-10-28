@@ -327,7 +327,7 @@ def build_postflop_policy(
 
 
             base_row = {
-                "s3_key": base_key,              # base dir (no size)
+                "s3_key": base_key,
                 "node_key": node_key,
                 "stack_bb": int(round(stack_bb)),
                 "effective_stack_bb": float(stack_bb),
@@ -335,11 +335,11 @@ def build_postflop_policy(
 
                 "ip_pos": ip_pos,
                 "oop_pos": oop_pos,
-                "hero_pos": ip_pos,              # convention
+                "hero_pos": ip_pos,
 
                 "street": int(street),
                 "ctx": ctx,
-                "stake": stake,
+                "stakes_id": stake,
 
                 "board": board,
                 "board_cluster_id": int(cluster_id) if (cluster_id is not None and pd.notna(cluster_id)) else None,
@@ -419,8 +419,6 @@ def build_postflop_policy(
 
                 if ex.ok:
                     emitted_any = False
-
-                    # --- ROOT: flop invariant → OOP acts first ---
                     if ex.root_mix and len(ex.root_mix) > 0:
                         root_filtered = _filter_root_only(ex.root_mix,
                                                           root_bet_kind=root_bet_kind,
@@ -430,9 +428,6 @@ def build_postflop_policy(
                     elif strict_mode in {"emit_sentinel"}:
                         _emit_sentinel({**base_row, "s3_key": s3_key_sz}, "empty_root_mix", target="root")
 
-                    # --- FACING: who is facing depends on first bet path ---
-                    # ex.meta["facing_path"] e.g. ["BET 33.000000"] (OOP donk → IP faces)
-                    # or ["CHECK","BET 33.000000"] (IP c-bet → OOP faces)
                     fp = (ex.meta.get("facing_path") or [])
                     if fp and isinstance(fp, list) and len(fp) >= 1:
                         first_lbl = str(fp[0]).lower()

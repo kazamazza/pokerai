@@ -5,10 +5,8 @@ inputs:
   vendor_s3_prefix: data/vendor
   manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
   # for the TRAINER: point to the policy parts (directory or explicit part parquet)
-  policy_parts_dir_root: data/datasets/postflop_policy_parts_root
-  policy_parts_dir_facing: data/datasets/postflop_policy_parts_facing
-  root_parquet: data/datasets/postflop_root.parquet
-  facing_parquet: data/datasets/postflop_facing.parquet
+  root_parquet: data/datasets/postflop_policy_parts_root/shard-00of01-root-part-00000.parquet
+  facing_parquet: data/datasets/postflop_policy_parts_facing/shard-00of01-facing-part-00000.parquet
 
 builder:
   parts_s3_prefix_root: ""

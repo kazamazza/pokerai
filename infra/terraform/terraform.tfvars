@@ -23,7 +23,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"  # 64 GiB RAM
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_0"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_dataset_shard_1 = {
@@ -33,7 +33,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_1"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_dataset_shard_2 = {
@@ -43,7 +43,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_2"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_dataset_shard_3 = {
@@ -53,7 +53,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_3"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_dataset_shard_4 = {
@@ -63,7 +63,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_4"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_dataset_shard_5 = {
@@ -73,17 +73,17 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 300
     worker_name       = "postflop_dataset_shard_5"
-    disabled          = false
+    disabled          = true
   }
 
   postflop_heavy = {
     script_to_run     = "tools/rangenet/worker_flop.py"
-    aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-queue"
-    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/123456789012/postflop-chart-dlq"
+    aws_sqs_queue_url = "hhttps://sqs.eu-central-1.amazonaws.com/241514805921/Postflop"
+    aws_sqs_dlq_url   = "https://sqs.eu-central-1.amazonaws.com/241514805921/Postflop-DLQ"
     instance_type     = "r6i.2xlarge"  # ≥64 GiB RAM; pick what you decided
     volume_size       = 150
     worker_name       = "postflop_heavy"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_2 = {
