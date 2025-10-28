@@ -153,35 +153,49 @@ class PostflopPolicyInferSingle:
 
     def infer_facing_and_size(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[float]]:
         """
-        Heuristic: if the last action in actions_hist is a bet (by opponent), we are facing.
-        We don't require actor tags; we just detect if a bet was made most recently on this street
-        and there hasn't been a call/raise from hero after it.
-        If facing, we extract the bet size fraction from that last token.
+        Decide if hero is currently facing a bet and, if so, return the faced size as a fraction.
+        Priority:
+          1) Explicit request fields: facing_bet / faced_size_frac / faced_size_pct
+          2) actions_hist parsing (e.g. "BET 33", "DONK 33")
+          3) raw payload hints: size_frac / size_pct
         """
-        hist = list(req.actions_hist or [])
-        if not hist:
-            # fallback to raw payload hints (optional)
-            raw = req.raw or {}
-            f = raw.get("size_frac")
-            p = raw.get("size_pct")
-            frac = None
+        # --- 1) explicit request fields ---
+        frac: Optional[float] = None
+        if getattr(req, "faced_size_frac", None) is not None:
             try:
-                if f is not None:
-                    frac = float(f)
-                elif p is not None:
-                    frac = float(p) / 100.0
+                frac = float(req.faced_size_frac)
             except Exception:
                 frac = None
-            return (False, frac)
+        elif getattr(req, "faced_size_pct", None) is not None:
+            try:
+                frac = float(req.faced_size_pct) / 100.0
+            except Exception:
+                frac = None
 
-        last = str(hist[-1])
-        # If last token is a bet-like action, assume hero is *facing* that bet.
-        if self._is_bet_like(last):
-            frac = self._parse_bet_size_from_token(last)
+        if bool(getattr(req, "facing_bet", False)):
+            # if caller told us we’re facing, trust it; return whatever size we could decode (may be None)
             return (True, frac)
 
-        # If the last token is CALL/RAISE/CHECK from anyone, assume not currently facing.
-        return (False, None)
+        # --- 2) actions_hist fallback ---
+        hist = list(getattr(req, "actions_hist", None) or [])
+        if hist:
+            last = str(hist[-1])
+            if self._is_bet_like(last):
+                frac_hist = self._parse_bet_size_from_token(last)
+                return (True, frac_hist)
+
+        # --- 3) raw payload hints fallback ---
+        raw = getattr(req, "raw", {}) or {}
+        try:
+            if frac is None:
+                if "size_frac" in raw and raw["size_frac"] is not None:
+                    frac = float(raw["size_frac"])
+                elif "size_pct" in raw and raw["size_pct"] is not None:
+                    frac = float(raw["size_pct"]) / 100.0
+        except Exception:
+            frac = None
+
+        return (False, frac)
 
     def _assert_model_width_matches_vocab(self) -> None:
         B = 1
@@ -256,28 +270,23 @@ class PostflopPolicyInferSingle:
         return x_cont
 
     def _build_row_dict(self, req: PolicyRequest) -> Dict[str, Any]:
-        # street (only used for categoricals if present)
+        # --- street ---
         try:
             street = int(getattr(req, "street", 1) or 1)
         except Exception:
             street = 1
         street = max(1, min(3, street))
 
+        # --- positions ---
         hero = (getattr(req, "hero_pos", "") or "").strip().upper()
         vill = (getattr(req, "villain_pos", "") or "").strip().upper()
-        if not hero and vill:
-            hero = "BTN" if vill != "BTN" else "CO"
-        if not vill and hero:
-            vill = "BB" if hero != "BB" else "SB"
-        if not hero and not vill:
-            hero, vill = "BTN", "BB"
+        if not hero and vill: hero = "BTN" if vill != "BTN" else "CO"
+        if not vill and hero: vill = "BB" if hero != "BB" else "SB"
+        if not hero and not vill: hero, vill = "BTN", "BB"
 
-        # derive ip/oop if you have a helper; otherwise leave as provided
         try:
-            from ml.inference.policy.types import PolicyRequest as PR  # optional
-            hero_is_ip = PR.is_hero_ip(hero, vill)
+            hero_is_ip = PolicyRequest.is_hero_ip(hero, vill)
         except Exception:
-            # simple fallback (BTN usually IP in SRP BTN vs BB)
             hero_is_ip = True
 
         ip_pos = hero if hero_is_ip else vill
@@ -296,33 +305,39 @@ class PostflopPolicyInferSingle:
             "eff_stack_bb": float(getattr(req, "eff_stack_bb", 0.0) or 0.0),
         }
 
-        # embed mask if requested
+        # --- board mask ---
         if "board_mask_52" in self.cont_features and row["board"]:
             row["board_mask_52"] = make_board_mask_52(row["board"])
 
-        # optional pass-through bet sizes for root legality
-        raw = getattr(req, "raw", None)
-        if isinstance(raw, dict) and "bet_sizes" in raw:
+        # --- bet menu (root legality) ---
+        bet_menu = None
+        if isinstance(getattr(req, "bet_sizes", None), (list, tuple)):
             try:
-                row["bet_sizes"] = list(raw["bet_sizes"])
+                bet_menu = [float(x) for x in req.bet_sizes]  # fractions
             except Exception:
-                pass
-
-            # --- infer facing + size from actions_hist/raw (no payload changes required) ---
-        try:
-            hero_is_ip = PolicyRequest.is_hero_ip(hero, vill)  # if you have this util
-        except Exception:
-            hero_is_ip = True
-
-        facing, size_frac = self.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
-        row["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
-
-        # (optional) pass menu for legality gating if present
-        if isinstance(req.raw, dict) and "bet_sizes" in req.raw:
+                bet_menu = None
+        if bet_menu is None and isinstance(getattr(req, "raw", None), dict) and "bet_sizes" in req.raw:
             try:
-                row["bet_sizes"] = list(req.raw["bet_sizes"])
-            except:
-                pass
+                bet_menu = [float(x) for x in req.raw["bet_sizes"]]
+            except Exception:
+                bet_menu = None
+        if bet_menu:
+            row["bet_sizes"] = bet_menu
+
+        # --- infer facing + faced size ---
+        facing, size_frac = self.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+
+        # prefer explicit faced_size_* on req if present
+        if size_frac is None:
+            try:
+                if getattr(req, "faced_size_frac", None) is not None:
+                    size_frac = float(req.faced_size_frac)
+                elif getattr(req, "faced_size_pct", None) is not None:
+                    size_frac = float(req.faced_size_pct) / 100.0
+            except Exception:
+                size_frac = None
+
+        row["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
 
         return row
 

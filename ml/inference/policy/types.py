@@ -24,17 +24,36 @@ class Action:
 
 @dataclass
 class PolicyRequest:
-    stakes: Stakes = Stakes.NL10
-    street: int = 0
-    hero_pos: Optional[str] = None
+    # Context / game state
+    stakes: "Stakes" = "NL10"                 # enum or str; unchanged
+    street: int = 1                           # 1=flop, 2=turn, 3=river
+    ctx: Optional[str] = None                 # e.g. "VS_OPEN", "VS_3BET", "LIMPED_SINGLE"
+
+    # Positions / cards / numbers
+    hero_pos: Optional[str] = None            # "UTG","HJ","CO","BTN","SB","BB"
     villain_pos: Optional[str] = None
-    hero_hand: Optional[str] = None
-    board: Optional[str] = None
+    hero_hand: Optional[str] = None           # like "AhKh" (optional for policy-only)
+    board: Optional[str] = None               # like "Ts5cKd"
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
-    facing_bet: bool = False
+
+    # Facing info (explicit + auto-infer fallback)
+    facing_bet: bool = False                  # if you already know you’re facing
+    faced_size_pct: Optional[float] = None    # 25/33/50/66/75/100 if known
+    faced_size_frac: Optional[float] = None   # 0.25/0.33/... if known
+
+    # Optional: pass legal menus to gate root tokens
+    # e.g. bet_sizes=[0.33] (and OOP donk uses same 0.33 internally)
+    bet_sizes: Optional[List[float]] = None   # fractions, e.g. [0.33, 0.66]
+    raise_buckets: Optional[List[int]] = None # e.g. [150, 200, 300]
+    allow_allin: Optional[bool] = None
+
+    # Aux
     villain_id: Optional[str] = None
-    actions_hist: Optional[List[str]] = None
+    actions_hist: Optional[List[str]] = None  # e.g. ["CHECK", "BET 33", "CALL"]
+    board_mask_52: Optional[List[float]] = None  # precomputed mask (optional perf hint)
+
+    # Raw passthrough (legacy / UI payload)
     raw: Dict[str, Any] = field(default_factory=dict)
 
     _POSITION_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
