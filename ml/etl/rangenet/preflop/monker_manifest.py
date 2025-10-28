@@ -614,7 +614,7 @@ def write_coverage(df_cov: pd.DataFrame, out_path: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tar", type=str, default=None, help="Local monker .tar.gz (preferred)")
-    ap.add_argument("--s3-bucket", type=str, default="pokeraistore")
+    ap.add_argument("--s3-bucket", type=str, default="poker-nn-store")
     ap.add_argument("--s3-key", type=str, default="data/vendor/monker.tar.gz")
     ap.add_argument("--out", type=str, default="data/artifacts/monker_manifest.parquet")
     ap.add_argument("--coverage", type=str, default="data/artifacts/monker_coverage.csv")

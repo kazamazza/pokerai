@@ -104,7 +104,7 @@ pip install -r requirements.txt || { log "requirements install failed"; exit 1; 
 # Set global environment vars
 echo "AWS_REGION=eu-central-1" | sudo tee -a /etc/environment
 echo "AWS_DEFAULT_REGION=eu-central-1" | sudo tee -a /etc/environment
-echo "AWS_BUCKET_NAME=pokeraistore" | sudo tee -a /etc/environment
+echo "AWS_BUCKET_NAME=poker-nn-store" | sudo tee -a /etc/environment
 echo "AWS_SQS_QUEUE_URL=$sqs_queue_url" | sudo tee -a /etc/environment
 echo "AWS_SQS_DLQ_URL=$sqs_dlq_url" | sudo tee -a /etc/environment
 
@@ -118,7 +118,7 @@ source /etc/environment || true
 set +o allexport
 
 # Decide process count
-N=1
+N=6
 echo "[init] Launching $N worker processes..."
 
 # Don’t let native libs oversubscribe threads
