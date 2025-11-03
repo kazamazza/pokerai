@@ -10,6 +10,7 @@ BET_RE   = re.compile(r"\bbet\b", re.IGNORECASE)
 RAISE_RE = re.compile(r"\braise\b", re.IGNORECASE)
 ALLIN_RE = re.compile(r"\ball[-\s]*in\b|\bjam\b", re.IGNORECASE)
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")  # keep \t \n \r
 
 
 class TexasSolverExtractor:
@@ -57,6 +58,39 @@ class TexasSolverExtractor:
             if k in ("FOLD", "CALL", "ALLIN") or k.startswith("RAISE_"):
                 out[k] = float(v)
         return out
+
+    def _bucket_raise_to_percent_token(
+            self,
+            to_bb: float,
+            *,
+            pot_bb: float,
+            faced_bet_bb: float,
+            allowed_percents: list[int]  # e.g. [150, 200, 300]
+    ) -> Optional[str]:
+        """
+        Map an absolute raise-to (BB) into RAISE_% token using the solver's 'pot %' semantics.
+        Try both common solver pot bases at facing node:
+          base1 = pot + faced_bet
+          base2 = pot + 2 * faced_bet   (accounts for call-included variants)
+        Pick the (base, percent) whose theoretical target is closest to to_bb.
+        """
+        if to_bb is None or pot_bb is None or faced_bet_bb is None or faced_bet_bb <= 0:
+            return None
+
+        bases = [pot_bb + faced_bet_bb, pot_bb + 2.0 * faced_bet_bb]
+        best = None  # (abs_err, token)
+        for base in bases:
+            if base <= 0:
+                continue
+            for pct in allowed_percents:
+                target = (pct / 100.0) * base
+                err = abs(to_bb - target)
+                tok = f"RAISE_{pct}"
+                cand = (err, tok)
+                if (best is None) or (cand < best):
+                    best = cand
+
+        return best[1] if best else None
 
     def extract(
             self,
@@ -118,14 +152,30 @@ class TexasSolverExtractor:
                 )
 
             # --- 2) Facing (response to first bet) ---
+            # --- 2) Facing (response to first bet) ---
             bet_node, via_path = self._find_first_bet_node(root)
             ex.meta["facing_path"] = via_path
             if bet_node is not None:
+                # 1) Prefer explicit faced size from filename/menu (sz33p etc.)
+                faced_from_menu = None
+                if size_pct is not None:
+                    try:
+                        faced_from_menu = (float(size_pct) / 100.0) * ex.pot_bb
+                    except Exception:
+                        faced_from_menu = None
+
+                # 2) Fallback to parsing the bet label if needed
                 facing_pct, facing_to_bb = self._extract_bet_size(via_path[-1], ex.pot_bb)
-                ex.facing_bet_bb = (
-                    facing_to_bb if facing_to_bb is not None
-                    else (ex.pot_bb * (facing_pct or 0) / 100.0)
-                )
+
+                # 3) Decide faced bet bb with strong preference to the menu hint
+                if faced_from_menu is not None and faced_from_menu > 0:
+                    ex.facing_bet_bb = faced_from_menu
+                else:
+                    ex.facing_bet_bb = (
+                        facing_to_bb if facing_to_bb is not None
+                        else (ex.pot_bb * (facing_pct or 0) / 100.0)
+                    )
+
                 ex.facing_mix, face_meta = self._read_node_action_mix(
                     bet_node,
                     mode="facing",
@@ -154,8 +204,6 @@ class TexasSolverExtractor:
         except Exception as e:
             return self._fail(ex, f"exception: {e}")
 
-    # ---------- core helpers ----------
-
     def _read_node_action_mix(
             self,
             node: Dict[str, Any],
@@ -165,45 +213,42 @@ class TexasSolverExtractor:
             stack_bb: Optional[float] = None,
             facing_bet_bb: Optional[float] = None,
             bet_sizes: Optional[List[float]] = None,  # e.g. [0.33, 0.66, 1.0]
-            raise_mults: Optional[List[float]] = None,  # e.g. [1.5, 2.0, 3.0, 4.0]
+            raise_mults: Optional[List[float]] = None,  # accepts [1.5,2.0,3.0] or [150,200,300]
             bet_sizing_id: Optional[str] = None,
     ) -> Tuple[Dict[str, float], Dict[str, Any]]:
-        """
-        Read actions/mix at a node using (1) strategy tables (several layouts),
-        (2) per-child weights, and map to ACTION_VOCAB.
 
-        - Bets are bucketed by *fraction of pot* (33, 66, 100) with stake/menu-aware buckets if provided.
-        - Raises are bucketed by *raise-to / facing-bet* multiplier with stake/menu-aware ladders if provided.
-        """
         acts, mix, where, raw_labels = self._find_any_strategy(node)
 
-        # --- prepare bucket candidates ---
-        # BET candidates (in percent) — prefer configured bet_sizes; else standard buckets
+        # Root BET buckets (unchanged)
         if bet_sizes:
             bet_bucket_pct = sorted({
                 int(round(100.0 * float(s)))
                 for s in bet_sizes
-                if s is not None and 0.0 < float(s) <= 2.0  # allow up to 200% if ever needed
-            })
-            # Ensure we have a sane fallback if somehow empty
-            if not bet_bucket_pct:
-                bet_bucket_pct = [25, 33, 50, 66, 75, 100]
+                if s is not None and 0.0 < float(s) <= 2.0
+            }) or [25, 33, 50, 66, 75, 100]
         else:
             bet_bucket_pct = [25, 33, 50, 66, 75, 100]
 
-        # RAISE candidates (multipliers)
+        # Facing RAISE buckets: normalize either multipliers or raw percents → percents
+        raise_buckets_pct: list[int] = []
         if raise_mults:
-            raise_cands = sorted({float(x) for x in raise_mults if x and float(x) > 1.0})
-            if not raise_cands:
-                raise_cands = [1.5, 2.0, 3.0, 4.0, 5.0]
-        else:
-            raise_cands = [1.5, 2.0, 3.0, 4.0, 5.0]
+            for x in raise_mults:
+                try:
+                    xv = float(x)
+                    if xv <= 10.0:
+                        raise_buckets_pct.append(int(round(xv * 100)))
+                    else:
+                        raise_buckets_pct.append(int(round(xv)))
+                except Exception:
+                    pass
+        if not raise_buckets_pct:
+            raise_buckets_pct = [150, 200, 300]
 
         meta = {
             "where": where,
             "raw_actions": raw_labels,
             "bet_buckets_pct": bet_bucket_pct,
-            "raise_buckets_mult": raise_cands,
+            "raise_buckets_pct": sorted(raise_buckets_pct),
             "bet_sizing_id": bet_sizing_id,
             "mode": mode,
             "pot_bb": pot_bb,
@@ -218,57 +263,50 @@ class TexasSolverExtractor:
             if not lab or p <= 0.0:
                 continue
 
-            # simple verbs
+            # Simple verbs
             if FOLD_RE.search(lab):
-                mapped["FOLD"] += p
+                mapped["FOLD"] += p;
                 continue
             if CHECK_RE.search(lab):
-                mapped["CHECK"] += p
+                mapped["CHECK"] += p;
                 continue
             if CALL_RE.search(lab):
-                mapped["CALL"] += p
+                mapped["CALL"] += p;
                 continue
             if ALLIN_RE.search(lab):
-                mapped["ALLIN"] += p
+                mapped["ALLIN"] += p;
                 continue
 
-            # BET label
+            # ---- BET label ----
             if BET_RE.search(lab):
                 pct, to_bb = self._extract_bet_size(lbl, pot_bb)
-                # prefer absolute bb if present; else derive from % of pot
+
+                # If no absolute, derive from % of pot
                 if to_bb is None and pct is not None:
                     pv = float(pct)
-                    pct_val = pv * 100.0 if pv <= 3.0 else pv
-                    to_bb = (pct_val / 100.0) * pot_bb
+                    pct_val_tmp = pv * 100.0 if pv <= 3.0 else pv
+                    to_bb = (pct_val_tmp / 100.0) * pot_bb
 
                 if mode == "facing":
-                    # At facing nodes, "BET ..." == raise-to target
-                    tok = "RAISE_300"
-                    mult = None
-                    if facing_bet_bb is not None and facing_bet_bb > 1e-9 and to_bb is not None:
-                        mult = float(to_bb) / float(facing_bet_bb)
-                    if mult is None:
-                        m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
-                        if m:
-                            try:
-                                mult = float(m.group(1))
-                            except:
-                                mult = None
-                    if mult is not None and mult > 1.01:
-                        nearest = min(raise_cands, key=lambda x: abs(x - mult))
-                        cand = f"RAISE_{int(round(nearest * 100))}"
-                        if cand in ACTION_VOCAB:
-                            tok = cand
+                    # BET at facing == raise-to target → bucket by percent of (pot [+ bet])
+                    tok = self._bucket_raise_to_percent_token(
+                        to_bb,
+                        pot_bb=pot_bb,
+                        faced_bet_bb=facing_bet_bb,
+                        allowed_percents=raise_buckets_pct,
+                    )
+                    if tok and tok in ACTION_VOCAB:
                         mapped[tok] += p
-                    # else ignore non-raise bet label at facing
+                    # else: drop unbucketable oddities
                     continue
 
-                # Root mode: treat as normal bet bucket
+                # Root mode: bucket to BET_%
                 pct_val = None
                 if pct is not None:
                     pv = float(pct)
                     pct_val = pv * 100.0 if pv <= 3.0 else pv
                     pct_val = max(0.0, min(pct_val, 200.0))
+
                 tok = "BET_50"
                 if pct_val is not None and bet_bucket_pct:
                     nearest = min(bet_bucket_pct, key=lambda b: abs(b - pct_val))
@@ -278,53 +316,35 @@ class TexasSolverExtractor:
                 mapped[tok] += p
                 continue
 
-            # RAISE — bucket by raise-to/facing-bet multiplier
+            # ---- RAISE label ----
             if RAISE_RE.search(lab):
-                _, to_bb = self._extract_bet_size(lbl, pot_bb)
-                tok = "RAISE_300"
-                mult: Optional[float] = None
+                pct, to_bb = self._extract_bet_size(lbl, pot_bb)
 
-                if to_bb is not None and (facing_bet_bb is not None and facing_bet_bb > 1e-9):
-                    mult = float(to_bb) / float(facing_bet_bb)
-                else:
-                    # If we only got something like "2.0x" (rare), treat it directly
-                    m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
-                    if m:
-                        try:
-                            mult = float(m.group(1))
-                        except:
-                            mult = None
-                    # or allow direct multiplier in a bare number within plausible range
-                    if mult is None:
-                        m2 = re.search(r'\b(\d+(?:\.\d+)?)\b', lab)
-                        if m2:
-                            v = float(m2.group(1))
-                            if 1.1 <= v <= 6.0:
-                                mult = v
-
-                # If the solver encoded jam as "RAISE to <stack_bb>", treat it as ALLIN.
+                # Treat 'raise to stack' as jam
                 if (to_bb is not None) and (stack_bb is not None):
                     try:
-                        if float(to_bb) >= 0.98 * float(stack_bb):  # tolerant threshold
+                        if float(to_bb) >= 0.98 * float(stack_bb):
                             mapped["ALLIN"] += p
                             continue
                     except Exception:
                         pass
 
-                if mult is not None and mult > 1.0:
-                    nearest = min(raise_cands, key=lambda x: abs(x - mult))
-                    cand = f"RAISE_{int(round(nearest * 100))}"
-                    if cand in ACTION_VOCAB:
-                        tok = cand
+                if mode == "facing":
+                    tok = self._bucket_raise_to_percent_token(
+                        to_bb,
+                        pot_bb=pot_bb,
+                        faced_bet_bb=facing_bet_bb,
+                        allowed_percents=raise_buckets_pct,
+                    )
+                    if tok and tok in ACTION_VOCAB:
+                        mapped[tok] += p
+                    # else: drop if we can’t place it confidently
+                    continue
 
-                mapped[tok] += p
-                continue
-
-            # Unknown verb → ignore
+            # Unknown verbs are ignored
 
         return mapped, meta
 
-    # ----- strategy discovery (schema tolerant) -----
 
     def _find_any_strategy(self, node: Dict[str, Any]) -> Tuple[List[str], List[float], str, List[str]]:
         """
@@ -391,30 +411,31 @@ class TexasSolverExtractor:
 
         return [], [], "none", []
 
-    # ----- label parsing & bucketing -----
+    def _extract_bet_size(self, label: str, pot_bb: float) -> tuple[Optional[float], Optional[float]]:
+        lab = (label or "").strip()
 
-    def _extract_bet_size(self, label: str, pot_bb: float) -> Tuple[Optional[float], Optional[float]]:
-        t = label.lower()
-        m = re.search(r'(\d+(?:\.\d+)?)\s*%', t)
+        # 0) VERB + NUMBER → absolute bb (e.g., "BET 2.000000", "RAISE 23.000000")
+        m = re.match(r'^\s*(?:BET|RAISE)\s+(\d+(?:\.\d+)?)\s*$', lab, flags=re.IGNORECASE)
         if m:
-            pct = float(m.group(1));
-            return pct, (pct / 100.0) * pot_bb
-        m = re.search(r'(\d+(?:\.\d+)?)\s*(?:x\s*)?pot', t)
-        if m:
-            pct = float(m.group(1)) * 100.0;
-            return pct, (pct / 100.0) * pot_bb
-        m = re.search(r'to\s*(\d+(?:\.\d+)?)\s*bb', t)
-        if m:
-            to_bb = float(m.group(1));
-            return None, to_bb
-        m = re.search(r'\b(\d+(?:\.\d+)?)\b', t)
-        if m:
-            v = float(m.group(1))
-            # Heuristic: small number is x pot; big number is bb
-            if 0.05 <= v <= 3.0:
-                return v * 100.0, (v * pot_bb)
-            return None, v
-        return None, None
+            try:
+                to_bb = float(m.group(1))
+                return (None, to_bb)  # absolute target bb; no percentage in label
+            except:
+                pass
+
+        # 1) explicit percent (e.g., "33%")
+        m = re.search(r'\b(\d+(?:\.\d+)?)\s*%', lab)
+        pct = float(m.group(1)) if m else None
+
+        # 2) explicit "to <bb>" (or "… to 18")
+        m = re.search(r'\bto\s+(\d+(?:\.\d+)?)\b', lab, flags=re.IGNORECASE)
+        to_bb = float(m.group(1)) if m else None
+
+        # 3) if only pct known, derive absolute
+        if to_bb is None and pct is not None:
+            to_bb = (pct / 100.0) * float(pot_bb)
+
+        return pct, to_bb
 
     def _pct_from_to_bb(self, to_bb: Optional[float], pot_bb: float) -> Optional[float]:
         if to_bb is None or pot_bb <= 1e-9: return None
@@ -525,12 +546,87 @@ class TexasSolverExtractor:
 
     # ----- IO / math helpers -----
 
+
+    def _first_json_object(self, txt: str) -> str | None:
+        i = 0
+        n = len(txt)
+        while i < n and txt[i] not in "{[":
+            i += 1
+        if i >= n:
+            return None
+        opener = txt[i]
+        closer = "}" if opener == "{" else "]"
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(i, n):
+            ch = txt[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == opener:
+                    depth += 1
+                elif ch == closer:
+                    depth -= 1
+                    if depth == 0:
+                        return txt[i:j + 1]
+        return None
+
     def _open_json_any(self, path: str) -> Dict[str, Any]:
-        if str(path).endswith(".gz"):
-            with gzip.open(path, "rt", encoding="utf-8") as f:
-                return json.load(f)
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        """
+        Robust loader:
+          - reads whole file (or s3 object) into bytes first
+          - validates gzip stream
+          - retries once if JSON decode fails (handles occasional short reads)
+          - returns {} on hard failure so caller can emit a sentinel
+        """
+        import io, json, gzip
+        from json import JSONDecodeError
+
+        def _load_bytes(b: bytes) -> Dict[str, Any]:
+            # decompress if gz
+            if path.endswith(".gz"):
+                try:
+                    with gzip.GzipFile(fileobj=io.BytesIO(b)) as gz:
+                        txt = gz.read().decode("utf-8", errors="strict")
+                except Exception:
+                    # fall back with tolerant decode to detect partial content
+                    with gzip.GzipFile(fileobj=io.BytesIO(b)) as gz:
+                        txt = gz.read().decode("utf-8", errors="replace")
+            else:
+                txt = b.decode("utf-8", errors="replace")
+
+            # tolerant JSON decode first; if it fails, we retry once later
+            try:
+                return json.loads(txt)
+            except JSONDecodeError:
+                raise
+
+        # --- read all bytes (local fs) ---
+        if path.startswith("s3://"):
+            # Let the caller use S3Client to fetch to a local tmp and pass the path.
+            # If you must read direct, do so via your S3 client here and set `blob`.
+            raise RuntimeError("s3 paths should be downloaded to a local file before calling _open_json_any")
+        else:
+            with open(path, "rb") as fh:
+                blob = fh.read()
+
+        # try decode, retry once
+        try:
+            return _load_bytes(blob)
+        except Exception:
+            # One retry in case of transient short read
+            try:
+                return _load_bytes(blob)
+            except Exception:
+                return {}  # caller will treat as malformed and emit sentinel
 
     def _renorm(self, acts: List[str], mix: List[float]) -> Tuple[List[str], List[float]]:
         mix = [max(0.0, float(x)) for x in mix]

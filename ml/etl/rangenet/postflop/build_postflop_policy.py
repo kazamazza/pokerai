@@ -169,8 +169,8 @@ def build_postflop_policy(
     parts_s3_prefix_root: Optional[str] = None,
     parts_s3_prefix_facing: Optional[str] = None,
     shard_label: Optional[str] = None,
-    strict_mode: str = "fail",                 # 'fail' | 'emit_sentinel' | 'skip'
-    debug_dump: Optional[str] = None,          # path to .jsonl for problematic rows
+    strict_mode: str = "emit_sentinel",
+    debug_dump: Optional[str] = None,
 ) -> None:
     s3c = S3Client()
     df = pd.read_parquet(manifest_path)
@@ -247,7 +247,6 @@ def build_postflop_policy(
         """
         s3_key = _normalize_s3_key(s3_key)
 
-        # Honor optional local override; do NOT delete local files.
         local_dir = _get(cfg, "solver.local_solver_dir", None)
         if local_dir:
             p = Path(local_dir) / Path(s3_key)
@@ -257,7 +256,7 @@ def build_postflop_policy(
 
         # Prefix with configured s3_prefix only if base key doesn't already include it
         s3_prefix = _get(cfg, "solver.s3_prefix", "").strip("/")
-        key_norm = s3_key.lstrip("/")  # normalize leading slash only
+        key_norm = s3_key.lstrip("/")
 
         if s3_prefix and not key_norm.startswith(f"{s3_prefix}/") and key_norm != s3_prefix:
             s3_key = f"{s3_prefix}/{key_norm}"
@@ -283,7 +282,6 @@ def build_postflop_policy(
                 pass
             raise RuntimeError(f"download failed for {s3_key}: {e}") from e
 
-    # === Loop manifest rows ===
     for r in tqdm(df.itertuples(index=False, name="Row"), total=len(df), desc="Building postflop policy"):
         base_row = {}
         try:
@@ -325,7 +323,6 @@ def build_postflop_policy(
                 _emit_sentinel({"s3_key": base_key}, "no_bet_sizes", target="facing")
                 continue
 
-
             base_row = {
                 "s3_key": base_key,
                 "node_key": node_key,
@@ -353,7 +350,7 @@ def build_postflop_policy(
                 "valid": 1,
             }
 
-            for size_pct in menu_sizes_pct:  # ✅ size_pct is 33/66/100
+            for size_pct in menu_sizes_pct:
                 s3_key_sz = s3_key_for_size(base_key, int(size_pct))
                 solver_path, ephemeral = _resolve_solver_path(cfg, s3_key_sz, s3c)
 
@@ -368,18 +365,30 @@ def build_postflop_policy(
                     pot_bb=pot_bb,
                     stack_bb=stack_bb,
                     bet_sizing_id=menu_id,
-                    size_pct=int(size_pct),  # ← pass requested size
-                    root_actor="oop",  # ← flop invariant
+                    size_pct=int(size_pct),
+                    root_actor="oop",
                     root_bet_kind=cast(Literal["donk", "bet"], root_bet_kind),
+                    raise_mults = cfg.get("solver", {}).get("raise_mult", [1.5, 2.0, 3.0])
                 )
 
-                if ephemeral:
-                    try:
-                        os.unlink(solver_path)
-                    except FileNotFoundError:
-                        pass
-                    except Exception as _cleanup_err:
-                        print(f"[warn] failed to unlink temp file {solver_path}: {_cleanup_err}")
+                if not ex.ok and ex.reason in {"zero_mass", "empty_root", "root_allin_only"}:
+                    if strict_mode == "emit_sentinel":
+                        _emit_sentinel(base_row, f"extract_failed: {ex.reason}", target="root")
+                    elif strict_mode == "skip":
+                        diag["sentinel"] += 1  # count & drop
+                    else:
+                        # strict_mode == "fail"
+                        raise RuntimeError(f"extract_failed: {ex.reason}: {s3_key_sz}")
+
+                    # cleanup temp if any, then continue to next size
+                    if ephemeral:
+                        try:
+                            os.unlink(solver_path)
+                        except FileNotFoundError:
+                            pass
+                        except Exception as _cleanup_err:
+                            print(f"[warn] failed to unlink temp file {solver_path}: {_cleanup_err}")
+                    continue
 
                 def _emit_row(probs: dict, *, actor: str, facing_flag: int, target: str):
                     if not probs:
@@ -547,7 +556,7 @@ def run_from_config(
         parts_s3_prefix_root=_get(cfg, "builder.parts_s3_prefix_root", None),
         parts_s3_prefix_facing=_get(cfg, "builder.parts_s3_prefix_facing", None),
         shard_label=shard_label,
-        strict_mode=_get(cfg, "builder.strict_mode", "fail"),
+        strict_mode="emit_sentinel",
         debug_dump=str(debug_dump),
     )
 

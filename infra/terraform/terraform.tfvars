@@ -93,7 +93,7 @@ job_configs = {
     instance_type     = "r6i.2xlarge"
     volume_size       = 150
     worker_name       = "postflop_heavy_1"
-    disabled          = true
+    disabled          = false
   }
 
   postflop_heavy_2 = {
@@ -145,6 +145,7 @@ job_configs = {
     worker_name       = "postflop_heavy_6"
     disabled          = true
   }
+
 
   postflop_heavy_7 = {
     script_to_run     = "tools/rangenet/worker_flop.py"
