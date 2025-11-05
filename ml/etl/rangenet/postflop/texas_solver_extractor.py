@@ -48,6 +48,37 @@ class TexasSolverExtractor:
                 out[k] = 0.0
         return out
 
+    def _normalize_raise_buckets(self, raise_mults: Optional[List[float]]) -> Tuple[List[float], List[int]]:
+        """
+        Returns (multiplier_list, percent_list_for_debug).
+        Accepts either [1.5,2.0,3.0] or [150,200,300]. Mixed values are normalized sensibly.
+        """
+        mults: List[float] = []
+        if raise_mults:
+            for x in raise_mults:
+                try:
+                    v = float(x)
+                    mults.append(v / 100.0 if v > 10.0 else v)
+                except Exception:
+                    pass
+        if not mults:
+            mults = [1.5, 2.0, 3.0]
+        mults = sorted({m for m in mults if m > 1.0 and m <= 10.0})
+        pct = [int(round(m * 100)) for m in mults]
+        return mults, pct
+
+    def _nearest_raise_token(self, mult: Optional[float], allowed_mults: List[float]) -> Optional[str]:
+        """
+        Snap a multiplier (e.g., 1.83) to the nearest allowed bucket (e.g., 2.0) and
+        return the ACTION_VOCAB token name like 'RAISE_200'. Returns None if mult is unusable.
+        """
+        if mult is None or not allowed_mults:
+            return None
+        if mult <= 1.01:  # not a raise
+            return None
+        nearest = min(allowed_mults, key=lambda x: abs(x - mult))
+        return f"RAISE_{int(round(nearest * 100))}"
+
     def _filter_facing_only(self, mix: Dict[str, float]) -> Dict[str, float]:
         """
         Keep only FOLD/CALL/RAISE_* (and ALLIN). Zero everything else.
@@ -105,11 +136,15 @@ class TexasSolverExtractor:
             bet_sizing_id: str,
             bet_sizes: Optional[List[float]] = None,
             raise_mults: Optional[List[float]] = None,
-            size_pct: Optional[int] = None,  # requested size (33/66/100)
+            size_pct: Optional[int] = None,  # 33/66/100
             root_actor: str = "oop",  # "ip" or "oop"
-            root_bet_kind: Literal["donk", "bet"] = "donk"  # NEW: OOP root menu kind
+            root_bet_kind: Literal["donk", "bet"] = "donk",
     ) -> SolverExtraction:
-        """Single entry point. Returns a filled SolverExtraction (ok=True) or reason."""
+        """
+        Single entry point. Strictly maps facing raises by solver-consistent baselines.
+        Faced bet is resolved as: MENU (requested size) > explicit absolute from label > derived percent.
+        Never defaults a raise bucket if a multiplier can't be computed.
+        """
         ex = SolverExtraction(
             ctx=ctx,
             ip_pos=ip_pos,
@@ -126,7 +161,7 @@ class TexasSolverExtractor:
             if not isinstance(root, dict):
                 return self._fail(ex, "malformed_root")
 
-            # keep for diagnostics
+            # diagnostics
             ex.meta["root_actor"] = root_actor
             ex.meta["root_bet_kind"] = root_bet_kind
             ex.meta["requested_size_pct"] = int(size_pct) if size_pct is not None else None
@@ -142,39 +177,44 @@ class TexasSolverExtractor:
             )
             ex.meta["root_meta"] = root_meta
 
-            # deterministic override to legal tokens + correct size bucket
             if ex.root_mix:
+                # Clamp to legal set and snap BET_xx to the requested bucket if provided
                 ex.root_mix = self._override_root_mix(
                     ex.root_mix,
                     root_actor=root_actor,
-                    root_bet_kind=root_bet_kind,  # NEW
+                    root_bet_kind=root_bet_kind,
                     size_pct=size_pct,
                 )
 
             # --- 2) Facing (response to first bet) ---
-            # --- 2) Facing (response to first bet) ---
             bet_node, via_path = self._find_first_bet_node(root)
             ex.meta["facing_path"] = via_path
             if bet_node is not None:
-                # 1) Prefer explicit faced size from filename/menu (sz33p etc.)
+                # (i) menu hint (requested size like 33/66 → absolute BB)
                 faced_from_menu = None
                 if size_pct is not None:
                     try:
-                        faced_from_menu = (float(size_pct) / 100.0) * ex.pot_bb
+                        v = (float(size_pct) / 100.0) * ex.pot_bb
+                        if v > 1e-9 and v <= ex.pot_bb * 10.0:
+                            faced_from_menu = v
                     except Exception:
                         faced_from_menu = None
 
-                # 2) Fallback to parsing the bet label if needed
-                facing_pct, facing_to_bb = self._extract_bet_size(via_path[-1], ex.pot_bb)
+                # (ii) parse the label of the last step on the path (can yield % and/or absolute)
+                facing_pct = None
+                facing_to_bb = None
+                if via_path and isinstance(via_path[-1], str):
+                    facing_pct, facing_to_bb = self._extract_bet_size(via_path[-1], ex.pot_bb)
 
-                # 3) Decide faced bet bb with strong preference to the menu hint
-                if faced_from_menu is not None and faced_from_menu > 0:
+                # (iii) choose faced bet — **MENU > explicit absolute > derived percent**
+                if faced_from_menu is not None:
                     ex.facing_bet_bb = faced_from_menu
+                elif facing_to_bb is not None and facing_to_bb > 0:
+                    ex.facing_bet_bb = facing_to_bb
+                elif facing_pct is not None:
+                    ex.facing_bet_bb = ex.pot_bb * (facing_pct / 100.0)
                 else:
-                    ex.facing_bet_bb = (
-                        facing_to_bb if facing_to_bb is not None
-                        else (ex.pot_bb * (facing_pct or 0) / 100.0)
-                    )
+                    return self._fail(ex, "facing_size_unresolved")
 
                 ex.facing_mix, face_meta = self._read_node_action_mix(
                     bet_node,
@@ -182,7 +222,7 @@ class TexasSolverExtractor:
                     pot_bb=ex.pot_bb,
                     stack_bb=ex.stack_bb,
                     facing_bet_bb=ex.facing_bet_bb,
-                    raise_mults=raise_mults,
+                    raise_mults=raise_mults,  # e.g. [1.5,2.0,2.5,3.0,4.0,5.0] or [150,200,300]
                     bet_sizing_id=ex.bet_sizing_id,
                 )
                 ex.meta["facing_meta"] = face_meta
@@ -204,6 +244,56 @@ class TexasSolverExtractor:
         except Exception as e:
             return self._fail(ex, f"exception: {e}")
 
+    def _infer_raise_mult_from_to_bb(
+            self,
+            to_bb: Optional[float],
+            *,
+            pot_bb: Optional[float],
+            faced_bet_bb: Optional[float],
+            allowed_mults: List[float],
+    ) -> Optional[str]:
+        """
+        For facing nodes: infer multiplier by comparing raise-to absolute (to_bb)
+        against both solver bases:
+          baseA = pot + faced_bet
+          baseB = pot + 2 * faced_bet   (call-included variant some menus use)
+        Returns nearest token like "RAISE_200" or None if not placeable.
+        """
+        if to_bb is None or pot_bb is None or faced_bet_bb is None:
+            return None
+        if faced_bet_bb <= 0 or pot_bb < 0:
+            return None
+
+        candidates = []
+        baseA = pot_bb + faced_bet_bb
+        if baseA > 0:
+            candidates.append(("A", to_bb / baseA))
+        baseB = pot_bb + 2.0 * faced_bet_bb
+        if baseB > 0:
+            candidates.append(("B", to_bb / baseB))
+
+        # pick the multiplier whose snapped bucket is closest in absolute raise-to space
+        best = None  # (abs_err, token)
+        for _, mult in candidates:
+            # ignore nonsense
+            if not (1.01 <= mult <= 15.0):
+                continue
+            nearest = min(allowed_mults, key=lambda x: abs(x - mult))
+            token = f"RAISE_{int(round(nearest * 100))}"
+            # compute theoretical target with that snapped bucket on its own base
+            # (must recompute target for error; use the same base we derived this mult from)
+            # We just compute error against to_bb via both bases and keep min.
+            # That’s equivalent to picking closest in absolute target terms.
+            # Recompute both targets; keep the smaller error for this token.
+            errA = abs(to_bb - (pot_bb + faced_bet_bb) * nearest) if baseA > 0 else float("inf")
+            errB = abs(to_bb - (pot_bb + 2.0 * faced_bet_bb) * nearest) if baseB > 0 else float("inf")
+            err = min(errA, errB)
+            cand = (err, token)
+            if best is None or cand < best:
+                best = cand
+
+        return best[1] if best else None
+
     def _read_node_action_mix(
             self,
             node: Dict[str, Any],
@@ -216,10 +306,21 @@ class TexasSolverExtractor:
             raise_mults: Optional[List[float]] = None,  # accepts [1.5,2.0,3.0] or [150,200,300]
             bet_sizing_id: Optional[str] = None,
     ) -> Tuple[Dict[str, float], Dict[str, Any]]:
+        """
+        Parses a solver node and buckets its mixed strategy into our ACTION_VOCAB.
 
+        - ROOT mode:
+            Buckets BET_xx tokens to nearest allowed % of pot.
+        - FACING mode:
+            Maps raises strictly by multiplier inferred from absolute raise-to (to_bb)
+            against solver bases:
+                baseA = pot + faced_bet
+                baseB = pot + 2 * faced_bet
+            Snaps to nearest allowed raise_mults. Never defaults if not placeable.
+        """
         acts, mix, where, raw_labels = self._find_any_strategy(node)
 
-        # Root BET buckets (unchanged)
+        # --- Root BET buckets ---
         if bet_sizes:
             bet_bucket_pct = sorted({
                 int(round(100.0 * float(s)))
@@ -229,26 +330,14 @@ class TexasSolverExtractor:
         else:
             bet_bucket_pct = [25, 33, 50, 66, 75, 100]
 
-        # Facing RAISE buckets: normalize either multipliers or raw percents → percents
-        raise_buckets_pct: list[int] = []
-        if raise_mults:
-            for x in raise_mults:
-                try:
-                    xv = float(x)
-                    if xv <= 10.0:
-                        raise_buckets_pct.append(int(round(xv * 100)))
-                    else:
-                        raise_buckets_pct.append(int(round(xv)))
-                except Exception:
-                    pass
-        if not raise_buckets_pct:
-            raise_buckets_pct = [150, 200, 300]
+        # --- Allowed RAISE buckets (multipliers + pct for diagnostics) ---
+        raise_mult_list, raise_bucket_pct = self._normalize_raise_buckets(raise_mults)
 
         meta = {
             "where": where,
             "raw_actions": raw_labels,
             "bet_buckets_pct": bet_bucket_pct,
-            "raise_buckets_pct": sorted(raise_buckets_pct),
+            "raise_buckets_pct": raise_bucket_pct,  # diagnostics only
             "bet_sizing_id": bet_sizing_id,
             "mode": mode,
             "pot_bb": pot_bb,
@@ -257,13 +346,14 @@ class TexasSolverExtractor:
         }
 
         mapped: Dict[str, float] = {a: 0.0 for a in ACTION_VOCAB}
+        facing_debug: list[dict] = []  # <-- NEW: collect per-label debug when mode == "facing"
 
         for lbl, p in zip(acts, mix):
             lab = (lbl or "").lower().strip()
             if not lab or p <= 0.0:
                 continue
 
-            # Simple verbs
+            # --- simple verbs ---
             if FOLD_RE.search(lab):
                 mapped["FOLD"] += p;
                 continue
@@ -277,30 +367,59 @@ class TexasSolverExtractor:
                 mapped["ALLIN"] += p;
                 continue
 
-            # ---- BET label ----
+            # ==========================================================
+            #                         BET
+            # ==========================================================
             if BET_RE.search(lab):
                 pct, to_bb = self._extract_bet_size(lbl, pot_bb)
-
-                # If no absolute, derive from % of pot
+                # numeric-only label ("BET 6.000000") may land in pct → treat as absolute
                 if to_bb is None and pct is not None:
-                    pv = float(pct)
-                    pct_val_tmp = pv * 100.0 if pv <= 3.0 else pv
-                    to_bb = (pct_val_tmp / 100.0) * pot_bb
+                    try:
+                        to_bb = float(pct)
+                    except Exception:
+                        to_bb = None
 
                 if mode == "facing":
-                    # BET at facing == raise-to target → bucket by percent of (pot [+ bet])
-                    tok = self._bucket_raise_to_percent_token(
+                    tok = self._infer_raise_mult_from_to_bb(
                         to_bb,
                         pot_bb=pot_bb,
                         faced_bet_bb=facing_bet_bb,
-                        allowed_percents=raise_buckets_pct,
+                        allowed_mults=raise_mult_list,
                     )
+
+                    # --- DEBUG: record exact inputs/derived values for this label
+                    baseA = (pot_bb + facing_bet_bb) if (pot_bb is not None and facing_bet_bb) else None
+                    baseB = (pot_bb + 2.0 * facing_bet_bb) if (pot_bb is not None and facing_bet_bb) else None
+                    multA = (to_bb / baseA) if (to_bb is not None and baseA and baseA > 0) else None
+                    multB = (to_bb / baseB) if (to_bb is not None and baseB and baseB > 0) else None
+                    facing_debug.append({
+                        "label": lbl,
+                        "p": float(p),
+                        "to_bb": float(to_bb) if to_bb is not None else None,
+                        "baseA": float(baseA) if baseA is not None else None,
+                        "baseB": float(baseB) if baseB is not None else None,
+                        "multA": float(multA) if multA is not None else None,
+                        "multB": float(multB) if multB is not None else None,
+                        "chosen_token": tok,
+                    })
+                    # --- /DEBUG
+
                     if tok and tok in ACTION_VOCAB:
                         mapped[tok] += p
-                    # else: drop unbucketable oddities
+                    else:
+                        # accept explicit "2.0x" if present and valid
+                        m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
+                        if m:
+                            try:
+                                mult = float(m.group(1))
+                                tok2 = self._nearest_raise_token(mult, raise_mult_list)
+                                if tok2 and tok2 in ACTION_VOCAB:
+                                    mapped[tok2] += p
+                            except Exception:
+                                pass
                     continue
 
-                # Root mode: bucket to BET_%
+                # ROOT: bucket to BET_%
                 pct_val = None
                 if pct is not None:
                     pv = float(pct)
@@ -316,32 +435,88 @@ class TexasSolverExtractor:
                 mapped[tok] += p
                 continue
 
-            # ---- RAISE label ----
+            # ==========================================================
+            #                        RAISE  (facing)
+            # ==========================================================
             if RAISE_RE.search(lab):
                 pct, to_bb = self._extract_bet_size(lbl, pot_bb)
+                if to_bb is None and pct is not None:
+                    try:
+                        to_bb = float(pct)
+                    except Exception:
+                        to_bb = None
 
-                # Treat 'raise to stack' as jam
+                # jam detection
                 if (to_bb is not None) and (stack_bb is not None):
                     try:
                         if float(to_bb) >= 0.98 * float(stack_bb):
                             mapped["ALLIN"] += p
+                            # still include a debug row for visibility
+                            if mode == "facing":
+                                baseA = (pot_bb + facing_bet_bb) if (pot_bb is not None and facing_bet_bb) else None
+                                baseB = (pot_bb + 2.0 * facing_bet_bb) if (
+                                            pot_bb is not None and facing_bet_bb) else None
+                                multA = (to_bb / baseA) if (to_bb is not None and baseA and baseA > 0) else None
+                                multB = (to_bb / baseB) if (to_bb is not None and baseB and baseB > 0) else None
+                                facing_debug.append({
+                                    "label": lbl,
+                                    "p": float(p),
+                                    "to_bb": float(to_bb),
+                                    "baseA": float(baseA) if baseA is not None else None,
+                                    "baseB": float(baseB) if baseB is not None else None,
+                                    "multA": float(multA) if multA is not None else None,
+                                    "multB": float(multB) if multB is not None else None,
+                                    "chosen_token": "ALLIN",
+                                })
                             continue
                     except Exception:
                         pass
 
                 if mode == "facing":
-                    tok = self._bucket_raise_to_percent_token(
+                    tok = self._infer_raise_mult_from_to_bb(
                         to_bb,
                         pot_bb=pot_bb,
                         faced_bet_bb=facing_bet_bb,
-                        allowed_percents=raise_buckets_pct,
+                        allowed_mults=raise_mult_list,
                     )
+
+                    # --- DEBUG: record exact inputs/derived values for this label
+                    baseA = (pot_bb + facing_bet_bb) if (pot_bb is not None and facing_bet_bb) else None
+                    baseB = (pot_bb + 2.0 * facing_bet_bb) if (pot_bb is not None and facing_bet_bb) else None
+                    multA = (to_bb / baseA) if (to_bb is not None and baseA and baseA > 0) else None
+                    multB = (to_bb / baseB) if (to_bb is not None and baseB and baseB > 0) else None
+                    facing_debug.append({
+                        "label": lbl,
+                        "p": float(p),
+                        "to_bb": float(to_bb) if to_bb is not None else None,
+                        "baseA": float(baseA) if baseA is not None else None,
+                        "baseB": float(baseB) if baseB is not None else None,
+                        "multA": float(multA) if multA is not None else None,
+                        "multB": float(multB) if multB is not None else None,
+                        "chosen_token": tok,
+                    })
+                    # --- /DEBUG
+
                     if tok and tok in ACTION_VOCAB:
                         mapped[tok] += p
-                    # else: drop if we can’t place it confidently
+                    else:
+                        # explicit "2.0x" pattern as last resort
+                        m = re.search(r'(\d+(?:\.\d+)?)\s*x\b', lab)
+                        if m:
+                            try:
+                                mult = float(m.group(1))
+                                tok2 = self._nearest_raise_token(mult, raise_mult_list)
+                                if tok2 and tok2 in ACTION_VOCAB:
+                                    mapped[tok2] += p
+                            except Exception:
+                                pass
                     continue
 
-            # Unknown verbs are ignored
+            # unhandled labels are ignored
+
+        # Stash debug for consumers (smoke test)
+        if mode == "facing":
+            meta["facing_debug"] = facing_debug
 
         return mapped, meta
 

@@ -15,7 +15,6 @@ security_group_ids = [
 ]
 
 job_configs = {
-
   postflop_dataset_shard_0 = {
     script_to_run     = "ml/etl/rangenet/postflop/build_rangenet_postflop_dataset.py --shard-count 6 --shard-index 0 --parts-local-dir data/datasets/postflop_policy_parts --parts-s3-prefix datasets/postflop_policy/parts"
     aws_sqs_queue_url = "https://sqs.eu-central-1.amazonaws.com/241514805921/Postflop"
