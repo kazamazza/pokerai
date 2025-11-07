@@ -18,6 +18,7 @@ from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_a
 from ml.datasets.postflop_policy_facing import PostflopPolicyDatasetFacing, postflop_policy_facing_collate_fn
 from ml.models.postflop_policy_side_net import PostflopPolicySideLit
 from ml.models.vocab_actions import FACING_ACTION_VOCAB
+from ml.models.vocab_actions import FACING_ACTION_VOCAB
 
 
 def run_postflop_sweep(cfg: dict):
@@ -40,9 +41,7 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
 
     # --- Parquet ---
     parquet_path = (
-        _get(cfg, "inputs.parquet_facing")
-        or _get(cfg, "dataset.parquet_facing")
-        or _get(cfg, "inputs.parquet")                 # optional fallback
+        _get(cfg, "inputs.facing_parquet")
     )
     if not parquet_path:
         raise ValueError("Missing inputs.parquet_facing (or dataset.parquet_facing) in config")
@@ -76,7 +75,6 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         train_idx, val_idx = idx[:cut], idx[cut:]
 
     train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
-    # --- Loaders (use the facing collate) ---
     batch = int(_get(cfg, "train.batch_size", 1024))
     train_dl = DataLoader(
         train_ds, batch_size=min(batch, len(train_ds)), shuffle=True,
@@ -99,7 +97,7 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         board_hidden=int(_get(cfg,"model.board_hidden",64)),
         mlp_hidden=_get(cfg,"model.hidden_dims",[128,128]),
         dropout=float(_get(cfg,"model.dropout",0.10)),
-        action_vocab=FACING_ACTION_VOCAB,  # only {FOLD, CALL, raises..., ALLIN}
+        action_vocab=FACING_ACTION_VOCAB,
     )
 
     ckpt_dir = Path(_get(cfg, "train.checkpoints_dir_facing", "checkpoints/postflop_policy_facing"))
@@ -139,12 +137,11 @@ def run_train_postflop_facing(cfg: Mapping[str, Any]) -> str:
         feature_order=feature_order,
         cards=cards,
         id_maps=ds.id_maps,
-        # drop board_cluster_id from conts; it is a categorical
-        cont_features=["board_mask_52", "pot_bb", "eff_stack_bb"],
+        cont_features=["board_mask_52", "pot_bb", "stack_bb", "size_frac"],
         action_vocab=FACING_ACTION_VOCAB,
     )
 
-    sc = json.loads((ckpt_dir / "best_sidecar.json").read_text())
+    sc = json.loads((ckpt_dir / "sidecar.json").read_text())
     assert ("board_cluster_id" in sc["feature_order"]) == ("board_cluster_id" in ds.cat_features)
     assert "board_cluster_id" not in sc["cont_features"]
 

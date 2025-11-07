@@ -1,0 +1,410 @@
+{
+  "inputs": {
+    "monker_manifest": "data/artifacts/monker_manifest.parquet",
+    "sph_manifest": "data/artifacts/sph_manifest.parquet",
+    "vendor_s3_prefix": "data/vendor",
+    "manifest": "data/artifacts/rangenet_postflop_flop_manifest.parquet",
+    "root_parquet": "data/datasets/postflop_policy_root.parquet",
+    "facing_parquet": "data/datasets/postflop_policy_facing.parquet",
+    "parquet": "data/datasets/postflop_policy_root.parquet"
+  },
+  "builder": {
+    "parts_s3_prefix_root": "",
+    "parts_s3_prefix_facing": ""
+  },
+  "dataset": {
+    "parquet": "data/datasets/postflop_policy.parquet",
+    "cat_features": [
+      "hero_pos",
+      "ip_pos",
+      "oop_pos",
+      "ctx",
+      "street",
+      "board_cluster_id",
+      "stakes_id"
+    ],
+    "cont_features": [
+      "pot_bb",
+      "stack_bb",
+      "size_frac",
+      "board_mask_52"
+    ],
+    "soft_y_cols": [
+      "FOLD",
+      "CHECK",
+      "CALL",
+      "BET_25",
+      "BET_33",
+      "BET_50",
+      "BET_66",
+      "BET_75",
+      "BET_100",
+      "DONK_33",
+      "RAISE_150",
+      "RAISE_200",
+      "RAISE_300",
+      "RAISE_400",
+      "RAISE_500",
+      "ALLIN"
+    ],
+    "weight_col": "weight",
+    "strict_canon": false,
+    "stratify_keys": [
+      "ctx",
+      "ip_pos",
+      "oop_pos",
+      "board_cluster_id"
+    ],
+    "train_frac": 0.8
+  },
+  "outputs": {
+    "s3_key": "datasets/rangenet_postflop.parquet"
+  },
+  "multiway": {
+    "enable": false,
+    "max_players": 3,
+    "default_menu_id": "limped_multi.Any",
+    "default_flop_pot_bb": 3.0,
+    "allow_in_scenarios": true
+  },
+  "board_clustering": {
+    "type": "kmeans",
+    "artifact": "data/artifacts/board_clusters_kmeans_64.json",
+    "n_clusters": 64
+  },
+  "manifest_build": {
+    "include_missing": false,
+    "allow_pair_subs": true,
+    "lookup_max_stack_delta": 200,
+    "board_clusters_limit": 64,
+    "boards_per_cluster": 2,
+    "sample_pool": 50000,
+    "seed": 42,
+    "dedup_keys": [
+      "street",
+      "ctx",
+      "topology",
+      "ip_actor_flop",
+      "oop_actor_flop",
+      "effective_stack_bb",
+      "pot_bb",
+      "bet_sizing_id",
+      "board",
+      "board_cluster_id",
+      "range_ip",
+      "range_oop",
+      "stake"
+    ],
+    "scenarios": [
+      {
+        "name": "SRP_IP",
+        "ctx": "VS_OPEN",
+        "position_pairs": [
+          [
+            "UTG",
+            "BB"
+          ],
+          [
+            "UTG",
+            "SB"
+          ],
+          [
+            "HJ",
+            "BB"
+          ],
+          [
+            "HJ",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "srp_ip"
+        ]
+      },
+      {
+        "name": "SRP_OOP",
+        "ctx": "VS_OPEN",
+        "position_pairs": [
+          [
+            "UTG",
+            "BB"
+          ],
+          [
+            "UTG",
+            "SB"
+          ],
+          [
+            "HJ",
+            "BB"
+          ],
+          [
+            "HJ",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ],
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "srp_oop"
+        ]
+      },
+      {
+        "name": "BLIND_VS_STEAL",
+        "ctx": "BLIND_VS_STEAL",
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "bvs"
+        ]
+      },
+      {
+        "name": "VS_3BET_IP",
+        "ctx": "VS_3BET",
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "3bet_ip"
+        ]
+      },
+      {
+        "name": "VS_3BET_OOP",
+        "ctx": "VS_3BET",
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "3bet_oop"
+        ]
+      },
+      {
+        "name": "VS_4BET_IP",
+        "ctx": "VS_4BET",
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "4bet_ip"
+        ]
+      },
+      {
+        "name": "VS_4BET_OOP",
+        "ctx": "VS_4BET",
+        "position_pairs": [
+          [
+            "BTN",
+            "BB"
+          ],
+          [
+            "BTN",
+            "SB"
+          ],
+          [
+            "CO",
+            "BB"
+          ],
+          [
+            "CO",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "4bet_oop"
+        ]
+      },
+      {
+        "name": "LIMPED_SINGLE",
+        "ctx": "LIMPED_SINGLE",
+        "position_pairs": [
+          [
+            "BB",
+            "SB"
+          ]
+        ],
+        "bet_menus": [
+          "limp"
+        ]
+      }
+    ]
+  },
+  "solver": {
+    "accuracy": 0.01,
+    "max_iterations": 15000,
+    "threads": 1,
+    "allin_threshold": 0.67,
+    "s3_prefix": "solver/outputs/v1",
+    "local_cache_dir": "data/solver_cache",
+    "raise_mult": [
+      1.5,
+      2.0,
+      2.5,
+      3.0,
+      4.0,
+      5.0
+    ]
+  },
+  "train": {
+    "seed": 42,
+    "max_epochs": 15,
+    "patience": 4,
+    "batch_size": 2048,
+    "devices": "auto",
+    "accelerator": "auto",
+    "precision": "16-mixed",
+    "grad_clip": 1.0,
+    "monitor": "val_loss",
+    "mode": "min",
+    "pin_memory": true,
+    "checkpoints_dir": "checkpoints/postflop_policy_root/max_trials=12__model_board_hidden=96__model_dropout=0.1__model_hidden_dims=[128, 128]__model_label_smoothing=0.0__model_lr=0.001__model_use_board_cluster=True__model_weight_decay=0"
+  },
+  "model": {
+    "hidden_dims": [
+      128,
+      128
+    ],
+    "dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.0,
+    "use_board_cluster": true,
+    "board_hidden": 96
+  },
+  "sweep": {
+    "model.hidden_dims": [
+      [
+        128,
+        128
+      ],
+      [
+        256,
+        256
+      ]
+    ],
+    "model.dropout": [
+      0.1,
+      0.2
+    ],
+    "model.lr": [
+      0.001,
+      0.0005
+    ],
+    "model.weight_decay": [
+      0.0001,
+      5e-05
+    ],
+    "model.label_smoothing": [
+      0.0,
+      0.02
+    ],
+    "model.board_hidden": [
+      64,
+      96
+    ],
+    "model.use_board_cluster": [
+      true,
+      false
+    ],
+    "train.batch_size": [
+      1024,
+      2048
+    ],
+    "seed": [
+      42,
+      1337
+    ],
+    "max_trials": 12
+  },
+  "seed": 1337,
+  "max_trials": 12
+}

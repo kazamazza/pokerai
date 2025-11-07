@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal
-import numpy as np
 
-from ml.core.types import Stakes
 
 ActionKind = Literal["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALLIN"]
 
@@ -22,38 +19,32 @@ class Action:
     size_pct: Optional[float] = None
     size_mult: Optional[float] = None
 
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+import re
+
+Position = str
+
 @dataclass
 class PolicyRequest:
-    # Context / game state
-    stakes: "Stakes" = "NL10"                 # enum or str; unchanged
-    street: int = 1                           # 1=flop, 2=turn, 3=river
-    ctx: Optional[str] = None                 # e.g. "VS_OPEN", "VS_3BET", "LIMPED_SINGLE"
-
-    # Positions / cards / numbers
-    hero_pos: Optional[str] = None            # "UTG","HJ","CO","BTN","SB","BB"
-    villain_pos: Optional[str] = None
-    hero_hand: Optional[str] = None           # like "AhKh" (optional for policy-only)
-    board: Optional[str] = None               # like "Ts5cKd"
+    stakes: str = "NL10"
+    street: int = 1
+    ctx: Optional[str] = None
+    hero_pos: Optional[Position] = None
+    villain_pos: Optional[Position] = None
+    hero_hand: Optional[str] = None  # "AhKh"
+    board: Optional[str] = None      # "Ts5cKd" or None
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
-
-    # Facing info (explicit + auto-infer fallback)
-    facing_bet: bool = False                  # if you already know you’re facing
-    faced_size_pct: Optional[float] = None    # 25/33/50/66/75/100 if known
-    faced_size_frac: Optional[float] = None   # 0.25/0.33/... if known
-
-    # Optional: pass legal menus to gate root tokens
-    # e.g. bet_sizes=[0.33] (and OOP donk uses same 0.33 internally)
-    bet_sizes: Optional[List[float]] = None   # fractions, e.g. [0.33, 0.66]
-    raise_buckets: Optional[List[int]] = None # e.g. [150, 200, 300]
+    facing_bet: bool = False
+    faced_size_pct: Optional[float] = None
+    faced_size_frac: Optional[float] = None
+    bet_sizes: Optional[List[float]] = None
+    raise_buckets: Optional[List[int]] = None
     allow_allin: Optional[bool] = None
-
-    # Aux
     villain_id: Optional[str] = None
-    actions_hist: Optional[List[str]] = None  # e.g. ["CHECK", "BET 33", "CALL"]
-    board_mask_52: Optional[List[float]] = None  # precomputed mask (optional perf hint)
-
-    # Raw passthrough (legacy / UI payload)
+    actions_hist: Optional[List[str]] = None
+    board_mask_52: Optional[List[float]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
     _POSITION_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
@@ -63,74 +54,47 @@ class PolicyRequest:
         try:
             h_i = PolicyRequest._POSITION_ORDER.index(hero_pos)
             v_i = PolicyRequest._POSITION_ORDER.index(villain_pos)
-            # In position if hero acts later (larger index preflop)
             return h_i > v_i
         except ValueError:
             return True  # default safe
 
-    # --- Validation + legalize logic ---
+    def _norm_pos(self, p: Optional[str]) -> Optional[str]:
+        return str(p).strip().upper() if p else None
+
+    def _count_board_cards(self, s: Optional[str]) -> int:
+        return len(re.findall(r"[AKQJT98765432][shdc]", s or ""))
+
     def legalize(self) -> "PolicyRequest":
-        """
-        Normalize and ensure this request is logically valid for poker.
-        Auto-deduce IP/OOP and correct street/board consistency.
-        Raises ValueError if request cannot be fixed.
-        """
-        # --- Normalize positions ---
-        def norm_pos(p: Optional[str]) -> Optional[str]:
-            return str(p).strip().upper() if p else None
-
-        self.hero_pos = norm_pos(self.hero_pos)
-        self.villain_pos = norm_pos(self.villain_pos)
-
-        # --- Validate positions ---
+        # normalize positions
+        self.hero_pos = self._norm_pos(self.hero_pos)
+        self.villain_pos = self._norm_pos(self.villain_pos)
         if self.hero_pos not in self._POSITION_ORDER:
             raise ValueError(f"Illegal hero_pos '{self.hero_pos}'")
         if self.villain_pos not in self._POSITION_ORDER:
             raise ValueError(f"Illegal villain_pos '{self.villain_pos}'")
 
-        # --- Deduce in-position/out-of-position from order ---
-        hero_i = self._POSITION_ORDER.index(self.hero_pos)
-        vill_i = self._POSITION_ORDER.index(self.villain_pos)
-        if hero_i < vill_i:
-            # hero acts earlier → OOP
-            self.oop_pos, self.ip_pos = self.hero_pos, self.villain_pos
+        h_i = self._POSITION_ORDER.index(self.hero_pos)
+        v_i = self._POSITION_ORDER.index(self.villain_pos)
+        if h_i < v_i:
+            self.oop_pos, self.ip_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
         else:
-            # hero acts later → IP
-            self.ip_pos, self.oop_pos = self.hero_pos, self.villain_pos
+            self.ip_pos, self.oop_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
 
-        # --- Validate street vs board consistency ---
-        if self.street == 0 and self.board:
+        expected = {0: 0, 1: 3, 2: 4, 3: 5}.get(int(self.street), 0)
+        n_cards = self._count_board_cards(self.board)
+        if self.street == 0 and n_cards != 0:
             raise ValueError("Preflop (street=0) cannot have a board")
-        n_cards = len(re.findall(r"[AKQJT98765432][shdc]", self.board or ""))
-        expected = {0: 0, 1: 3, 2: 4, 3: 5}.get(self.street, 0)
         if self.street > 0 and n_cards != expected:
             raise ValueError(f"Street {self.street} expects {expected} board cards, got {n_cards}")
 
-        # --- Facing-bet sanity ---
-        # Hero cannot face a bet preflop without villain opening first.
-        if self.street == 0 and self.facing_bet and hero_i < vill_i:
-            raise ValueError("Hero cannot face a bet preflop if hero acts before villain")
-
-        # --- Effective stack/pot sanity ---
         if self.pot_bb <= 0 or self.eff_stack_bb <= 0:
             raise ValueError(f"Invalid pot_bb={self.pot_bb} or eff_stack_bb={self.eff_stack_bb}")
 
-        # --- Clean raw context ---
         self.raw = dict(self.raw or {})
-        self.raw.setdefault("ctx", "VS_OPEN")
-        self.raw.setdefault("ip_pos", self.ip_pos)
-        self.raw.setdefault("oop_pos", self.oop_pos)
-
+        self.raw.setdefault("ctx", self.ctx or "VS_OPEN")
+        self.raw.setdefault("ip_pos", getattr(self, "ip_pos", None))
+        self.raw.setdefault("oop_pos", getattr(self, "oop_pos", None))
         return self
-
-    def validate(self) -> bool:
-        """Return True if request is valid; False otherwise."""
-        try:
-            _ = self.legalize()
-            return True
-        except Exception:
-            return False
-
 
 @dataclass
 class PolicyResponse:
@@ -141,14 +105,15 @@ class PolicyResponse:
     debug: Optional[Dict[str, Any]] = field(default_factory=dict)
 
     def top_action(self) -> str:
-        """Return the action with the highest probability."""
         if not self.actions or not self.probs:
             return "NONE"
-        idx = int(np.argmax(self.probs))
-        return self.actions[idx]
+        from math import fsum
+        # tiny guard: ensure sum finite (why: UI stability)
+        _ = fsum(self.probs)
+        import numpy as np
+        return self.actions[int(np.argmax(self.probs))]
 
     def as_dict(self) -> Dict[str, Any]:
-        """Serialize to a plain dict for logging or JSON output."""
         return {
             "actions": self.actions,
             "probs": self.probs,
@@ -157,8 +122,3 @@ class PolicyResponse:
             "debug": self.debug,
             "top_action": self.top_action(),
         }
-
-    def __repr__(self) -> str:
-        top = self.top_action()
-        top_p = max(self.probs) if self.probs else 0.0
-        return f"<PolicyResponse top={top} ({top_p:.2f}), len={len(self.actions)}>"

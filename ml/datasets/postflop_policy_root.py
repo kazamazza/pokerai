@@ -1,22 +1,34 @@
-import json
+from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple
+import json, warnings
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from ml.models.policy_consts import ACTION_VOCAB
 
+from ml.models.vocab_actions import ROOT_ACTION_VOCAB  # ["CHECK","BET_25","BET_33",...,"DONK_..."] if you keep DONK in root vocab; otherwise only CHECK/BET_XX
+
+# ---- Root-only vocab (what the model head will use) ----
+ROOT_VOCAB  = list(ROOT_ACTION_VOCAB)
+ROOT_INDEX  = {a: i for i, a in enumerate(ROOT_VOCAB)}
+V_ROOT      = len(ROOT_VOCAB)
+
+# Buckets you expect for IP root bets
 BET_BUCKETS = {"BET_25","BET_33","BET_50","BET_66","BET_75","BET_100"}
-DONK_BUCKETS = {"DONK_25","DONK_33","DONK_50","DONK_66","DONK_75","DONK_100"}
 
-ROOT_PREFIXES   = ("CHECK", "BET_", "DONK_")
+# Any facing tokens that might have leaked in
 FACING_PREFIXES = ("FOLD", "CALL", "RAISE_", "ALLIN")
 
-VOCAB_INDEX = {a:i for i,a in enumerate(ACTION_VOCAB)}
-VOCAB_SIZE  = len(ACTION_VOCAB)
 
 class PostflopPolicyDatasetRoot(Dataset):
+    """
+    ROOT-only (IP first action). Returns (x_cat, x_cont, y, m, w).
+
+    - y and m are sized to ROOT_VOCAB.
+    - Legal mask m contains {CHECK, BET_{size_pct}} — always IP root (no actor filtering).
+    - size_pct/size_frac are used only to decide the legal BET bucket (not added to features).
+    """
     def __init__(
         self,
         parquet_path: str | Path,
@@ -29,14 +41,20 @@ class PostflopPolicyDatasetRoot(Dataset):
         self.parquet_path = Path(parquet_path)
         df = pd.read_parquet(str(self.parquet_path)).copy()
 
-        # ---- canon helpers ----
+        # --- light canonicalization ---
         def _canon_pos(v):
             if v is None: return None
             v = str(v).strip().upper()
-            alias = {"UTG+1":"HJ","UTG+2":"CO","UTG1":"HJ","UTG2":"CO",
-                     "DEALER":"BTN","BUTTON":"BTN","SMALL BLIND":"SB","BIG BLIND":"BB"}
+            alias = {
+                "UTG+1":"HJ","UTG+2":"CO",
+                "UTG1":"HJ","UTG2":"CO",
+                "DEALER":"BTN","BUTTON":"BTN",
+                "SMALL BLIND":"SB","BIG BLIND":"BB",
+            }
             return alias.get(v, v)
-        def _canon_ctx(v): return None if v is None else str(v).strip().upper()
+
+        def _canon_ctx(v):
+            return None if v is None else str(v).strip().upper()
 
         for col, fn in {"hero_pos": _canon_pos, "ip_pos": _canon_pos,
                         "oop_pos": _canon_pos, "ctx": _canon_ctx}.items():
@@ -46,12 +64,7 @@ class PostflopPolicyDatasetRoot(Dataset):
         if "board_cluster" in df.columns and "board_cluster_id" not in df.columns:
             df = df.rename(columns={"board_cluster": "board_cluster_id"})
 
-        # Root parquet should be IP rows only
-        if "actor" in df.columns:
-            df = df[df["actor"].astype(str).str.lower() == "ip"].reset_index(drop=True)
-
-        # ---- derive size_frac for menu gating or analysis ----
-        import numpy as np
+        # --- derive size_frac / size_pct for legality only ---
         if "size_frac" not in df.columns:
             if "size_pct" in df.columns:
                 df["size_frac"] = pd.to_numeric(df["size_pct"], errors="coerce") / 100.0
@@ -61,109 +74,149 @@ class PostflopPolicyDatasetRoot(Dataset):
                 df["size_frac"] = np.nan
 
         df["size_frac"] = (
-            df["size_frac"]
-            .astype("float32")
-            .fillna(0.0)
-            .clip(lower=0.0, upper=1.5)
+            pd.to_numeric(df["size_frac"], errors="coerce")
+              .astype("float32")
+              .fillna(0.0)
+              .clip(lower=0.0, upper=1.5)
         )
 
-        # ---- standard setup ----
-        self.cat_features  = list(cat_features or [])
-        self.cont_features = list(cont_features or [])
-        self.weight_col    = weight_col
-        if "size_frac" not in self.cont_features:
-            self.cont_features.append("size_frac")
+        if "size_pct" not in df.columns:
+            df["size_pct"] = (df["size_frac"] * 100.0).round().astype("Int64")
 
-        # ---- normalize label space to ROOT only ----
-        # 1) drop any facing-only columns if present
+        # --- drop any facing labels that leaked in ---
         drop_cols = [c for c in df.columns if any(c.startswith(p) for p in FACING_PREFIXES)]
         if drop_cols:
             df = df.drop(columns=drop_cols, errors="ignore")
 
-        # 2) guarantee root tokens exist; synthesize zeros if missing
-        root_targets = {"CHECK"} | BET_BUCKETS | DONK_BUCKETS
-        for tok in root_targets:
+        # --- guarantee root target columns exist (exactly ROOT_VOCAB) ---
+        for tok in ROOT_VOCAB:
             if tok not in df.columns:
                 df[tok] = 0.0
-        self.target_cols = sorted(list(root_targets))
 
-        # ---- required meta/feature columns present? ----
+        # --- store feature config ---
+        self.cat_features  = list(cat_features or [])
+        self.cont_features = list(cont_features or [])  # do NOT auto-append size_frac for ROOT
+        self.weight_col    = weight_col
+
+        # ---- column presence checks ----
         needed_meta = set(self.cat_features + self.cont_features + [self.weight_col, "size_pct"])
         missing_meta = [c for c in needed_meta if c not in df.columns]
         if missing_meta:
             raise ValueError(f"Root parquet missing columns: {missing_meta}")
 
-        # ---- encode categoricals ----
-        self._id_maps: dict[str, dict[str,int]] = {}
-        self._cards: dict[str, int] = {}
+        # --- encode categoricals ---
+        self._id_maps: Dict[str, Dict[str, int]] = {}
+        self._cards: Dict[str, int] = {}
+
         def _encode_cat(col: str):
             nonlocal df
             toks = df[col].fillna("__UNK__").astype(str).str.upper()
             uniq = sorted(toks.unique().tolist())
-            tok2id = {t:i for i,t in enumerate(uniq)}
+            tok2id = {t: i for i, t in enumerate(uniq)}
             self._id_maps[col] = tok2id
             self._cards[col]   = max(1, len(tok2id))
             df[col] = toks.map(tok2id)
 
         for c in self.cat_features:
-            _encode_cat(c)
+            if c in df.columns:
+                _encode_cat(c)
 
         if strict_canon:
             for c in self.cat_features:
                 if df[c].isna().any():
                     raise ValueError(f"Invalid values in '{c}' (NaNs after encoding)")
 
-        # ---- weights ----
-        w = df[self.weight_col].astype(float).to_numpy()
-        w = np.where(np.isnan(w), 1.0, w)
+        # --- weights ---
+        w = pd.to_numeric(df[self.weight_col], errors="coerce").fillna(1.0).astype(float).to_numpy()
         self.weights = torch.tensor(w, dtype=torch.float32)
 
-        # ---- stash df ----
         self._df = df.reset_index(drop=True)
+
+    # ---------- helpers ----------
 
     @staticmethod
     def _to_mask_52(v) -> torch.Tensor:
-        # Accept list/ndarray/JSON string/"comma,separated"
-        if isinstance(v, torch.Tensor):
-            arr = v.detach().cpu().float().view(-1).numpy()
-        else:
-            if isinstance(v, str):
-                vv = v.strip(); parsed = None
-                if vv.startswith("[") and vv.endswith("]"):
-                    try: parsed = json.loads(vv)
-                    except Exception: parsed = None
-                if parsed is None:
-                    try: parsed = [float(x) for x in vv.split(",")]
-                    except Exception: parsed = None
-                v = parsed if parsed is not None else None
+        """
+        Robustly parse board_mask_52 from:
+          - list/ndarray of floats,
+          - Avro/pyarrow list of {element: float} or StructScalar,
+          - JSON string "[...]" or "a,b,c,...".
+        """
+        import numpy as np, json
+        # pyarrow scalar wrapper?
+        if hasattr(v, "as_py"):
             try:
-                arr = np.asarray(v, dtype=np.float32).reshape(-1) if v is not None else np.zeros(52, np.float32)
+                v = v.as_py()
             except Exception:
-                arr = np.zeros(52, np.float32)
+                v = None
+
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("[") and s.endswith("]"):
+                try:
+                    v = json.loads(s)
+                except Exception:
+                    v = None
+            else:
+                # "0,1,0,..."
+                try:
+                    v = [float(x) for x in s.split(",")]
+                except Exception:
+                    v = None
+
+        if isinstance(v, (list, tuple)):
+            out = []
+            for it in v:
+                if hasattr(it, "as_py"):
+                    try:
+                        it = it.as_py()
+                    except Exception:
+                        pass
+                if isinstance(it, dict) and "element" in it:
+                    out.append(it["element"])
+                else:
+                    out.append(it)
+            v = out
+
+        try:
+            arr = np.asarray(v, dtype=np.float32).reshape(-1) if v is not None else np.zeros(52, np.float32)
+        except Exception:
+            arr = np.zeros(52, np.float32)
+
         out = np.zeros(52, dtype=np.float32)
         n = min(52, arr.size)
-        if n > 0: out[:n] = arr[:n]
+        if n > 0:
+            out[:n] = arr[:n]
         return torch.from_numpy(out)
 
     @staticmethod
-    def _bet_token_from_size(size_pct: int, actor: str) -> str:
-        size_pct = int(round(float(size_pct)))
-        bucket = f"{size_pct}"
-        if actor == "oop":
-            tok = f"DONK_{bucket}"
-            return tok if tok in DONK_BUCKETS else f"DONK_{bucket}"
-        else:
-            tok = f"BET_{bucket}"
-            return tok if tok in BET_BUCKETS else f"BET_{bucket}"
+    def _nearest_bet_token(size_pct: int) -> str:
+        """
+        Map arbitrary integer size to nearest available BET_XX token present in ROOT_VOCAB.
+        """
+        # collect available BET_XX from ROOT_VOCAB
+        options = []
+        for tok in ROOT_VOCAB:
+            if tok.startswith("BET_"):
+                try:
+                    options.append(int(tok.split("_", 1)[1]))
+                except Exception:
+                    pass
+        if not options:
+            return "CHECK"  # degenerate (shouldn't happen)
 
-    # ---- public ---------------------------------------------------------
+        s = int(round(float(size_pct)))
+        nearest = min(options, key=lambda x: abs(x - s))
+        return f"BET_{nearest}"
+
+    # ---------- API ----------
 
     @property
-    def id_maps(self) -> dict[str, dict[str,int]]:
+    def id_maps(self) -> Dict[str, Dict[str, int]]:
         return self._id_maps
 
     @property
-    def cards(self) -> dict[str,int]:
+    def cards(self) -> Dict[str, int]:
         return dict(self._cards)
 
     def __len__(self) -> int:
@@ -172,47 +225,51 @@ class PostflopPolicyDatasetRoot(Dataset):
     def __getitem__(self, idx: int):
         row = self._df.iloc[idx]
 
-        # Categoricals
+        # categoricals
         x_cat: Dict[str, torch.Tensor] = {}
         for f in self.cat_features:
             v = int(row[f]) if f in row and pd.notna(row[f]) else 0
             x_cat[f] = torch.tensor(v, dtype=torch.long)
 
-        # Continuous (scalar feats), plus board_mask_52 if present/requested
+        # continuous (+board mask)
         x_cont: Dict[str, torch.Tensor] = {}
         for f in self.cont_features:
             if f == "board_mask_52":
-                bm_t = self._to_mask_52(row.get("board_mask_52", None))
-                x_cont["board_mask_52"] = bm_t
+                x_cont["board_mask_52"] = self._to_mask_52(row.get("board_mask_52", None))
             else:
-                v = row[f] if f in row else 0.0
-                try: fv = float(v); fv = 0.0 if np.isnan(fv) else fv
-                except Exception: fv = 0.0
+                try:
+                    fv = float(row[f]) if f in row else 0.0
+                    if np.isnan(fv): fv = 0.0
+                except Exception:
+                    fv = 0.0
                 x_cont[f] = torch.tensor(fv, dtype=torch.float32).view(1)
 
-        # Build legal mask for ROOT
-        actor = "ip"  # root parts are IP by construction; keep guard for safety
-        size_pct = int(round(float(row.get("size_pct", 33))))
-        bet_tok  = self._bet_token_from_size(size_pct, actor="ip")
+        # legal mask: always IP root → {CHECK, BET_bucket}
+        # legal mask: always IP root → {CHECK, BET_bucket}
+        val = row.get("size_pct", 33)
+        try:
+            size_pct = float(pd.to_numeric(val, errors="coerce"))
+            if np.isnan(size_pct):
+                size_pct = 33
+        except Exception:
+            size_pct = 33
+        size_pct = int(round(size_pct))
+        bet_tok = self._nearest_bet_token(size_pct)
 
         legal = {"CHECK", bet_tok}
-        # If you later add OOP-root variants, flip to DONK bucket:
-        # if str(row.get("actor","ip")).lower() == "oop": legal = {"CHECK", self._bet_token_from_size(size_pct,"oop")}
-
-        m = torch.zeros(VOCAB_SIZE, dtype=torch.float32)
+        m = torch.zeros(V_ROOT, dtype=torch.float32)
         for a in legal:
-            idx_a = VOCAB_INDEX.get(a)
-            if idx_a is not None: m[idx_a] = 1.0
+            i = ROOT_INDEX.get(a)
+            if i is not None:
+                m[i] = 1.0
 
-        # Targets: read soft columns and renormalize over legal only
-        y_raw = np.array([float(row.get(a, 0.0) or 0.0) for a in ACTION_VOCAB], dtype=np.float32)
-        y = torch.from_numpy(y_raw)
-        y = y * m  # zero illegal
+        # targets over ROOT_VOCAB, renorm within legal
+        y_raw = np.array([float(row.get(a, 0.0) or 0.0) for a in ROOT_VOCAB], dtype=np.float32)
+        y = torch.from_numpy(y_raw) * m
         s = float(y.sum().item())
         if s <= 1e-12:
-            # Degenerate row; put mass on CHECK (common, safe)
             y.zero_()
-            y[VOCAB_INDEX["CHECK"]] = 1.0
+            y[ROOT_INDEX["CHECK"]] = 1.0
         else:
             y = y / s
 
@@ -221,29 +278,35 @@ class PostflopPolicyDatasetRoot(Dataset):
 
 
 def postflop_policy_root_collate_fn(
-    batch: List[Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]]
+    batch: List[
+        Tuple[
+            Dict[str, torch.Tensor],  # x_cat
+            Dict[str, torch.Tensor],  # x_cont
+            torch.Tensor,             # y
+            torch.Tensor,             # m
+            torch.Tensor,             # w
+        ]
+    ]
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
     x_cat_list, x_cont_list, y_list, m_list, w_list = zip(*batch)
 
     x_cat: Dict[str, torch.Tensor] = {k: torch.stack([x[k] for x in x_cat_list], dim=0)
-                                      for k in x_cat_list[0].keys()} if x_cat_list and x_cat_list[0] else {}
+                                      for k in (x_cat_list[0].keys() if x_cat_list and x_cat_list[0] else [])}
 
-    # Stack continuous; ensure board_mask_52 stays [B,52]
     x_cont: Dict[str, torch.Tensor] = {}
     if x_cont_list and x_cont_list[0]:
-        keys = list(x_cont_list[0].keys())
-        for k in keys:
+        for k in x_cont_list[0].keys():
             vals = [x.get(k) for x in x_cont_list]
             if k == "board_mask_52":
                 x_cont[k] = torch.stack([v.to(torch.float32).view(52) for v in vals], dim=0)
             else:
                 x_cont[k] = torch.stack([v.to(torch.float32).view(1) for v in vals], dim=0)
 
-    y = torch.stack(y_list, dim=0)  # [B,V]
-    m = torch.stack(m_list, dim=0)  # [B,V]
+    y = torch.stack(y_list, dim=0)  # [B, V_ROOT]
+    m = torch.stack(m_list, dim=0)  # [B, V_ROOT]
     w = torch.stack(w_list, dim=0).float()  # [B]
 
-    if y.shape[1] != len(ACTION_VOCAB):
-        raise RuntimeError(f"Target width {y.shape[1]} != len(ACTION_VOCAB) {len(ACTION_VOCAB)}")
+    if y.shape[1] != len(ROOT_VOCAB):
+        raise RuntimeError(f"Target width {y.shape[1]} != len(ROOT_VOCAB) {len(ROOT_VOCAB)}")
 
     return x_cat, x_cont, y, m, w

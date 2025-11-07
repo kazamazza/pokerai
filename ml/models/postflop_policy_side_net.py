@@ -74,14 +74,13 @@ class PostflopPolicySideLit(pl.LightningModule):
         self.weight_decay = weight_decay
         self.label_smoothing = float(label_smoothing)
 
-    # ----- forward -----
     def forward(self, x_cat: Dict[str, torch.Tensor], x_cont: Dict[str, torch.Tensor]) -> torch.Tensor:
         z_cat = self.embed(x_cat)
         cluster_id = x_cat.get("board_cluster") if "board_cluster" in self.cat_order else None
         z_brd = self.board(
             x_cont["board_mask_52"],
             x_cont["pot_bb"],
-            x_cont["eff_stack_bb"],
+            x_cont["stack_bb"],
             cluster_id=cluster_id,
         )
         h = self.trunk(torch.cat([z_cat, z_brd], dim=-1))
@@ -110,14 +109,13 @@ class PostflopPolicySideLit(pl.LightningModule):
             smooth = self.label_smoothing
             t = (1.0 - smooth) * t + smooth * (mask / (mask.sum(dim=-1, keepdim=True) + 1e-8))
 
-        # masked log-softmax
+
         big_neg = torch.finfo(logits.dtype).min / 4
         masked_logits = torch.where(mask > 0.5, logits, big_neg)
         logp = F.log_softmax(masked_logits, dim=-1)
         ce = -(t * logp).sum(dim=-1)  # [B]
         return ce
 
-    # ----- steps -----
     def training_step(self, batch, _):
         x_cat, x_cont, y, m, w = batch
         logits = self(x_cat, x_cont)       # [B, V]

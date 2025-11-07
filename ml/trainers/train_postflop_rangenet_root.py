@@ -18,7 +18,7 @@ from ml.trainers.helpers import _get
 from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
 from ml.datasets.postflop_policy_root import PostflopPolicyDatasetRoot, postflop_policy_root_collate_fn
 from ml.models.postflop_policy_side_net import PostflopPolicySideLit
-from ml.models.vocab_actions import ROOT_ACTION_VOCAB
+from ml.models.vocab_actions import ROOT_ACTION_VOCAB, FACING_ACTION_VOCAB
 
 
 def run_postflop_sweep(cfg: dict):
@@ -180,29 +180,32 @@ def run_train_postflop_root(cfg: Mapping[str, Any]) -> str:
         cfg_ser = dict(cfg)
     (ckpt_dir / "config.json").write_text(json.dumps(cfg_ser, indent=2))
 
-    # ✅ root-only sidecar (action vocab restricted)
+    # ---- write sidecar BEFORE training ----
     write_postflop_policy_sidecar(
         ckpt_dir=ckpt_dir,
-        feature_order=feature_order,  # includes 'board_cluster_id'
+        feature_order=feature_order,
         cards=cards,
         id_maps=ds.id_maps,
-        cont_features=["board_mask_52", "pot_bb", "eff_stack_bb"],  # ← drop board_cluster_id here
-        action_vocab=ROOT_ACTION_VOCAB,
-        extras={"side": "ip"},
+        cont_features=["board_mask_52", "pot_bb", "stack_bb", "size_frac"],  # matches your dataset/model usage
+        action_vocab=ROOT_ACTION_VOCAB,  # or ROOT_ACTION_VOCAB in the root trainer
+        extras={"side": "oop"},  # {"side": "ip"} for root
     )
 
-    sc = json.loads((ckpt_dir / "best_sidecar.json").read_text())
+    # Read the thing we actually wrote:
+    sc = json.loads((ckpt_dir / "sidecar.json").read_text())
     assert ("board_cluster_id" in sc["feature_order"]) == ("board_cluster_id" in ds.cat_features)
     assert "board_cluster_id" not in sc["cont_features"]
 
-    # Train
+    # --- Train ---
     resume_from = _get(cfg, "train.resume_from", None)
-    if resume_from:
-        trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from))
-    else:
-        trainer.fit(model, train_dl, val_dl)
+    trainer.fit(model, train_dl, val_dl, ckpt_path=str(resume_from) if resume_from else None)
 
-    print(f"✅ ROOT postflop policy training complete. Best checkpoint: {ckpt_cb.best_model_path}")
+    # After training, freeze a 'best_sidecar.json' next to best ckpt (if any)
+    best_path = ckpt_cb.best_model_path
+    if best_path:
+        (Path(best_path).parent / "best_sidecar.json").write_text(json.dumps(sc, indent=2))
+
+    print(f"✅ facing training complete. Best checkpoint: {ckpt_cb.best_model_path}")
     return ckpt_cb.best_model_path or str(ckpt_dir / "last.ckpt")
 
 
