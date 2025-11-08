@@ -48,6 +48,7 @@ def encode_cats(feature_order: Sequence[str],
                     out[c].append(0)
     return {k: torch.tensor(v, dtype=torch.long, device=device) for k, v in out.items()}
 
+
 def encode_cont(cont_features: Sequence[str],
                 rows: Sequence[Mapping[str, Any]],
                 device: torch.device) -> Dict[str, torch.Tensor]:
@@ -55,7 +56,8 @@ def encode_cont(cont_features: Sequence[str],
     out: Dict[str, torch.Tensor] = {}
     for name in cont_features:
         if name == "board_mask_52":
-            masks = [torch.tensor(_safe_board_mask_52(r.get("board", "")), dtype=torch.float32, device=device) for r in rows]
+            masks = [torch.tensor(_safe_board_mask_52(r.get("board", "")),
+                                  dtype=torch.float32, device=device) for r in rows]
             out["board_mask_52"] = torch.stack(masks, dim=0)
         else:
             vals = [float(r.get(name, 0.0) or 0.0) for r in rows]

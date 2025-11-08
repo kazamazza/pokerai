@@ -147,7 +147,7 @@
     "board_cluster": {
       "type": "kmeans",
       "artifact": "data/artifacts/board_clusters_kmeans_128.json",
-      "n_clusters": 128
+      "n_clusters": 64
     }
   }
 }

@@ -1,0 +1,132 @@
+{
+  "version": "1",
+  "defaults": {
+    "stakes": "NL10",
+    "pot_bb": 7.0,
+    "eff_stack_bb": 95.0,
+    "allow_allin": true
+  },
+  "scenarios": [
+    {
+      "name": "SRP_IP",
+      "ctx": "VS_OPEN",
+      "cases": [
+        {
+          "label": "SRP_IP_ROOT_BTN_vs_BB_flop_Ad7d4c",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BTN",
+            "villain_pos": "BB",
+            "board": "Ad7d4c",
+            "bet_sizes": [0.33, 0.66],
+            "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BB check"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "SRP_OOP",
+      "ctx": "VS_OPEN",
+      "cases": [
+        {
+          "label": "SRP_OOP_FACING_BB_vs_BTN_flop_Ad2d4c_33",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BB",
+            "villain_pos": "BTN",
+            "board": "Ad2d4c",
+            "facing_bet": true,
+            "faced_size_frac": 0.33,
+            "raise_buckets": [150, 200, 300],
+            "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 33"]
+          }
+        },
+        {
+  "label": "SRP_OOP_FACING_BB_vs_BTN_flop_JcTc9c_33_raise_probe",
+  "payload": {
+    "street": 1,
+    "hero_pos": "BB",
+    "villain_pos": "BTN",
+    "board": "JcTc9c",
+    "facing_bet": true,
+    "faced_size_frac": 0.33,
+    "raise_buckets": [150, 200, 300, 400],
+    "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 33"]
+  }
+}
+      ]
+    },
+    {
+      "name": "BLIND_VS_STEAL",
+      "ctx": "BLIND_VS_STEAL",
+      "cases": [
+        {
+          "label": "BVS_FACING_BB_vs_BTN_flop_Kc9c2h_50",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BB",
+            "villain_pos": "BTN",
+            "board": "Kc9c2h",
+            "facing_bet": true,
+            "faced_size_frac": 0.50,
+            "raise_buckets": [150, 200, 300],
+            "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 50"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "VS_3BET_IP",
+      "ctx": "VS_3BET",
+      "cases": [
+        {
+          "label": "3BET_IP_ROOT_CO_vs_BB_flop_Qh7s2d",
+          "payload": {
+            "street": 1,
+            "hero_pos": "CO",
+            "villain_pos": "BB",
+            "board": "Qh7s2d",
+            "bet_sizes": [0.33, 0.66],
+            "actions_hist": ["pre: BB 3bet", "CO call", "flop: BB check"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "VS_3BET_OOP",
+      "ctx": "VS_3BET",
+      "cases": [
+        {
+          "label": "3BET_OOP_FACING_BB_vs_BTN_flop_Td8d3c_66",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BB",
+            "villain_pos": "BTN",
+            "board": "Td8d3c",
+            "facing_bet": true,
+            "faced_size_frac": 0.66,
+            "raise_buckets": [150, 200, 300],
+            "actions_hist": ["pre: BTN 3bet", "BB call", "flop: BTN bet 66"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "LIMPED_SINGLE",
+      "ctx": "LIMPED_SINGLE",
+      "cases": [
+        {
+          "label": "LIMPED_ROOT_BB_vs_SB_flop_8h5c2s",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BB",
+            "villain_pos": "SB",
+            "board": "8h5c2s",
+            "bet_sizes": [0.33],
+            "actions_hist": ["pre: SB limp", "BB check", "flop: SB check"]
+          }
+        }
+      ]
+    }
+  ]
+}

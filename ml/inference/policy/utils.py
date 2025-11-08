@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Tuple, Optional, Sequence
 import math
 import numpy as np
 import torch
+from ml.inference.policy.types import PolicyRequest
+
 
 # ------------------ numeric & safety ------------------
 def safe(x: float, lo: float = 1e-9, hi: float = 1 - 1e-9) -> float:
@@ -118,3 +120,61 @@ def guardrails(
         notes.append("guardrail: renormalized/adjusted probabilities")
 
     return list(acts), ps, notes
+
+def mix_ties_if_close(p: torch.Tensor, thresh: float) -> torch.Tensor:
+    p = p if p.dim() == 2 else p.view(1, -1)
+    k = min(2, p.size(-1))
+    if k < 2:
+        return p
+    top2 = torch.topk(p, k=k, dim=-1)
+    close = (top2.values[:, 0] - top2.values[:, 1]).abs() <= thresh
+    if not close.any():
+        return p
+    for b in torch.nonzero(close).view(-1):
+        i1, i2 = int(top2.indices[b, 0]), int(top2.indices[b, 1])
+        mass = p[b, i1] + p[b, i2]
+        p[b, :] *= 0.0
+        p[b, i1] = 0.6 * mass
+        p[b, i2] = 0.4 * mass
+    return p
+
+
+def epsilon_explore(p: torch.Tensor, eps: float, mask: torch.Tensor) -> torch.Tensor:
+    if eps <= 0:
+        return p
+    p = p if p.dim() == 2 else p.view(1, -1)
+    mask = mask if mask.dim() == 2 else mask.view(1, -1)
+    uni = mask / mask.sum(dim=-1, keepdim=True).clamp_min(1.0)
+    p = (1 - eps) * p + eps * uni
+    p = p / p.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+    return p
+
+
+def postflop_is_hero_ip(req: "PolicyRequest") -> bool:
+    """Postflop IP check: BTN is IP vs blinds; otherwise use postflop acting order."""
+    h = (req.hero_pos or "").upper()
+    v = (req.villain_pos or "").upper()
+    try:
+        street = int(getattr(req, "street", 1) or 1)
+    except Exception:
+        street = 1
+
+    # Preflop → keep existing helper
+    if street == 0:
+        return PolicyRequest.is_hero_ip(h, v)
+
+    # Postflop rules
+    if h == "BTN" and v in ("SB", "BB"):
+        return True
+    if h in ("SB", "BB") and v in ("SB", "BB"):
+        # In blind-vs-blind postflop, BB acts after SB
+        return h == "BB"
+
+    POST = getattr(PolicyRequest, "_POSITION_ORDER_POST", ["SB", "BB", "UTG", "HJ", "CO", "BTN"])
+    try:
+        return POST.index(h) > POST.index(v)
+    except ValueError:
+        # If unknown/malformed positions, default to IP to avoid OOP mis-encoding
+        return True
+
+

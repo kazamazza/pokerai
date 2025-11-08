@@ -1,7 +1,9 @@
 from __future__ import annotations
+import re
 from pathlib import Path
-from typing import Optional, Union, Sequence, Mapping, Any, Dict
+from typing import Optional, Union, Sequence, Mapping, Any, Dict, Tuple, List
 import torch
+from ml.features.boards import BoardClusterer
 from ml.inference.policy.types import PolicyResponse, PolicyRequest
 from ml.inference.postflop_infer_single import PostflopPolicyInferSingle
 
@@ -24,10 +26,12 @@ class PostflopPolicyRouter:
         root: PostflopPolicyInferSingle,
         facing: PostflopPolicyInferSingle,
         device: Optional[torch.device] = None,
+        clusterer: Optional[BoardClusterer] = None,
     ):
         self.root = root
         self.facing = facing
         self.device = device or self.root.device  # keep consistent
+        self.clusterer: Optional["BoardClusterer"] = None
 
         # quick sanity: vocab disjointness hints
         assert "CHECK" in self.root.action_vocab, "root model should include CHECK"
@@ -36,8 +40,17 @@ class PostflopPolicyRouter:
         self.board_cluster_feat = (
                 self.root.board_cluster_feat or self.facing.board_cluster_feat
         )
+        if clusterer is not None:
+            self.set_clusterer(clusterer)
 
-    # -------- loaders --------
+    def set_clusterer(self, clusterer: Optional["BoardClusterer"]) -> None:
+        """Propagate a board clusterer to both singles."""
+        # Why: singles compute board_cluster_id internally; must share same artifact as training.
+        self.clusterer = clusterer
+        if hasattr(self.root, "clusterer"):
+            self.root.clusterer = clusterer
+        if hasattr(self.facing, "clusterer"):
+            self.facing.clusterer = clusterer
 
     @classmethod
     def from_dirs(

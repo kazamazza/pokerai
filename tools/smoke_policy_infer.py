@@ -7,15 +7,20 @@ Simple smoke test for your real PolicyInfer.
 """
 
 from __future__ import annotations
+
+import re
 import sys
 from pathlib import Path
+
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Iterable, Tuple
+from ml.features.boards import load_board_clusterer
 
 import torch
 
@@ -36,14 +41,6 @@ from ml.inference.player_exploit_store import PlayerExploitStore                
 from ml.models.equity_net import EquityNetLit
 from ml.models.preflop_rangenet import RangeNetLit
 
-# Clusterer is optional; import if you have a concrete class
-# from ml.features.boards.board_clusterers import BoardClusterer                   # optional
-
-# Model classes (Lightning) used by the inference wrappers
-# Adjust paths if different in your repo:
-
-
-
 # ============================
 # Paths to assets (edit as needed)
 # ============================
@@ -56,7 +53,6 @@ CKPTS = {
     # Optional persisted clusterer, if you have one:
     "clusterer": {"ckpt": None, "sidecar": None},
 }
-
 
 # ============================
 # Helpers
@@ -93,7 +89,6 @@ def _pp_response(title: str, resp: Any, debug_bytes: int = 900) -> None:
     except Exception:
         pass
 
-
 # ============================
 # Build dependencies (real objects)
 # ============================
@@ -107,14 +102,6 @@ def build_equity_infer(device: Optional[torch.device] = None) -> EquityNetInfer:
         cards=sc.get("cards", {}),
         device=device,
     )
-
-
-
-def _load_json(path: str) -> Dict[str, Any]:
-    import json, pathlib
-    p = pathlib.Path(path)
-    with p.open("r") as f:
-        return json.load(f)
 
 # --- updated build_preflop_policy using sidecar-derived init args ---
 def build_preflop_policy(device: Optional[torch.device] = None) -> PreflopPolicy:
@@ -152,10 +139,6 @@ def build_preflop_policy(device: Optional[torch.device] = None) -> PreflopPolicy
 def build_postflop_router(device: Optional[torch.device] = None) -> PostflopPolicyRouter:
     """Construct router from two single-side inferencers."""
     global torch
-    sc_root = _load_json(CKPTS["post_root"]["sidecar"])
-    sc_face = _load_json(CKPTS["post_face"]["sidecar"])
-
-    dev_str = "auto"
     try:
         import torch
         if device is not None and isinstance(device, torch.device):
@@ -164,17 +147,6 @@ def build_postflop_router(device: Optional[torch.device] = None) -> PostflopPoli
             dev_str = device
     except Exception:
         pass
-
-    m_root = PostflopPolicyInferSingle.from_checkpoint(
-        checkpoint_path=CKPTS["post_root"]["ckpt"],
-        sidecar_path=CKPTS["post_root"]["sidecar"],
-        device=dev_str,
-    )
-    m_face = PostflopPolicyInferSingle.from_checkpoint(
-        checkpoint_path=CKPTS["post_face"]["ckpt"],
-        sidecar_path=CKPTS["post_face"]["sidecar"],
-        device=dev_str,
-    )
 
     m_root = PostflopPolicyInferSingle.from_checkpoint(CKPTS["post_root"]["ckpt"], CKPTS["post_root"]["sidecar"],
                                                        device="cpu")
@@ -191,9 +163,31 @@ def build_exploit_store() -> PlayerExploitStore:
     return PlayerExploitStore(cfg=None)
 
 
+ARTIFACT = "data/artifacts/board_clusters_kmeans_64.json"
+
 def build_clusterer():
-    # If you have a persisted clusterer, load it here. Otherwise return None.
-    return None
+    """
+    Hard-wired clusterer: kmeans @ 128 clusters using the known artifact.
+    Falls back to RuleBasedBoardClusterer(128) if artifact missing/unloadable.
+    """
+    cfg: Dict[str, Any] = {
+        "board_clustering": {
+            "type": "kmeans",
+            "artifact": ARTIFACT,
+            "n_clusters": 64,
+        }
+    }
+    try:
+        if not Path(ARTIFACT).exists():
+            print(f"[warn] board cluster artifact not found: {ARTIFACT} -> falling back to rule-based(128)")
+            # fallback config
+            cfg = {"board_clustering": {"type": "rule", "n_clusters": 128}}
+        return load_board_clusterer(cfg)
+    except Exception as e:
+        print(f"[warn] failed to load board clusterer ({e}); using rule-based(128)")
+        # final fallback
+        from ml.features.boards.board_clusterers import RuleBasedBoardClusterer
+        return RuleBasedBoardClusterer(n_clusters=128)
 
 
 def build_deps(device: Optional[torch.device] = None) -> PolicyInferDeps:
@@ -207,74 +201,135 @@ def build_deps(device: Optional[torch.device] = None) -> PolicyInferDeps:
         params={},
     )
 
+_CARD_RE = re.compile(r"[AKQJT98765432][shdc]")
+
+def _count_board_cards(board: Optional[str]) -> int:
+    return len(_CARD_RE.findall(board or ""))
+
+def _validate_basic(label: str, p: Dict[str, Any]) -> None:
+    if "street" not in p:
+        raise ValueError(f"[{label}] missing 'street'")
+    if "hero_pos" not in p or "villain_pos" not in p:
+        raise ValueError(f"[{label}] missing hero_pos/villain_pos")
+    s = int(p["street"])
+    n = _count_board_cards(p.get("board"))
+    expected = {0: 0, 1: 3, 2: 4, 3: 5}.get(s, 0)
+    if s == 0 and n != 0:
+        raise ValueError(f"[{label}] preflop cannot have a board")
+    if s > 0 and n not in (0, expected):
+        # allow 0 for quick authoring; model will fail loudly later if required
+        raise ValueError(f"[{label}] street {s} expects {expected} board cards, got {n}")
+    # Numeric sanity if present
+    if "pot_bb" in p and float(p["pot_bb"]) <= 0:
+        raise ValueError(f"[{label}] pot_bb must be > 0")
+    if "eff_stack_bb" in p and float(p["eff_stack_bb"]) <= 0:
+        raise ValueError(f"[{label}] eff_stack_bb must be > 0")
+
+def _merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Shallow merge b over a."""
+    out = dict(a or {})
+    out.update(dict(b or {}))
+    return out
+
 
 # ============================
 # Requests to test
 # ============================
-def payloads() -> List[tuple[str, Dict[str, Any]]]:
-    preflop = (
-        "Preflop (BTN vs BB)",
-        {
-            "stakes": "NL10",
-            "street": 0,
-            "ctx": "VS_OPEN",
-            "hero_pos": "BTN",
-            "villain_pos": "BB",
-            "hero_hand": "AhKh",
-            "board": None,
-            "pot_bb": 1.5,
-            "eff_stack_bb": 100.0,
-            "facing_bet": False,
-            "allow_allin": False,
-            "actions_hist": ["pre: BTN open 2.5", "BB call"],
-            "raw": {},
-        },
-    )
-    postflop_root_ip = (
-        "Postflop ROOT (IP, flop Ad7d4c)",
-        {
-            "stakes": "NL50",
-            "street": 1,
-            "ctx": "VS_OPEN",
-            "hero_pos": "BTN",
-            "villain_pos": "BB",
-            "hero_hand": "AsKs",
-            "board": "Ad7d4c",
-            "pot_bb": 7.0,
-            "eff_stack_bb": 95.0,
-            "facing_bet": False,
-            "bet_sizes": [0.33, 0.66],
-            "allow_allin": True,
-            "villain_id": "villain-001",
-            "actions_hist": ["pre: BTN raise 2.5", "BB call"],
-            "raw": {},
-        },
-    )
-    postflop_facing_oop = (
-        "Postflop FACING (OOP BB vs 33%)",
-        {
-            "stakes": "NL50",
-            "street": 1,
-            "ctx": "VS_OPEN",
-            "hero_pos": "BB",
-            "villain_pos": "BTN",
-            "hero_hand": "9d9c",
-            "board": "Ad7d4c",
-            "pot_bb": 7.0,
-            "eff_stack_bb": 95.0,
-            "facing_bet": True,
-            "faced_size_pct": 33.0,
-            "faced_size_frac": 0.33,
-            "raise_buckets": [150, 200, 300],
-            "allow_allin": True,
-            "villain_id": "villain-001",
-            "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 33"],
-            "raw": {},
-        },
-    )
-    return [preflop, postflop_root_ip, postflop_facing_oop]
+def load_payloads_from_json(
+    path: str | Path,
+    *,
+    only_scenarios: Optional[Iterable[str]] = None,
+    limit_per_scenario: Optional[int] = None,
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """
+    Load scenario payloads from JSON and return [(label, payload)].
+    - Merges defaults + scenario.ctx into each case payload.
+    - Filters scenarios by `only_scenarios` if provided.
+    - Limits number of cases per scenario if `limit_per_scenario` is set.
+    """
+    fpath = Path(path)
+    if not fpath.exists():
+        raise FileNotFoundError(f"payloads JSON not found: {fpath}")
+
+    data = json.loads(fpath.read_text())
+    defaults: Dict[str, Any] = dict(data.get("defaults") or {})
+    scenarios: List[Dict[str, Any]] = list(data.get("scenarios") or [])
+
+    only_set = {s.strip().upper() for s in only_scenarios} if only_scenarios else None
+
+    out: List[Tuple[str, Dict[str, Any]]] = []
+    for scn in scenarios:
+        sname = str(scn.get("name") or "").strip()
+        if not sname:
+            continue
+        if only_set and sname.upper() not in only_set:
+            continue
+
+        sctx = scn.get("ctx")
+        cases = list(scn.get("cases") or [])
+        if limit_per_scenario is not None:
+            cases = cases[: int(limit_per_scenario)]
+
+        for case in cases:
+            label = str(case.get("label") or "").strip() or f"{sname}_case_{len(out)+1}"
+            payload = dict(case.get("payload") or {})
+            # Merge order: defaults -> scenario ctx -> case payload
+            merged = _merge(defaults, {"ctx": sctx} if sctx else {})
+            merged = _merge(merged, payload)
+
+            # Basic validation (lightweight)
+            _validate_basic(label, merged)
+
+            out.append((label, merged))
+
+    if not out:
+        raise ValueError(f"No payloads produced from {fpath}")
+    return out
 
 
+# ---------- adapter for the smoke script ----------
+def payloads() -> List[Tuple[str, Dict[str, Any]]]:
+    """
+    Default loader: use JSON file; fallback to three built-ins if missing.
+    """
+    default_path = Path("data/test_payloads/postflop_raise_bias_single.json")
+    try:
+        return load_payloads_from_json(default_path, only_scenarios=None, limit_per_scenario=None)
+    except FileNotFoundError:
+        # fallback: your previous three payloads (kept minimal)
+        return [
+            ("Preflop (BTN vs BB)", {
+                "stakes": "NL10",
+                "street": 0,
+                "ctx": "VS_OPEN",
+                "hero_pos": "BTN", "villain_pos": "BB",
+                "hero_hand": "AhKh",
+                "pot_bb": 1.5, "eff_stack_bb": 100.0,
+                "facing_bet": False, "allow_allin": False,
+                "actions_hist": ["pre: BTN open 2.5", "BB call"], "raw": {}
+            }),
+            ("Postflop ROOT (IP, flop Ad7d4c)", {
+                "stakes": "NL50",
+                "street": 1, "ctx": "VS_OPEN",
+                "hero_pos": "BTN", "villain_pos": "BB",
+                "hero_hand": "AsKs", "board": "Ad7d4c",
+                "pot_bb": 7.0, "eff_stack_bb": 95.0,
+                "facing_bet": False, "bet_sizes": [0.33, 0.66], "allow_allin": True,
+                "villain_id": "villain-001",
+                "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BB check"], "raw": {}
+            }),
+            ("Postflop FACING (OOP BB vs 33%)", {
+                "stakes": "NL50",
+                "street": 1, "ctx": "VS_OPEN",
+                "hero_pos": "BB", "villain_pos": "BTN",
+                "hero_hand": "9d9c", "board": "Ad2d4c",
+                "pot_bb": 7.0, "eff_stack_bb": 95.0,
+                "facing_bet": True, "faced_size_frac": 0.33,
+                "raise_buckets": [150, 200, 300], "allow_allin": True,
+                "villain_id": "villain-001",
+                "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 33"], "raw": {}
+            }),
+        ]
 # ============================
 # Main
 # ============================
@@ -289,7 +344,35 @@ def main() -> int:
                 print(f"[warn] Missing {k}.{key}: {p} (edit CKPTS at top if different)")
 
     deps = build_deps(device)
-    infer = PolicyInfer(deps, blend_cfg=PolicyBlendConfig.default())
+    blend = PolicyBlendConfig.from_dict({
+        "enable_tuner": True,
+        "tuner_debug": True,
+        "tuner_step": 0.6,
+        "tau_floor": 0.00,
+        "tau_ceil": 0.60,
+
+        "lambda_eq": 0.0,
+        "lambda_expl": 1.0,  # keep to see exploit in debug
+
+        # make it easier for equity to nudge
+        "eq_tau_gate": 0.50,
+        "eq_tau_scale": 1.0,
+        "eq_tau_max": 0.25,
+
+        # and for exploit to nudge
+        "expl_fold_gate": 0.05,
+        "expl_fold_scale": 0.6,
+        "expl_fold_max": 0.25,
+
+        "expl_aggr_gate": 0.05,
+        "expl_aggr_scale": 0.3,
+        "expl_aggr_max": 0.10,
+
+        "raise_block_if_allin_legal": True,
+        "raise_when_faced_min_size": 0.30,
+        "raise_when_faced_max_size": 1.00,
+    })
+    infer = PolicyInfer(deps, blend_cfg=blend)
 
     for title, payload in payloads():
         try:

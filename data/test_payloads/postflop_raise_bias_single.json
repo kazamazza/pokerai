@@ -1,0 +1,71 @@
+{
+  "version": "1",
+  "defaults": {
+    "stakes": "NL10",
+    "pot_bb": 7.0,
+    "eff_stack_bb": 95.0,
+    "allow_allin": false,
+    "raise_buckets": [200],
+    "bet_sizes": [0.33, 0.66]
+  },
+  "blend_overrides": {
+    "enable_tuner": true,
+
+    "lambda_eq": 0.0,
+    "lambda_expl": 1.0,
+
+    "raise_min_share_tau": 0.22,
+    "raise_tau_when_strong": 0.35,
+    "raise_tau_equity_gate": 0.58,
+    "raise_max_logit_boost": 6.0,
+
+    "expl_fold_gate": 0.30,
+    "expl_aggr_gate": 0.30,
+    "raise_tau_expl_fold_boost": 0.10,
+    "raise_tau_expl_aggr_boost": 0.05,
+
+    "raise_block_if_allin_legal": true,
+    "raise_when_faced_min_size": 0.30,
+    "raise_when_faced_max_size": 1.00,
+
+    "tuner_debug": true
+  },
+  "scenarios": [
+    {
+      "name": "RAISE200_KICKER",
+      "ctx": "VS_OPEN",
+      "cases": [
+        {
+          "label": "BB_vs_BTN_flop_9s8s6d_facing66_onlyR200",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BB",
+            "villain_pos": "BTN",
+            "board": "9s8s6d",
+            "hero_hand": "Ts7s",
+            "facing_bet": true,
+            "faced_size_frac": 0.66,
+            "allow_allin": false,
+            "raise_buckets": [200],
+            "actions_hist": ["pre: BTN raise 2.5", "BB call", "flop: BTN bet 66"],
+            "villain_id": "vill_foldy",
+            "raw": {
+              "stakes_id": 2,
+              "ctx_id": 3,
+              "hero_pos_id": 1
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "prep_exploit_seed": {
+    "player_id": "vill_foldy",
+    "observations": [
+      {"action": "FOLD", "count": 40},
+      {"action": "CALL", "count": 10},
+      {"action": "RAISE", "count": 2}
+    ],
+    "notes": "Seed counts so the store returns a strong FOLD-leaning signal in this (stakes|street|ctx|hero_pos) scenario."
+  }
+}

@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Optional
 import re
 
 Position = str
+_POSITION_ORDER_PRE  = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
+_POSITION_ORDER_POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
 
 @dataclass
 class PolicyRequest:
@@ -47,16 +49,20 @@ class PolicyRequest:
     board_mask_52: Optional[List[float]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
-    _POSITION_ORDER = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
-
     @staticmethod
-    def is_hero_ip(hero_pos: str, villain_pos: str) -> bool:
+    def is_hero_ip(hero_pos: str, villain_pos: str, street: int = 0) -> bool:
+        """
+        True if hero acts later than villain for the given street.
+        Preflop: UTG ... BTN SB BB (open-first order).
+        Postflop: SB BB UTG HJ CO BTN (button acts last).
+        """
+        order = _POSITION_ORDER_POST if int(street) > 0 else _POSITION_ORDER_PRE
         try:
-            h_i = PolicyRequest._POSITION_ORDER.index(hero_pos)
-            v_i = PolicyRequest._POSITION_ORDER.index(villain_pos)
+            h_i = order.index((hero_pos or "").upper())
+            v_i = order.index((villain_pos or "").upper())
             return h_i > v_i
         except ValueError:
-            return True  # default safe
+            return True  # safe default
 
     def _norm_pos(self, p: Optional[str]) -> Optional[str]:
         return str(p).strip().upper() if p else None
@@ -64,22 +70,37 @@ class PolicyRequest:
     def _count_board_cards(self, s: Optional[str]) -> int:
         return len(re.findall(r"[AKQJT98765432][shdc]", s or ""))
 
+    @staticmethod
+    def _order_for_street(street: int) -> list[str]:
+        """Preflop vs postflop position order."""
+        try:
+            s = int(street)
+        except Exception:
+            s = 0
+        return _POSITION_ORDER_POST if s > 0 else _POSITION_ORDER_PRE
+
+
     def legalize(self) -> "PolicyRequest":
-        # normalize positions
+        """Normalize + validate fields; derive ip/oop using street-aware order."""
+        # Normalize positions
         self.hero_pos = self._norm_pos(self.hero_pos)
         self.villain_pos = self._norm_pos(self.villain_pos)
-        if self.hero_pos not in self._POSITION_ORDER:
+        order = self._order_for_street(int(self.street or 0))
+
+        if self.hero_pos not in order:
             raise ValueError(f"Illegal hero_pos '{self.hero_pos}'")
-        if self.villain_pos not in self._POSITION_ORDER:
+        if self.villain_pos not in order:
             raise ValueError(f"Illegal villain_pos '{self.villain_pos}'")
 
-        h_i = self._POSITION_ORDER.index(self.hero_pos)
-        v_i = self._POSITION_ORDER.index(self.villain_pos)
+        # Street-aware IP/OOP
+        h_i = order.index(self.hero_pos)
+        v_i = order.index(self.villain_pos)
         if h_i < v_i:
             self.oop_pos, self.ip_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
         else:
             self.ip_pos, self.oop_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
 
+        # Board vs street consistency
         expected = {0: 0, 1: 3, 2: 4, 3: 5}.get(int(self.street), 0)
         n_cards = self._count_board_cards(self.board)
         if self.street == 0 and n_cards != 0:
@@ -87,9 +108,11 @@ class PolicyRequest:
         if self.street > 0 and n_cards != expected:
             raise ValueError(f"Street {self.street} expects {expected} board cards, got {n_cards}")
 
+        # Basic numeric sanity
         if self.pot_bb <= 0 or self.eff_stack_bb <= 0:
             raise ValueError(f"Invalid pot_bb={self.pot_bb} or eff_stack_bb={self.eff_stack_bb}")
 
+        # Raw passthrough hints for downstream
         self.raw = dict(self.raw or {})
         self.raw.setdefault("ctx", self.ctx or "VS_OPEN")
         self.raw.setdefault("ip_pos", getattr(self, "ip_pos", None))
@@ -103,6 +126,12 @@ class PolicyResponse:
     evs: List[float]
     notes: List[str] = field(default_factory=list)
     debug: Optional[Dict[str, Any]] = field(default_factory=dict)
+    # Optional extras (for introspection / debugging)
+    logits: Optional[List[float]] = None  # pre-softmax, temperature-free, masked only by model (not router)
+    mask: Optional[List[float]] = None  # single-side legality mask aligned to `actions` (0/1 floats)
+
+    # (optional) which branch produced this, e.g. "root" or "facing"
+    side: Optional[str] = None
 
     def top_action(self) -> str:
         if not self.actions or not self.probs:

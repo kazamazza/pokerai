@@ -5,11 +5,9 @@ import eval7  # pip install eval7
 
 from ml.config.types_hands import ALL_HANDS, SUITS, RANKS
 
-# Reuse your existing canonical definitions (do NOT re-declare)
-
-
-# Public alias so other code can import the canonical grid name used in builders
 HANDS_169: List[str] = ALL_HANDS
+
+HAND169_TO_ID: dict[str, int] = {lab: i for i, lab in enumerate(HANDS_169)}
 
 def hand_to_169_label(cards: str) -> str:
     """Return canonical 169 label like 'AKs', 'QJo', '77'."""
@@ -23,6 +21,10 @@ def hand_to_169_label(cards: str) -> str:
     i1, i2 = RANKS.index(r1), RANKS.index(r2)
     hi, lo, suited = (r1, r2, s1 == s2) if i1 < i2 else (r2, r1, s1 == s2)
     return f"{hi}{lo}{'s' if suited else 'o'}"
+
+def hand169_label_to_id(label: str) -> int | None:
+    """Map 'AKs'/'QJo'/'77' → 0..168 as defined by HANDS_169 order."""
+    return HAND169_TO_ID.get(label)
 
 def hand_code_from_id(hid: int) -> str:
     """

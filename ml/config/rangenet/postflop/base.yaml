@@ -74,8 +74,8 @@ multiway:
 
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_64.json
-  n_clusters: 64
+  artifact: data/artifacts/board_clusters_kmeans_128.json
+  n_clusters: 128
 
 manifest_build:
   include_missing: false
