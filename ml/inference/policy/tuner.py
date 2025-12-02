@@ -92,11 +92,11 @@ class PostflopTuner:
             return {"applied": False, "reason": "no_raise_in_menu_mask"}
         if self.k.raise_block_if_allin_legal and allin_legal:
             return {"applied": False, "reason": "allin_block"}
-        if size_frac is not None:
-            if not (self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
-                return {"applied": False, "reason": "size_gate_fail", "size_frac": float(size_frac)}
+        if size_frac is not None and not (
+                self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
+            return {"applied": False, "reason": "size_gate_fail", "size_frac": float(size_frac)}
 
-        # Determine if escalation is appropriate based on GTO check/call
+        # Compute logit share
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
         G = torch.logsumexp(l[group_idx], dim=0)
@@ -111,9 +111,29 @@ class PostflopTuner:
         if delta > 0.0:
             z[0, group_idx] += delta
 
+        # Optional hard promotion override
+        gto_idx = int(torch.argmax(z[0][legal_idx]))
+        gto_action = actions[legal_idx[gto_idx]]
+        top_raise_idx = max(group_idx, key=lambda i: z[0, i].item())
+        promo_trigger = False
+
+        if gto_action == "CALL" and p_win is not None and ex_probs is not None:
+            # Heuristic promotion condition
+            if p_win > self.k.raise_bias_eq_boost_gate and ex_probs[2] > 0.25:  # strong win chance + high raise freq
+                promo_trigger = True
+                z[0] = z[0] - 100.0
+                z[0, top_raise_idx] = 10.0
+                dbg["forced_promotion"] = {
+                    "from": "CALL",
+                    "to": actions[top_raise_idx],
+                    "reason": "high_equity_and_exploit_raise_prob",
+                    "p_win": p_win,
+                    "expl_raise": ex_probs[2]
+                }
+
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0,
+            "applied": delta > 0.0 or promo_trigger,
             "promoted_from": "CALL" if passive_idx else None,
             "g_share_before": g_share,
             "tau_target": tau_target,
@@ -155,9 +175,28 @@ class PostflopTuner:
         if delta > 0.0:
             z[0, group_idx] += delta
 
+        # Optional hard promotion override
+        gto_idx = int(torch.argmax(z[0][legal_idx]))
+        gto_action = actions[legal_idx[gto_idx]]
+        top_bet_idx = max(group_idx, key=lambda i: z[0, i].item())
+        promo_trigger = False
+
+        if gto_action == "CHECK" and p_win is not None and ex_probs is not None:
+            if p_win > self.k.bet_tau_equity_gate and ex_probs[2] > 0.25:
+                promo_trigger = True
+                z[0] = z[0] - 100.0
+                z[0, top_bet_idx] = 10.0
+                dbg["forced_promotion"] = {
+                    "from": "CHECK",
+                    "to": actions[top_bet_idx],
+                    "reason": "high_equity_and_exploit_raise_prob",
+                    "p_win": p_win,
+                    "expl_raise": ex_probs[2]
+                }
+
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0,
+            "applied": delta > 0.0 or promo_trigger,
             "promoted_from": "CHECK" if passive_idx else None,
             "g_share_before": g_share,
             "tau_target": tau_target,

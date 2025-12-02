@@ -4,7 +4,7 @@ from ml.features.hands import hand_to_169_label
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig, tuner_knobs_from_blend
 from ml.inference.policy.projection import FCRProjector
-from ml.inference.policy.signals import SignalCollector, FacingInfo
+from ml.inference.policy.signals import SignalCollector
 from ml.inference.policy.tuner import PostflopTuner
 from ml.inference.policy.types import PolicyRequest, PolicyResponse
 import torch
@@ -54,17 +54,14 @@ class PolicyInfer:
         self._proj = FCRProjector()
         self._tuner = PostflopTuner(tuner_knobs_from_blend(self.blend))
 
-        # Optional external vocab constants (best-effort)
         try:
             from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX  # type: ignore
             self.action_vocab = list(_VOC)
             self._vocab_index = dict(_VIX)
             self._vocab_index = dict(_VIX)
         except Exception:
-            # stays empty; will update after first router call
             pass
 
-        # Interface sanity
         if not hasattr(self.pol_post, "predict"):
             raise TypeError(f"deps.policy_post lacks predict(). Got: {type(self.pol_post)!r}")
         if not hasattr(self.rng_pre, "predict"):
@@ -150,7 +147,6 @@ class PolicyInfer:
         big_neg = torch.finfo(logits.dtype).min / 4
         masked = torch.where(mask > 0.5, logits / max(T, 1e-6), big_neg)
         p = F.softmax(masked, dim=-1)
-        # ensure tiny mass stays on legal set
         p = p * (1 - eps) + (eps / mask.sum(dim=-1, keepdim=True).clamp_min(1.0)) * (mask > 0.5).to(p.dtype)
         p = p * mask
         p = p / p.sum(dim=-1, keepdim=True).clamp_min(1e-12)
@@ -163,12 +159,9 @@ class PolicyInfer:
         """Menu-aware legalities aligned to actions."""
         allow_ai = True if allow_allin is None else bool(allow_allin)
         m = torch.zeros(len(actions), dtype=torch.float32)
-
-        # Precompute lookups
         raise_set = set(int(x) for x in (raise_buckets or []))
         bet_percents = None
         if bet_sizes is not None:
-            # Accept [0.33, 0.66] or [33, 66]
             bet_percents = set(
                 int(round((s if s > 1 else (s * 100.0) + 1e-9)))
                 for s in bet_sizes
@@ -196,7 +189,6 @@ class PolicyInfer:
                 elif T == "ALLIN":
                     legal = allow_ai
             else:
-                # FACING
                 if T in ("FOLD", "CALL"):
                     legal = True
                 elif T.startswith("RAISE_"):
@@ -215,38 +207,13 @@ class PolicyInfer:
                 m[i] = 1.0
 
         if m.sum().item() == 0:
-            # Failsafe: if we somehow zeroed the entire row, make all legal.
-            # (Optional) print/log once here so you can spot this during smoke tests.
             m.fill_(1.0)
 
         return m
 
-    def _manual_promote_action(
-            self,
-            gto_action: str,
-            is_root: bool,
-            p_win: float | None,
-            exploit_probs: list[float] | None,
-            min_equity: float = 0.52,
-            min_fold_prob: float = 0.35,
-    ) -> str | None:
-        if gto_action in {"FOLD", "ALLIN"}:
-            return None
-        if p_win is None or p_win < min_equity:
-            return None
-        if not exploit_probs or max(exploit_probs) < min_fold_prob:
-            return None
-
-        pf, pc, pr = exploit_probs
-        if pr >= 0.5:
-            return "RAISE_66" if not is_root else "BET_66"
-        elif pf >= 0.5:
-            return "RAISE_33" if not is_root else "BET_33"
-        return None
 
     @torch.no_grad()
     def _predict_postflop(self, req: "PolicyRequest") -> "PolicyResponse":
-        # --- 0) Roles & side -----------------------------------------------------
         hero_is_ip = postflop_is_hero_ip(req)
         actor = "ip" if hero_is_ip else "oop"
         side = self._derive_side(req, hero_is_ip=hero_is_ip)
@@ -287,7 +254,6 @@ class PolicyInfer:
         if hero_mask.sum() <= 0:
             hero_mask = torch.ones_like(menu_mask_t)
 
-        # --- 3) Signals (always collected) --------------------------------------
         eq_sig = self._signals.collect_equity(req)  # EquitySig
         ex_sig = self._signals.collect_exploit(req)  # ExploitSig
         facing_info = root_info = None
@@ -296,11 +262,8 @@ class PolicyInfer:
             facing_info = self._signals.collect_facing(req, hero_is_ip)
         elif side == "root":
             root_info = self._signals.collect_root(req, hero_is_ip)
-        print(f"root_info: {root_info}")
-        # Work on a local copy of logits
         z = z.clone()
 
-        # --- 4) Optional: equity deltas into logits (guarded by lambda_eq) -------
         if self.blend.lambda_eq > 0.0 and eq_sig.available:
             eq_margin = float(eq_sig.p_win) - 0.5
             d = self._equity_delta_vector(
@@ -311,12 +274,10 @@ class PolicyInfer:
             d = torch.clamp(d, -float(self.blend.eq_max_logit_delta), float(self.blend.eq_max_logit_delta))
             z = z + float(self.blend.lambda_eq) * d
 
-        # --- 5) Exploit lift (logit-space) if enabled ----------------------------
         if ex_sig.available and self.blend.lambda_expl > 0.0 and ex_sig.raw is not None:
-            delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)  # [1, V]
+            delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
             z = z + float(self.blend.lambda_expl) * delta
 
-        # --- 6) Tuner adjustments (per-side) --------------------------------------
         tuner_dbg = None
         if side == "facing":
             tuner_dbg = self._tuner.apply_facing_raise(
@@ -333,31 +294,10 @@ class PolicyInfer:
                 actions=actions,
                 hero_mask=hero_mask,
                 p_win=(eq_sig.p_win if eq_sig.available else None),
-                ex_probs=(list(ex_sig.probs) if ex_sig.probs else None),
-                # Optional: you could add root_info.bet_menu here if the tuner uses it
+                ex_probs=(list(ex_sig.probs) if ex_sig.probs else None)
             )
 
-        # --- 6.5) Optional: Manual action promotion based on signals ----------------
-        if eq_sig.available and ex_sig.available:
-            # Get current top GTO action
-            gto_idx = int(torch.argmax(z[0]))
-            gto_action = actions[gto_idx]
 
-            promo_action = self._manual_promote_action(
-                gto_action=gto_action,
-                is_root=(side == "root"),
-                p_win=eq_sig.p_win,
-                exploit_probs=list(ex_sig.probs),
-            )
-
-            if promo_action and promo_action in actions:
-                promo_idx = actions.index(promo_action)
-                print(f"🔺 Promoting {gto_action} → {promo_action} based on equity + exploit signals")
-                # Force logits to favor promoted action heavily
-                z[0] = z[0] - 100.0  # Push everything down
-                z[0, promo_idx] = 10.0  # Promote to top
-
-        # --- 7) Finalize probs (apply temperature once; keep mass on legal set) ---
         p = self._masked_softmax(
             z, hero_mask.view(1, -1),
             T=float(self.blend.temperature),
@@ -368,7 +308,6 @@ class PolicyInfer:
         p = self._cap_allins(p, eff_stack_bb=float(getattr(req, "eff_stack_bb", 0.0)))
         probs = p[0].tolist()
 
-        # --- 8) Debug payload -----------------------------------------------------
         debug = {
             "router_side": side,
             "menu_mask_sum": float(menu_mask_t.sum().item()),
@@ -396,6 +335,8 @@ class PolicyInfer:
             "tuner_debug": tuner_dbg,
             "blend_cfg": self.blend.to_dict(),
         }
+        if not req.debug:
+            debug = None
 
         return PolicyResponse(
             actions=actions,
@@ -406,24 +347,21 @@ class PolicyInfer:
         )
 
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
-        # Normalize request
         if isinstance(req_input, dict):
             req = PolicyRequest(**req_input)
         elif hasattr(req_input, "__dict__"):
-            req = req_input  # PolicyRequest
+            req = req_input
         else:
             raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
 
-        req.legalize()  # raises on inconsistency
+        req.legalize()
 
         street = int(getattr(req, "street", 0))
         if street == 0:
-            # Preflop: keep your original behavior; optional equity nudge
             equity = None
             if self.eq and getattr(req, "hero_hand", None):
                 try:
-                    # If your equity supports preflop hand_id only; safe best-effort
-                    hand169 = int(hand_to_169_label(req.hero_hand))  # may raise; that's fine
+                    hand169 = int(hand_to_169_label(req.hero_hand))
                     out = self.eq.predict([{"street": 0, "hand_id": hand169}])
                     if out:
                         p_win, p_tie, p_lose = out[0]
@@ -445,6 +383,4 @@ class PolicyInfer:
                 temperature=float(self.blend.temperature),
                 equity_nudge=eq_nudge,
             )
-
-        # Postflop path
         return self._predict_postflop(req)

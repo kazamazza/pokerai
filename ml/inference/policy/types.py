@@ -27,6 +27,13 @@ _POSITION_ORDER_PRE  = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
 _POSITION_ORDER_POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
 
 @dataclass
+class ActionHistoryEntry:
+    player_id: str
+    action: Literal["FOLD", "CALL", "CHECK", "RAISE", "BET"]
+    street: Optional[int] = None  # Optional: for more precise street segmentation
+    weight: Optional[float] = 1.0  # Optional: override if needed
+
+@dataclass
 class PolicyRequest:
     stakes: str = "NL10"
     street: int = 1
@@ -44,9 +51,10 @@ class PolicyRequest:
     raise_buckets: Optional[List[int]] = None
     allow_allin: Optional[bool] = None
     villain_id: Optional[str] = None
-    actions_hist: Optional[Union[List[str], List[Dict[str, Any]]]] = None
+    actions_hist: Optional[List[ActionHistoryEntry]] = None
     board_mask_52: Optional[List[float]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
+    debug: bool = False
 
     @staticmethod
     def is_hero_ip(hero_pos: str, villain_pos: str, street: int = 0) -> bool:

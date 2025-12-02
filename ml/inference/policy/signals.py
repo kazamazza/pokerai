@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Any, List
-import torch, numpy as np
-
-from ml.features.hands import hand_to_169_label, HAND169_TO_ID, hand169_label_to_id, mc_equity_hero_vs_random, HANDS_169
+from typing import Optional, Tuple, List
+import numpy as np
+from ml.features.hands import hand_to_169_label
+from ml.inference.policy.types import PolicyRequest
 
 
 @dataclass
@@ -78,7 +78,6 @@ class SignalCollector:
         self.expl = expl_store
         self.pop = pop_model
         self.router = router
-        # Back-compat: prefer explicit router_facing if provided, else take from router
         self.router_facing = router_facing or (getattr(router, "facing", None) if router is not None else None)
 
     def _coerce_row3(self, out) -> tuple[float, float, float]:
@@ -134,35 +133,46 @@ class SignalCollector:
         except Exception as e:
             return EquitySig(False, err=f"eq_error:{e}")
 
-    def collect_exploit(self, req) -> ExploitSig:
+    def collect_exploit(self, req: PolicyRequest) -> ExploitSig:
         try:
+            # Check required components
             if not self.expl or not getattr(req, "villain_id", None) or not self.pop:
                 return ExploitSig(False, err="missing_model_or_vid")
+
             pid = str(req.villain_id)
             sk = self.expl.scenario_key_from_req(req)
 
+            # Feature extraction for priors
             feats = {
                 "stakes_id": int((getattr(req, "raw", {}) or {}).get("stakes_id", 0)),
                 "street_id": int(getattr(req, "street", 0) or 0),
                 "ctx_id": int((getattr(req, "raw", {}) or {}).get("ctx_id", 0)),
                 "hero_pos_id": int((getattr(req, "raw", {}) or {}).get("hero_pos_id", 0)),
             }
-            pri = self.pop.predict_proba(feats)  # {'FOLD':p,'CALL':p,'RAISE':p}
+            pri = self.pop.predict_proba(feats)
             prior = (float(pri["FOLD"]), float(pri["CALL"]), float(pri["RAISE"]))
 
+            # Observe villain action history (recency-aware)
+            self.expl.observe_from_actions_hist(req)
+
+            # Copy current counts for debugging
             with self.expl._lock:
                 n = self.expl._counts[pid][sk].copy()
             total = float(n.sum())
 
-            sig3 = self.expl.get_signal_from_request(pid, req, self.pop)  # 3 logits (F/C/R) or None
+            # Get signal (logit deltas from population prior)
+            sig3 = self.expl.get_signal(player_id=pid, scenario_key=sk, pop_probs=np.array(prior))
             if sig3 is None:
                 return ExploitSig(False, None, None, total, prior, None)
 
+            # Convert signal to softmax probabilities
             import torch
             t = torch.tensor(sig3, dtype=torch.float32).view(1, 3)
             pr = torch.softmax(t, dim=-1)[0]
             probs = (float(pr[0]), float(pr[1]), float(pr[2]))
+
             return ExploitSig(True, sig3, probs, total, prior, None)
+
         except Exception as e:
             return ExploitSig(False, err=f"expl_error:{e}")
 
