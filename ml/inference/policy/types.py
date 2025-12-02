@@ -1,8 +1,7 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal
-
+from typing import Any, Dict, List, Optional, Literal, Union
 
 ActionKind = Literal["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALLIN"]
 
@@ -45,7 +44,7 @@ class PolicyRequest:
     raise_buckets: Optional[List[int]] = None
     allow_allin: Optional[bool] = None
     villain_id: Optional[str] = None
-    actions_hist: Optional[List[str]] = None
+    actions_hist: Optional[Union[List[str], List[Dict[str, Any]]]] = None
     board_mask_52: Optional[List[float]] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 

@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "defaults": {
+    "stakes": "NL10",
+    "pot_bb": 4.5,
+    "eff_stack_bb": 80.0,
+    "allow_allin": false,
+    "raise_buckets": [200],
+    "bet_sizes": [0.33, 0.66]
+  },
+  "scenarios": [
+    {
+      "name": "ROOT_BET_TEST",
+      "ctx": "VS_CHECK",
+      "cases": [
+        {
+          "label": "IP_flop_bet_expected_villain_check_foldy",
+          "payload": {
+            "street": 1,
+            "hero_pos": "BTN",
+            "villain_pos": "BB",
+            "board": "Kd7c2s",
+            "hero_hand": "AhJh",
+            "villain_id": "vill_foldy",
+            "actions_hist": [
+              { "player_id": "vill_foldy", "action": "FOLD", "count": 20 },
+              { "player_id": "vill_foldy", "action": "CALL", "count": 10 },
+              { "player_id": "vill_foldy", "action": "RAISE", "count": 1 }
+            ],
+            "raw": {
+              "stakes_id": 2,
+              "ctx_id": 4,
+              "hero_pos_id": 0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

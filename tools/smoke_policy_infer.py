@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-
+import torch
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
@@ -21,8 +21,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Iterable, Tuple
 from ml.features.boards import load_board_clusterer
-
-import torch
+from ml.inference.policy.types import PolicyRequest
+from ml.inference.blend_profiles.make_blend import make_blend
 
 # ============================
 # TODO: NORMAL IMPORTS — adjust module paths if file names differ
@@ -138,7 +138,6 @@ def build_preflop_policy(device: Optional[torch.device] = None) -> PreflopPolicy
 
 def build_postflop_router(device: Optional[torch.device] = None) -> PostflopPolicyRouter:
     """Construct router from two single-side inferencers."""
-    global torch
     try:
         import torch
         if device is not None and isinstance(device, torch.device):
@@ -286,13 +285,12 @@ def load_payloads_from_json(
         raise ValueError(f"No payloads produced from {fpath}")
     return out
 
-
 # ---------- adapter for the smoke script ----------
 def payloads() -> List[Tuple[str, Dict[str, Any]]]:
     """
     Default loader: use JSON file; fallback to three built-ins if missing.
     """
-    default_path = Path("data/test_payloads/postflop_raise_bias_single.json")
+    default_path = Path("data/test_payloads/root_bet_test_2.json")
     try:
         return load_payloads_from_json(default_path, only_scenarios=None, limit_per_scenario=None)
     except FileNotFoundError:
@@ -344,34 +342,8 @@ def main() -> int:
                 print(f"[warn] Missing {k}.{key}: {p} (edit CKPTS at top if different)")
 
     deps = build_deps(device)
-    blend = PolicyBlendConfig.from_dict({
-        "enable_tuner": True,
-        "tuner_debug": True,
-        "tuner_step": 0.6,
-        "tau_floor": 0.00,
-        "tau_ceil": 0.60,
-
-        "lambda_eq": 0.0,
-        "lambda_expl": 1.0,  # keep to see exploit in debug
-
-        # make it easier for equity to nudge
-        "eq_tau_gate": 0.50,
-        "eq_tau_scale": 1.0,
-        "eq_tau_max": 0.25,
-
-        # and for exploit to nudge
-        "expl_fold_gate": 0.05,
-        "expl_fold_scale": 0.6,
-        "expl_fold_max": 0.25,
-
-        "expl_aggr_gate": 0.05,
-        "expl_aggr_scale": 0.3,
-        "expl_aggr_max": 0.10,
-
-        "raise_block_if_allin_legal": True,
-        "raise_when_faced_min_size": 0.30,
-        "raise_when_faced_max_size": 1.00,
-    })
+    blend_name = "root_bet_influenced"
+    blend = make_blend(blend_name)  # "default" | "exploit_max" | "equity_value" | "nitty" | "baseline_router"
     infer = PolicyInfer(deps, blend_cfg=blend)
 
     for title, payload in payloads():

@@ -150,9 +150,6 @@ class PolicyBlendConfig:
 
         return self
 
-
-
-
 def tuner_knobs_from_blend(blend) -> 'TunerKnob':
     return TunerKnobs(
                 enable=bool(getattr(blend, "enable_tuner", getattr(blend, "tuner_enable", True))),

@@ -4,27 +4,33 @@ from typing import List
 
 class FCRProjector:
     def __init__(self):
-        self._cache = None
-        self._for_vocab = None
+        self._cached_actions: list[str] | None = None
+        self._P: torch.Tensor | None = None
 
-    def build(self, actions: List[str]) -> torch.Tensor:
-        if self._for_vocab == actions and self._cache is not None:
-            return self._cache
+    def _build(self, actions: list[str], dtype, device) -> torch.Tensor:
         V = len(actions)
-        P = torch.zeros(3, V, dtype=torch.float32)
-        vix = {a:i for i,a in enumerate(actions)}
-        if "FOLD" in vix: P[0, vix["FOLD"]] = 1.0
-        if "CALL" in vix: P[1, vix["CALL"]] = 1.0
-        raise_like = [i for i,t in enumerate(actions)
-                      if t.startswith(("BET_","RAISE_")) or t in ("ALLIN","DONK_33","DONK_50")]
-        if raise_like:
-            w = 1.0/len(raise_like)
-            for i in raise_like: P[2,i] = w
-        self._cache, self._for_vocab = P, list(actions)
+        P = torch.zeros(3, V, dtype=dtype, device=device)
+        raise_mask = torch.zeros(V, dtype=dtype, device=device)
+        for i, tok in enumerate(actions):
+            T = tok.upper()
+            if T == "FOLD": P[0, i] = 1.0
+            if T == "CALL": P[1, i] = 1.0
+            if T.startswith("BET_") or T.startswith("RAISE_") or T.startswith("DONK_") or T == "ALLIN":
+                raise_mask[i] = 1.0
+        s = raise_mask.sum()
+        if s.item() > 0:
+            P[2] = raise_mask / s
+        self._cached_actions = list(actions)
+        self._P = P
         return P
 
-    def lift(self, sig3, actions: List[str], dtype, device) -> torch.Tensor:
+    def lift(self, sig3, actions: list[str], dtype, device) -> torch.Tensor:
         if not isinstance(sig3, torch.Tensor):
-            sig3 = torch.tensor(sig3, dtype=dtype, device=device).view(3)
-        P = self.build(actions).to(device=device, dtype=dtype)  # [3,V]
-        return torch.matmul(sig3, P).view(1,-1)
+            sig3 = torch.tensor(sig3, dtype=dtype, device=device)
+        sig3 = sig3.view(3)
+        if self._P is None or self._cached_actions != actions:
+            P = self._build(actions, dtype, device)
+        else:
+            P = self._P.to(dtype=dtype, device=device)
+        delta = torch.matmul(sig3, P)  # [V]
+        return delta.view(1, -1)

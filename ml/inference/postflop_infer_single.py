@@ -204,6 +204,18 @@ class PostflopPolicyInferSingle:
         facing, size_frac, _dbg = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
         return facing, size_frac
 
+    def infer_root_menu(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[List[float]]]:
+        # You can define this however you want; here’s a safe default
+        is_facing, _, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+        is_root = not is_facing
+        bet_menu = None
+        if is_root and hasattr(req, "bet_sizes") and isinstance(req.bet_sizes, (list, tuple)):
+            try:
+                bet_menu = [float(x) for x in req.bet_sizes]
+            except Exception:
+                pass
+        return is_root, bet_menu
+
     # ---------- core predict ----------
     @torch.no_grad()
     def predict(
@@ -308,6 +320,7 @@ class PostflopPolicyInferSingle:
             "encoded_pos": row["hero_pos"],  # "IP"/"OOP"
             "raw_positions": [hpos, vpos],  # for sanity
         }
+        logits_out = logits[0].tolist()
 
         return PolicyResponse(
             actions=self.action_vocab,
@@ -315,6 +328,7 @@ class PostflopPolicyInferSingle:
             evs=[0.0] * len(self.action_vocab),
             notes=[f"postflop single; root={is_root_model}; temp={float(temperature):.3f}"],
             debug=dbg,
+            logits=logits_out
         )
 
 

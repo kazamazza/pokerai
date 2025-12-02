@@ -1,5 +1,7 @@
 # ml/features/hands.py
 from __future__ import annotations
+
+import random
 from typing import List, Tuple
 import eval7  # pip install eval7
 
@@ -92,3 +94,26 @@ def enumerate_suited_combos(code: str) -> List[Tuple[eval7.Card, eval7.Card]]:
                 combos.append((c1, c2))
 
     return combos
+
+def mc_equity_hero_vs_random(hero_hand: str, board: str, iters: int = 4000):
+    """Return (p_win, p_tie, p_lose) vs random one opponent on current board."""
+    h = hero_hand.strip()
+    hero = [eval7.Card(h[0:2]), eval7.Card(h[2:4])]
+    b = [eval7.Card(board[i:i+2]) for i in range(0, len(board), 2)]
+    dead = set(hero) | set(b)
+    deck = [c for c in eval7.Deck() if c not in dead]
+
+    wins = ties = losses = 0
+    for _ in range(iters):
+        random.shuffle(deck)
+        opp = deck[0:2]
+        rem = 5 - len(b)
+        runout = deck[2:2+rem]
+        full_board = b + runout
+        hv = eval7.evaluate(hero + full_board)
+        ov = eval7.evaluate(opp + full_board)
+        if hv > ov: wins += 1
+        elif hv == ov: ties += 1
+        else: losses += 1
+    tot = float(iters)
+    return wins/tot, ties/tot, losses/tot
