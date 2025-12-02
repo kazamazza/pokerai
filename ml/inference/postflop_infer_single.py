@@ -258,8 +258,6 @@ class PostflopPolicyInferSingle:
         # --- board cluster (optional; compute & remap via id_maps) ---
         cluster_id = compute_cluster_id(board, self.clusterer, self.id_maps, self.board_cluster_feat)
 
-        # --- build sidecar-aligned row ---
-        # IMPORTANT: sidecar expects "IP"/"OOP" categories, NOT seat names.
         row: Dict[str, Any] = {
             "hero_pos": ("IP" if hero_is_ip else "OOP"),
             "ip_pos": "IP",

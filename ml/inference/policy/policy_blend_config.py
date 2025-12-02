@@ -24,7 +24,11 @@ class PolicyBlendConfig:
     raise_bias_min_eq: float = 0.00
     raise_bias_eq_boost_gate: float = 0.62
     raise_bias_eq_boost: float = 1.5
-    raise_bias_block_if_allin_legal: bool = True
+    # Safety limits & context guards
+    raise_max_logit_boost: float = 8.0
+    raise_when_faced_min_size: float = 0.30   # require faced size ≥ this to bias raises
+    raise_when_faced_max_size: float = 1.00   # optional upper bound; leave at 1.0 to disable
+    raise_block_if_allin_legal: bool = False   # don't push raises if ALLIN is legal (optional)
 
     # ===== NEW: global tuner toggles =====
     enable_tuner: bool = True
@@ -54,11 +58,7 @@ class PolicyBlendConfig:
     expl_aggr_scale: float = 0.25
     expl_aggr_max: float = 0.08
 
-    # Safety limits & context guards
-    raise_max_logit_boost: float = 8.0
-    raise_when_faced_min_size: float = 0.30   # require faced size ≥ this to bias raises
-    raise_when_faced_max_size: float = 1.00   # optional upper bound; leave at 1.0 to disable
-    raise_block_if_allin_legal: bool = True   # don't push raises if ALLIN is legal (optional)
+
 
     # ===== Root — target-share for bets (sum over BET_* [+ DONK_33 if OOP]) =====
     bet_min_share_tau: float = 0.25

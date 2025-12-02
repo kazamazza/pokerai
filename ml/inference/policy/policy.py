@@ -1,6 +1,8 @@
 import math
 from typing import Any, Dict, Union, List, Optional
 from ml.features.hands import hand_to_169_label
+from ml.inference.action_context_classifier import ActionContextClassifier
+from ml.inference.ev_calculator import EVCalculator
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig, tuner_knobs_from_blend
 from ml.inference.policy.projection import FCRProjector
@@ -211,14 +213,12 @@ class PolicyInfer:
 
         return m
 
-
     @torch.no_grad()
     def _predict_postflop(self, req: "PolicyRequest") -> "PolicyResponse":
         hero_is_ip = postflop_is_hero_ip(req)
         actor = "ip" if hero_is_ip else "oop"
         side = self._derive_side(req, hero_is_ip=hero_is_ip)
 
-        # --- 1) Router @ T=1 (single temperature application later) --------------
         router_resp = self.pol_post.predict(req, actor=actor, temperature=1.0, side=side)
         print("Model raw probs:", router_resp.probs)
         print("Model logits:", getattr(router_resp, "logits", None))
@@ -278,26 +278,34 @@ class PolicyInfer:
             delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
             z = z + float(self.blend.lambda_expl) * delta
 
-        tuner_dbg = None
+        ev_calc = EVCalculator()
+        ev_sig = ev_calc.compute(req)  # Should return an object with .best_ev and .available
+
+        ev = ev_sig.best_ev if ev_sig and ev_sig.available else None
+
+        ctx = ActionContextClassifier.from_request(req, side=side)
+
         if side == "facing":
             tuner_dbg = self._tuner.apply_facing_raise(
                 z=z,
                 actions=actions,
                 hero_mask=hero_mask,
-                p_win=(eq_sig.p_win if eq_sig.available else None),
-                ex_probs=(list(ex_sig.probs) if ex_sig.probs else None),
+                p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
+                ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
                 size_frac=(facing_info.size_frac if facing_info else None),
+                ev=ev,
+                action_ctx=ctx,  # 🔥 NEW!
             )
         elif side == "root":
             tuner_dbg = self._tuner.apply_root_bet(
                 z=z,
                 actions=actions,
                 hero_mask=hero_mask,
-                p_win=(eq_sig.p_win if eq_sig.available else None),
-                ex_probs=(list(ex_sig.probs) if ex_sig.probs else None)
+                p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
+                ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
+                ev=ev,
+                action_ctx=ctx,  # 🔥 NEW!
             )
-
-
         p = self._masked_softmax(
             z, hero_mask.view(1, -1),
             T=float(self.blend.temperature),
@@ -338,12 +346,16 @@ class PolicyInfer:
         if not req.debug:
             debug = None
 
+        best_idx = int(torch.argmax(p[0]))
+        best_action = actions[best_idx]
+
         return PolicyResponse(
             actions=actions,
             probs=probs,
             evs=[0.0] * len(actions),
             notes=[f"Postflop policy; hero_is_ip={hero_is_ip}"],
             debug=debug,
+            best_action=best_action,
         )
 
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":

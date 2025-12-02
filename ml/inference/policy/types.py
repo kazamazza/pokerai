@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+import string
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal, Union
 
@@ -131,6 +132,7 @@ class PolicyResponse:
     actions: List[str]
     probs: List[float]
     evs: List[float]
+
     notes: List[str] = field(default_factory=list)
     debug: Optional[Dict[str, Any]] = field(default_factory=dict)
     # Optional extras (for introspection / debugging)
@@ -139,6 +141,7 @@ class PolicyResponse:
 
     # (optional) which branch produced this, e.g. "root" or "facing"
     side: Optional[str] = None
+    best_action: Optional[str] = None
 
     def top_action(self) -> str:
         if not self.actions or not self.probs:

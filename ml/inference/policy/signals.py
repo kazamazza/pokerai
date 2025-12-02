@@ -135,37 +135,20 @@ class SignalCollector:
 
     def collect_exploit(self, req: PolicyRequest) -> ExploitSig:
         try:
-            # Check required components
-            if not self.expl or not getattr(req, "villain_id", None) or not self.pop:
+            # Ensure components exist
+            if not self.expl or not self.pop or not getattr(req, "villain_id", None):
                 return ExploitSig(False, err="missing_model_or_vid")
 
             pid = str(req.villain_id)
-            sk = self.expl.scenario_key_from_req(req)
+            # Get signal (observes, computes prior, and returns signal + metadata)
+            result = self.expl.get_signal_from_request(pid, req, self.pop)
 
-            # Feature extraction for priors
-            feats = {
-                "stakes_id": int((getattr(req, "raw", {}) or {}).get("stakes_id", 0)),
-                "street_id": int(getattr(req, "street", 0) or 0),
-                "ctx_id": int((getattr(req, "raw", {}) or {}).get("ctx_id", 0)),
-                "hero_pos_id": int((getattr(req, "raw", {}) or {}).get("hero_pos_id", 0)),
-            }
-            pri = self.pop.predict_proba(feats)
-            prior = (float(pri["FOLD"]), float(pri["CALL"]), float(pri["RAISE"]))
+            if result is None:
+                return ExploitSig(False, None, None, 0.0, None, None)
 
-            # Observe villain action history (recency-aware)
-            self.expl.observe_from_actions_hist(req)
+            sig3, prior, total = result
 
-            # Copy current counts for debugging
-            with self.expl._lock:
-                n = self.expl._counts[pid][sk].copy()
-            total = float(n.sum())
-
-            # Get signal (logit deltas from population prior)
-            sig3 = self.expl.get_signal(player_id=pid, scenario_key=sk, pop_probs=np.array(prior))
-            if sig3 is None:
-                return ExploitSig(False, None, None, total, prior, None)
-
-            # Convert signal to softmax probabilities
+            # Convert logit deltas to softmax probabilities
             import torch
             t = torch.tensor(sig3, dtype=torch.float32).view(1, 3)
             pr = torch.softmax(t, dim=-1)[0]

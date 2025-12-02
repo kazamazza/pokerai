@@ -1,6 +1,4 @@
-# policy/tuner.py
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
 import torch, math
 
 @dataclass
@@ -25,22 +23,28 @@ class TunerKnobs:
     expl_aggr_scale: float = 0.25
     expl_aggr_max: float = 0.08
 
+    # EV → tau (NEW)
+    ev_tau_gate: float = 0.0
+    ev_tau_scale: float = 0.5
+    ev_tau_max: float = 0.15
+
     # guards
     raise_block_if_allin_legal: bool = True
     raise_when_faced_min_size: float = 0.30
     raise_when_faced_max_size: float = 1.00
     raise_max_logit_boost: float = 8.0
 
-    # safeguard: avoid tuning dead actions
     min_gto_engage_prob: float = 0.01
+    raise_bias_eq_boost_gate: float = 0.60
+    bet_tau_equity_gate: float = 0.60
+    ctx_exploit_bonus: float = 0.2
 
 
 class PostflopTuner:
     def __init__(self, knobs: TunerKnobs):
         self.k = knobs
 
-    @staticmethod
-    def _ruler_group_delta(z, legal_idx, group_idx, tau, max_boost):
+    def _ruler_group_delta(self, z, legal_idx, group_idx, tau, max_boost):
         if not legal_idx or not group_idx or tau <= 0.0:
             return 0.0
         l = z[0]
@@ -55,29 +59,32 @@ class PostflopTuner:
         d = math.log(ratio * (So / max(Sg, 1e-12)))
         return float(max(0.0, min(d, max_boost)))
 
-    def _tau_from_signals(self, base, p_win, ex_probs):
+    def _tau_from_signals(self, base, p_win, ex_probs, ev=None, action_ctx=None):
         tau = base
         if p_win is not None:
             gap = max(0.0, p_win - self.k.eq_tau_gate)
             tau += min(self.k.eq_tau_scale * gap, self.k.eq_tau_max)
+
         if ex_probs is not None:
             pf, pc, pr = ex_probs
             fold_adv = max(0.0, pf - max(pc, pr) - self.k.expl_fold_gate)
             aggr_adv = max(0.0, pr - max(pc, pf) - self.k.expl_aggr_gate)
             tau += min(self.k.expl_fold_scale * fold_adv, self.k.expl_fold_max)
             tau += min(self.k.expl_aggr_scale * aggr_adv, self.k.expl_aggr_max)
+
+        if ev is not None:
+            tau += min(self.k.ev_tau_scale * ev, self.k.ev_tau_max)
+
+        if action_ctx is not None:
+            fold_score = action_ctx.fold_tendency()
+            if action_ctx.is_exploitable():
+                tau += self.k.ctx_exploit_bonus
+            elif fold_score > 0.5:
+                tau += 0.25 * self.k.ctx_exploit_bonus
+
         return float(min(max(tau, self.k.tau_floor), self.k.tau_ceil))
 
-    def _engage_threshold_met(self, z, legal_idx, group_idx):
-        if not group_idx:
-            return False
-        l = z[0]
-        L = torch.logsumexp(l[legal_idx], dim=0)
-        G = torch.logsumexp(l[group_idx], dim=0)
-        g_share = math.exp(float(G - L))
-        return g_share > self.k.min_gto_engage_prob
-
-    def apply_facing_raise(self, z, actions, hero_mask, p_win, ex_probs, size_frac):
+    def apply_facing_raise(self, z, actions, hero_mask, p_win, ex_probs, size_frac, ev=None, action_ctx=None):
         dbg = {}
         if not self.k.enable:
             return {"applied": False, "reason": "tuner_disabled"}
@@ -92,11 +99,9 @@ class PostflopTuner:
             return {"applied": False, "reason": "no_raise_in_menu_mask"}
         if self.k.raise_block_if_allin_legal and allin_legal:
             return {"applied": False, "reason": "allin_block"}
-        if size_frac is not None and not (
-                self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
+        if size_frac is not None and not (self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
             return {"applied": False, "reason": "size_gate_fail", "size_frac": float(size_frac)}
 
-        # Compute logit share
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
         G = torch.logsumexp(l[group_idx], dim=0)
@@ -104,36 +109,16 @@ class PostflopTuner:
         g_share = math.exp(float(G - L))
         p_share = math.exp(float(P - L))
 
-        tau_target = self._tau_from_signals(p_share, p_win, ex_probs)
+        tau_target = self._tau_from_signals(p_share, p_win, ex_probs, ev, action_ctx)
         tau_move = g_share + self.k.step * (tau_target - g_share)
 
         delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
         if delta > 0.0:
             z[0, group_idx] += delta
 
-        # Optional hard promotion override
-        gto_idx = int(torch.argmax(z[0][legal_idx]))
-        gto_action = actions[legal_idx[gto_idx]]
-        top_raise_idx = max(group_idx, key=lambda i: z[0, i].item())
-        promo_trigger = False
-
-        if gto_action == "CALL" and p_win is not None and ex_probs is not None:
-            # Heuristic promotion condition
-            if p_win > self.k.raise_bias_eq_boost_gate and ex_probs[2] > 0.25:  # strong win chance + high raise freq
-                promo_trigger = True
-                z[0] = z[0] - 100.0
-                z[0, top_raise_idx] = 10.0
-                dbg["forced_promotion"] = {
-                    "from": "CALL",
-                    "to": actions[top_raise_idx],
-                    "reason": "high_equity_and_exploit_raise_prob",
-                    "p_win": p_win,
-                    "expl_raise": ex_probs[2]
-                }
-
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0 or promo_trigger,
+            "applied": delta > 0.0,
             "promoted_from": "CALL" if passive_idx else None,
             "g_share_before": g_share,
             "tau_target": tau_target,
@@ -145,10 +130,11 @@ class PostflopTuner:
             "size_frac": size_frac,
             "n_group": len(group_idx),
             "allin_legal": allin_legal,
+            "action_context": action_ctx.summary() if action_ctx else None
         })
         return dbg
 
-    def apply_root_bet(self, z, actions, hero_mask, p_win, ex_probs):
+    def apply_root_bet(self, z, actions, hero_mask, p_win, ex_probs, ev=None, action_ctx=None):
         dbg = {}
         if not self.k.enable:
             return {"applied": False, "reason": "tuner_disabled"}
@@ -168,35 +154,16 @@ class PostflopTuner:
         g_share = math.exp(float(G - L))
         p_share = math.exp(float(P - L))
 
-        tau_target = self._tau_from_signals(p_share, p_win, ex_probs)
+        tau_target = self._tau_from_signals(p_share, p_win, ex_probs, ev, action_ctx)
         tau_move = g_share + self.k.step * (tau_target - g_share)
 
         delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
         if delta > 0.0:
             z[0, group_idx] += delta
 
-        # Optional hard promotion override
-        gto_idx = int(torch.argmax(z[0][legal_idx]))
-        gto_action = actions[legal_idx[gto_idx]]
-        top_bet_idx = max(group_idx, key=lambda i: z[0, i].item())
-        promo_trigger = False
-
-        if gto_action == "CHECK" and p_win is not None and ex_probs is not None:
-            if p_win > self.k.bet_tau_equity_gate and ex_probs[2] > 0.25:
-                promo_trigger = True
-                z[0] = z[0] - 100.0
-                z[0, top_bet_idx] = 10.0
-                dbg["forced_promotion"] = {
-                    "from": "CHECK",
-                    "to": actions[top_bet_idx],
-                    "reason": "high_equity_and_exploit_raise_prob",
-                    "p_win": p_win,
-                    "expl_raise": ex_probs[2]
-                }
-
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0 or promo_trigger,
+            "applied": delta > 0.0,
             "promoted_from": "CHECK" if passive_idx else None,
             "g_share_before": g_share,
             "tau_target": tau_target,
@@ -206,5 +173,7 @@ class PostflopTuner:
             "p_win": p_win,
             "ex_probs": ex_probs,
             "n_group": len(group_idx),
+            "action_context": action_ctx.summary() if action_ctx else None
         })
+
         return dbg
