@@ -14,9 +14,19 @@ class ContextInferer:
             hero_vill = {hero, vill}
 
             history = req.actions_hist or []
-            preflop = history if street == 1 else [a for a in history if int(getattr(a, "street", 0)) == 0]
 
-            preflop_actions = [getattr(a, "action", "").upper() for a in preflop]
+            # Support dict or object-style actions
+            def extract(field, action):
+                if isinstance(action, dict):
+                    return action.get(field)
+                return getattr(action, field, None)
+
+            # Only use preflop actions (either all if street=1, or filtered)
+            preflop = history if street == 1 else [
+                a for a in history if int(extract("street", a) or 0) == 0
+            ]
+
+            preflop_actions = [str(extract("action", a)).upper() for a in preflop]
             n_raises = preflop_actions.count("RAISE")
             n_calls = preflop_actions.count("CALL")
             n_limps = preflop_actions.count("LIMP")
