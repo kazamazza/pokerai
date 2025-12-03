@@ -279,10 +279,11 @@ class PolicyInfer:
             z = z + float(self.blend.lambda_expl) * delta
 
         ev_calc = EVCalculator()
-        ev_sig = ev_calc.compute(req)  # Should return an object with .best_ev and .available
+        ev_sig = ev_calc.compute(req)
 
-        ev = ev_sig.best_ev if ev_sig and ev_sig.available else None
-
+        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
+        best_ev = ev_sig.best_ev if ev_sig and ev_sig.available else None
+        print("evs:", evs)
         ctx = ActionContextClassifier.from_request(req, side=side)
 
         if side == "facing":
@@ -293,8 +294,8 @@ class PolicyInfer:
                 p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
                 ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
                 size_frac=(facing_info.size_frac if facing_info else None),
-                ev=ev,
-                action_ctx=ctx,  # 🔥 NEW!
+                evs=evs,
+                action_ctx=ctx,
             )
         elif side == "root":
             tuner_dbg = self._tuner.apply_root_bet(
@@ -303,8 +304,8 @@ class PolicyInfer:
                 hero_mask=hero_mask,
                 p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
                 ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
-                ev=ev,
-                action_ctx=ctx,  # 🔥 NEW!
+                evs=evs,
+                action_ctx=ctx,
             )
         p = self._masked_softmax(
             z, hero_mask.view(1, -1),
@@ -352,7 +353,7 @@ class PolicyInfer:
         return PolicyResponse(
             actions=actions,
             probs=probs,
-            evs=[0.0] * len(actions),
+            evs=[ev_sig.evs.get(a, 0.0) for a in actions],
             notes=[f"Postflop policy; hero_is_ip={hero_is_ip}"],
             debug=debug,
             best_action=best_action,

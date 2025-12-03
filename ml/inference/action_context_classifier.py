@@ -16,21 +16,16 @@ class ActionContextClassifier:
     @staticmethod
     def from_request(req: PolicyRequest, side: str) -> "ActionContextClassifier":
         """
-        Factory to create ActionContextClassifier from PolicyRequest and side.
-        Filters history to relevant postflop actions.
+        Factory to create ActionContextClassifier from PolicyRequest.
+        Uses villain action history directly (already filtered upstream).
         """
         hist = getattr(req, "actions_hist", []) or []
         if not hist:
             return ActionContextClassifier([])
 
-        # Narrow to villain's postflop actions
-        postflop_streets = {"FLOP", "TURN", "RIVER"}
-        relevant = [
-            a for a in hist
-            if a.actor == "villain"
-            and a.street in postflop_streets
-            and (a.facing_bet or a.facing_check or a.action)
-        ]
+        # Keep only postflop streets if provided as int (1=flop, 2=turn, 3=river)
+        postflop_ints = {1, 2, 3}
+        relevant = [a for a in hist if (a.street in postflop_ints)]
 
         return ActionContextClassifier(relevant)
 

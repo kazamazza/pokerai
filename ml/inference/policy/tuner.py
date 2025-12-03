@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 import torch, math
 
+from ml.inference.aggro_bucket_chooser import AggroBucketChooser
+
+
 @dataclass
 class TunerKnobs:
     enable: bool = True
@@ -84,7 +87,30 @@ class PostflopTuner:
 
         return float(min(max(tau, self.k.tau_floor), self.k.tau_ceil))
 
-    def apply_facing_raise(self, z, actions, hero_mask, p_win, ex_probs, size_frac, ev=None, action_ctx=None):
+    def _ruler_single_delta(self, z, legal_idx, target_idx, tau_target, max_boost):
+        """
+        Computes how much to boost a single logit to reach the desired tau_target share.
+        """
+        l = z[0]
+        L = torch.logsumexp(l[legal_idx], dim=0)
+        T = l[target_idx]
+
+        # New logit after delta: T + delta
+        # New probability: exp(T + delta - logsumexp)
+        # Solve: exp(T + delta - L_new) = tau_target
+        # But since L_new changes with delta, we approximate:
+        #   exp(T + delta - L) ≈ tau_target
+        # → delta ≈ log(tau_target) + L - T
+
+        try:
+            raw_delta = math.log(tau_target) + float(L - T)
+        except (ValueError, OverflowError):
+            raw_delta = 0.0
+
+        delta = max(0.0, min(raw_delta, max_boost))
+        return float(delta)
+
+    def apply_facing_raise(self, z, actions, hero_mask, p_win, ex_probs, size_frac, evs=None, action_ctx=None):
         dbg = {}
         if not self.k.enable:
             return {"applied": False, "reason": "tuner_disabled"}
@@ -99,42 +125,77 @@ class PostflopTuner:
             return {"applied": False, "reason": "no_raise_in_menu_mask"}
         if self.k.raise_block_if_allin_legal and allin_legal:
             return {"applied": False, "reason": "allin_block"}
-        if size_frac is not None and not (self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
+        if size_frac is not None and not (
+                self.k.raise_when_faced_min_size <= size_frac <= self.k.raise_when_faced_max_size):
             return {"applied": False, "reason": "size_gate_fail", "size_frac": float(size_frac)}
 
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
-        G = torch.logsumexp(l[group_idx], dim=0)
-        P = torch.logsumexp(l[passive_idx], dim=0) if passive_idx else G
-        g_share = math.exp(float(G - L))
-        p_share = math.exp(float(P - L))
+        if passive_idx:
+            C = torch.logsumexp(l[passive_idx], dim=0)
+            p_share = math.exp(float(C - L))
+        else:
+            p_share = 0.0
 
-        tau_target = self._tau_from_signals(p_share, p_win, ex_probs, ev, action_ctx)
-        tau_move = g_share + self.k.step * (tau_target - g_share)
+        tau_target = self._tau_from_signals(
+            base=p_share,
+            p_win=p_win,
+            ex_probs=ex_probs,
+            ev=max(evs.values()) if evs else None,
+            action_ctx=action_ctx,
+        )
 
-        delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
-        if delta > 0.0:
-            z[0, group_idx] += delta
+        chosen_idx = None
+        if evs:
+            chooser = AggroBucketChooser(actions, z, hero_mask, evs)
+            chosen_idx = chooser.choose_best()
+            dbg["chooser_debug"] = chooser.debug_info()
+
+        applied = False
+        if chosen_idx is not None:
+            # Target one specific raise bucket
+            delta = self._ruler_single_delta(z, legal_idx, chosen_idx, tau_target, self.k.raise_max_logit_boost)
+            if delta > 0.0:
+                z[0, chosen_idx] += delta
+                applied = True
+            dbg.update({
+                "promotion_mode": "bucket_target",
+                "chosen_action": actions[chosen_idx],
+                "delta": delta,
+            })
+        else:
+            # Fallback: apply group-level soft promotion
+            l = z[0]
+            L = torch.logsumexp(l[legal_idx], dim=0)
+            G = torch.logsumexp(l[group_idx], dim=0)
+            g_share = math.exp(float(G - L))
+            tau_move = g_share + self.k.step * (tau_target - g_share)
+            delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
+            if delta > 0.0:
+                z[0, group_idx] += delta
+                applied = True
+            dbg.update({
+                "promotion_mode": "group_soft",
+                "delta": delta,
+            })
 
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0,
+            "applied": applied,
             "promoted_from": "CALL" if passive_idx else None,
-            "g_share_before": g_share,
             "tau_target": tau_target,
-            "tau_move": tau_move,
-            "delta": delta,
             "g_share_after": g_after,
             "p_win": p_win,
             "ex_probs": ex_probs,
             "size_frac": size_frac,
-            "n_group": len(group_idx),
-            "allin_legal": allin_legal,
-            "action_context": action_ctx.summary() if action_ctx else None
+            "ev": evs,
+            "action_context": action_ctx.summary() if action_ctx else None,
+            "debug_name": "apply_facing_raise"
         })
+
         return dbg
 
-    def apply_root_bet(self, z, actions, hero_mask, p_win, ex_probs, ev=None, action_ctx=None):
+    def apply_root_bet(self, z, actions, hero_mask, p_win, ex_probs, evs=None, action_ctx=None):
         dbg = {}
         if not self.k.enable:
             return {"applied": False, "reason": "tuner_disabled"}
@@ -149,31 +210,64 @@ class PostflopTuner:
 
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
-        G = torch.logsumexp(l[group_idx], dim=0)
-        P = torch.logsumexp(l[passive_idx], dim=0) if passive_idx else G
-        g_share = math.exp(float(G - L))
-        p_share = math.exp(float(P - L))
+        if passive_idx:
+            C = torch.logsumexp(l[passive_idx], dim=0)
+            p_share = math.exp(float(C - L))
+        else:
+            p_share = 0.0
 
-        tau_target = self._tau_from_signals(p_share, p_win, ex_probs, ev, action_ctx)
-        tau_move = g_share + self.k.step * (tau_target - g_share)
+        tau_target = self._tau_from_signals(
+            base=p_share,
+            p_win=p_win,
+            ex_probs=ex_probs,
+            ev=max(evs.values()) if evs else None,
+            action_ctx=action_ctx,
+        )
 
-        delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
-        if delta > 0.0:
-            z[0, group_idx] += delta
+        chosen_idx = None
+        if evs:
+            chooser = AggroBucketChooser(actions, z, hero_mask, evs)
+            chosen_idx = chooser.choose_best()
+            dbg["chooser_debug"] = chooser.debug_info()
+
+        applied = False
+        if chosen_idx is not None:
+            delta = self._ruler_single_delta(z, legal_idx, chosen_idx, tau_target, self.k.raise_max_logit_boost)
+            if delta > 0.0:
+                z[0, chosen_idx] += delta
+                applied = True
+            dbg.update({
+                "promotion_mode": "bucket_target",
+                "chosen_action": actions[chosen_idx],
+                "delta": delta,
+            })
+        else:
+            # fallback to group-based soft promotion
+            l = z[0]
+            L = torch.logsumexp(l[legal_idx], dim=0)
+            G = torch.logsumexp(l[group_idx], dim=0)
+            g_share = math.exp(float(G - L))
+            tau_move = g_share + self.k.step * (tau_target - g_share)
+            delta = self._ruler_group_delta(z, legal_idx, group_idx, tau_move, self.k.raise_max_logit_boost)
+            if delta > 0.0:
+                z[0, group_idx] += delta
+                applied = True
+            dbg.update({
+                "promotion_mode": "group_soft",
+                "delta": delta,
+            })
 
         g_after = math.exp(float(torch.logsumexp(z[0][group_idx], dim=0) - torch.logsumexp(z[0][legal_idx], dim=0)))
         dbg.update({
-            "applied": delta > 0.0,
+            "applied": applied,
             "promoted_from": "CHECK" if passive_idx else None,
-            "g_share_before": g_share,
             "tau_target": tau_target,
-            "tau_move": tau_move,
-            "delta": delta,
             "g_share_after": g_after,
             "p_win": p_win,
             "ex_probs": ex_probs,
-            "n_group": len(group_idx),
-            "action_context": action_ctx.summary() if action_ctx else None
+            "ev": evs,
+            "action_context": action_ctx.summary() if action_ctx else None,
+            "debug_name": "apply_root_bet"
         })
 
         return dbg
