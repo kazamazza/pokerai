@@ -2,6 +2,7 @@ import math
 from typing import Any, Dict, Union, List, Optional
 from ml.features.hands import hand_to_169_label
 from ml.inference.action_context_classifier import ActionContextClassifier
+from ml.inference.context_infer import ContextInferer
 from ml.inference.ev_calculator import EVCalculator
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig, tuner_knobs_from_blend
@@ -369,6 +370,10 @@ class PolicyInfer:
 
         req.legalize()
 
+        if not getattr(req, "ctx", None):
+            req.ctx = ContextInferer.infer_from_request(req)
+            print("[predict] inferred ctx:", req.ctx)
+
         street = int(getattr(req, "street", 0))
         if street == 0:
             equity = None
@@ -396,4 +401,5 @@ class PolicyInfer:
                 temperature=float(self.blend.temperature),
                 equity_nudge=eq_nudge,
             )
+
         return self._predict_postflop(req)
