@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from ml.features.hands import hand_to_169_label
 from ml.inference.deduce_context import deduce_preflop_context
+from ml.inference.ev_calculator import EVCalculator
 from ml.inference.policy.types import PolicyRequest, PolicyResponse, Action
 from ml.models.preflop_rangenet import RangeNetLit
 from ml.utils.sidecar import load_sidecar
@@ -120,18 +121,74 @@ class PreflopPolicy:
         s = float(p.sum())
         return (p / s).tolist() if s > 0 else (np.ones_like(p) / len(p)).tolist()
 
+    def _dynamic_base_prior(self, tokens: list[str], req: PolicyRequest,
+                            evs: Optional[Dict[str, float]] = None) -> np.ndarray:
+        """
+        Generates base prior for each action based on stack size, facing, and optionally EVs.
+        """
+        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
+        facing = bool(req.facing_bet)
+        base = []
+
+        for a in tokens:
+            if a == "FOLD":
+                base.append(0.20 if facing else 0.01)
+            elif a == "CALL":
+                base.append(0.40 if facing else 0.0)
+            elif a == "CHECK":
+                base.append(0.40 if not facing else 0.0)
+            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
+                try:
+                    amt = float(a.split("_")[1])
+                    frac = amt / stack
+                    score = 1.0 - abs(frac - 0.5)  # favor mid-stacks
+                    if evs and a in evs:
+                        score *= max(evs[a], 0.0) + 1.0  # weight by EV if available
+                    base.append(score)
+                except:
+                    base.append(0.01)
+            else:
+                base.append(0.01)
+
+        base = np.array(base, dtype="float32")
+        if base.sum() > 0:
+            base /= base.sum()
+        return base
+
+    def _legal_mask(self, tokens: list[str], req: PolicyRequest) -> np.ndarray:
+        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
+        facing = bool(req.facing_bet)
+        faced_frac = float(req.faced_size_frac or 0.0)
+        legal = []
+
+        for a in tokens:
+            if a == "FOLD":
+                legal.append(1.0 if facing else 0.0)
+            elif a == "CHECK":
+                legal.append(1.0 if not facing else 0.0)
+            elif a == "CALL":
+                legal.append(1.0 if facing and faced_frac > 0 else 0.0)
+            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
+                try:
+                    val = float(a.split("_")[1])
+                    legal.append(1.0 if val < stack * 2 else 0.0)  # allow if not all-in
+                except:
+                    legal.append(0.0)
+            else:
+                legal.append(0.0)
+        return np.array(legal, dtype="float32")
+
     @torch.no_grad()
     def predict(
             self,
             req: PolicyRequest,
             *,
-            equity: Optional[Dict[str, float]] = None,  # {"p_win","p_tie","p_lose"}
+            equity: Optional[Dict[str, float]] = None,
             temperature: float = 1.0,
-            equity_nudge: float = 0.0,  # tiny tilt only
+            equity_nudge: float = 0.0,
     ) -> PolicyResponse:
-        # -------- 1) derive minimal context (hero-centric) --------
+        # -------- 1) derive preflop context --------
         stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
-
         ctx_res = deduce_preflop_context(
             hero_pos=req.hero_pos,
             villain_pos=req.villain_pos,
@@ -144,69 +201,77 @@ class PreflopPolicy:
         opener_action = ctx_res["opener_action"]
         facing_open = bool(ctx_res["facing_open"])
 
-        # Build model row (case-insensitive tolerance)
+        # -------- 2) encode input row for RangeNet --------
         row_raw = {
-            "STACK_BB": stack,  # if categorical in training, sidecar id_maps must contain bins
+            "STACK_BB": stack,
             "HERO_POS": hero_pos,
             "OPENER_POS": opener_pos,
             "OPENER_ACTION": opener_action,
             "CTX": (req.raw.get("ctx") or "SRP").upper(),
         }
         row = {k.upper(): v for k, v in {k.lower(): v for k, v in row_raw.items()}.items()}
+        xb = self._encode_row(row)
 
-        # -------- 2) model → villain 169 range --------
-        xb = self._encode_row(row)  # expects dict aligned to feature_order
-        logits = self.model(xb)  # [1,169]
-        rng = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()  # [169]
-        s = float(rng.sum())
-        rng = (rng / s).astype("float32") if s > 1e-8 else (np.ones(169, dtype="float32") / 169.0)
+        logits = self.model(xb)  # [1, 169]
+        rng = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
+        rng = (rng / float(rng.sum())) if rng.sum() > 1e-8 else np.ones(169, dtype="float32") / 169.0
 
         hero_mass = None
         if req.hero_hand:
             try:
-                hid = hand_to_169_label(req.hero_hand)  # 0..168
-                if 0 <= int(hid) < 169:
-                    hero_mass = float(rng[int(hid)])
+                hid = hand_to_169_label(req.hero_hand)
+                hero_mass = float(rng[int(hid)])
             except Exception:
                 pass
 
-        # -------- 3) action prior (+ tiny equity tilt) --------
+        # -------- 3) define action space --------
         if facing_open:
-            tokens = ["FOLD", "CALL", "RAISE_300"]  # F / flat / 3-bet ~3x
-            base = np.array([0.35, 0.40, 0.25], dtype="float32")  # prior mass
+            tokens = ["FOLD", "CALL", "RAISE_200", "RAISE_300"]
         else:
-            tokens = ["FOLD", "RAISE_250"]  # open-fold vs open to 2.5bb
-            base = np.array([0.30, 0.70], dtype="float32")
+            tokens = ["FOLD", "OPEN_200", "OPEN_300"]
 
-        # keep a copy before applying equity (for diagnostics)
-        base_before = base.copy()
+        # -------- 4) compute EVs --------
+        ev_sig = EVCalculator().compute(req)
+        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
 
-        # apply tiny equity nudge (stable + normalized)
+        # -------- 5) dynamic base prior --------
+        base_before = self._dynamic_base_prior(tokens, req, evs=evs)
+        base = base_before.copy()
+
+        # -------- 6) optional equity nudge --------
         if equity and equity_nudge > 0:
             p_win = float(equity.get("p_win", 0.5))
-            tilt = (p_win - 0.5) * float(equity_nudge)
+            tilt = (p_win - 0.5) * equity_nudge
             if facing_open and "CALL" in tokens:
-                i_call = tokens.index("CALL")
-                base[i_call] = max(0.0, base[i_call] + tilt)
-            elif (not facing_open) and "RAISE_250" in tokens:
-                i_r = tokens.index("RAISE_250")
-                base[i_r] = max(0.0, base[i_r] + tilt)
-            s = float(base.sum())
-            if s > 0:
-                base = base / s
+                base[tokens.index("CALL")] += tilt
+            elif not facing_open and "OPEN_200" in tokens:
+                base[tokens.index("OPEN_200")] += tilt
+            base = np.clip(base, 0, 1)
+            if base.sum() > 0:
+                base /= base.sum()
 
-        # diagnostic: magnitude of equity effect in (log) prior space
-        log_before = np.log(base_before + 1e-12)
-        log_after = np.log(base + 1e-12)
-        delta_eq_l1 = float(np.abs(log_after - log_before).sum())
+        log_base = np.log(base + 1e-12)
+        log_base_before = np.log(base_before + 1e-12)
+        delta_eq_l1 = float(np.abs(log_base - log_base_before).sum())
 
-        # temperature → probs
-        probs = self._softmax_np(np.log(base + 1e-8), temperature)
+        # -------- 7) apply temperature --------
+        probs = self._softmax_np(log_base, temperature)
+
+        # -------- 8) legality mask --------
+        legal_mask = self._legal_mask(tokens, req)
+        if legal_mask.sum() > 0:
+            probs = probs * legal_mask
+            probs = probs / probs.sum()  # re-normalize
+
+        # -------- 9) finalize --------
+        best_idx = int(np.argmax(probs))
+        best_action = tokens[best_idx]
 
         return PolicyResponse(
             actions=tokens,
             probs=probs,
-            evs=[0.0] * len(tokens),
+            evs=[evs.get(a, 0.0) for a in tokens],
+            best_action=best_action,
             notes=[f"preflop policy (T={temperature:.2f}, eq_nudge={equity_nudge:.3f})"],
             debug={
                 "street": 0,
@@ -215,6 +280,7 @@ class PreflopPolicy:
                 "villain_range_169_sum": float(rng.sum()),
                 "hero_prior_mass_in_villain_range": hero_mass,
                 "equity": equity or {},
-                "delta_eq_l1": delta_eq_l1,  # <- equity influence diagnostic
+                "delta_eq_l1": delta_eq_l1,
+                "evs": evs,
             },
         )
