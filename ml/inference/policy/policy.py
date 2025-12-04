@@ -1,5 +1,8 @@
 import math
 from typing import Any, Dict, Union, List, Optional
+
+import numpy as np
+
 from ml.features.hands import hand_to_169_label
 from ml.inference.action_context_classifier import ActionContextClassifier
 from ml.inference.context_infer import ContextInferer
@@ -14,6 +17,8 @@ import torch
 from ml.inference.policy.utils import postflop_is_hero_ip, mix_ties_if_close, \
     epsilon_explore
 import torch.nn.functional as F
+
+from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
 
 
 class PolicyInfer:
@@ -360,46 +365,149 @@ class PolicyInfer:
             best_action=best_action,
         )
 
+    def _soft_prior_blend(
+            self,
+            hero_range: np.ndarray,
+            tokens: list[str],
+            req: PolicyRequest,
+            evs: Optional[Dict[str, float]] = None
+    ) -> list[float]:
+        """
+        Blends a soft prior using:
+        - base frequency of each action (based on stack, facing, etc)
+        - optional EV signal to boost good actions
+        """
+        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
+        facing = bool(req.facing_bet)
+
+        priors = []
+        for a in tokens:
+            if a == "FOLD":
+                priors.append(0.2 if facing else 0.01)
+            elif a == "CALL":
+                priors.append(0.35 if facing else 0.0)
+            elif a == "CHECK":
+                priors.append(0.35 if not facing else 0.0)
+            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
+                try:
+                    amt = float(a.split("_")[1])
+                    frac = amt / stack
+                    base = 1.0 - abs(frac - 0.5)  # favor 50% pot bets
+                    if evs and a in evs:
+                        base *= max(evs[a], 0.0) + 1.0  # EV-weighted boost
+                    priors.append(base)
+                except:
+                    priors.append(0.01)
+            else:
+                priors.append(0.01)
+
+        return priors
+
+    def _compute_temperature(self, evs: np.ndarray) -> float:
+        """
+        Computes softmax temperature from EV spread.
+        - High spread → lower T (confident)
+        - Low spread → higher T (uncertain)
+        """
+        if len(evs) == 0 or np.allclose(evs, evs[0]):
+            return 2.5  # uniform EVs → use high T
+
+        spread = float(np.max(evs) - np.min(evs))
+        # Normalize spread into [0, 1]
+        norm = np.clip(spread / 0.5, 0.0, 1.0)
+
+        # Invert: high spread → low T
+        return 2.5 - 2.0 * norm  # T ∈ [0.5, 2.5]
+
+    def _predict_preflop(self, req: PolicyRequest) -> PolicyResponse:
+        # Step 1: Get hero range
+        hero_range = self.rng_pre.predict(req)
+
+        # Step 2: Estimate EVs (optional)
+        ev_calc = EVCalculator()
+        ev_sig = ev_calc.compute(req)
+        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
+
+        # Step 3: Generate legal tokens
+        action_gen = PreflopLegalActionGenerator()
+        tokens = action_gen.generate(
+            stack_bb=req.eff_stack_bb or req.pot_bb or 100.0,
+            facing_bet=req.facing_bet,
+            faced_frac=req.faced_size_frac,
+        )
+
+        # ✅ Step 4: Create soft prior based on hero range + EVs
+        base = self._soft_prior_blend(hero_range, tokens, req, evs)
+
+        ev_values = np.array([evs.get(tok, 0.0) for tok in tokens], dtype=np.float32)
+        temp = self._compute_temperature(ev_values)
+        base = np.array(base, dtype=np.float32)
+
+        # ✅ Step 6: Softmax with temperature
+        logits = base - base.max()  # stabilize
+        probs = np.exp(logits / max(temp, 1e-6))
+        probs = probs / probs.sum() if probs.sum() > 1e-8 else np.ones(len(tokens)) / len(tokens)
+
+        # Step 7: Return
+        return PolicyResponse(
+            actions=tokens,
+            probs=probs.tolist(),
+            evs=ev_values.tolist(),
+            best_action=tokens[int(np.argmax(probs))],
+            notes=[f"preflop policy (soft prior + EV temp T={temp:.2f})"],
+            debug={"hero_range": hero_range.tolist()}
+        )
+
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
+        # --- Parse input ---
         if isinstance(req_input, dict):
             req = PolicyRequest(**req_input)
-        elif hasattr(req_input, "__dict__"):
+        elif isinstance(req_input, PolicyRequest):
             req = req_input
         else:
             raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
 
         req.legalize()
 
+        # --- Infer context if missing ---
         if not getattr(req, "ctx", None):
             req.ctx = ContextInferer.infer_from_request(req)
             print("[predict] inferred ctx:", req.ctx)
 
+        # --- Route by street ---
         street = int(getattr(req, "street", 0))
         if street == 0:
+            # ----- PREFLOP -----
             equity = None
-            if self.eq and getattr(req, "hero_hand", None):
+            if self.eq and req.hero_hand:
                 try:
                     hand169 = int(hand_to_169_label(req.hero_hand))
                     out = self.eq.predict([{"street": 0, "hand_id": hand169}])
                     if out:
                         p_win, p_tie, p_lose = out[0]
-                        equity = {"p_win": float(p_win), "p_tie": float(p_tie), "p_lose": float(p_lose)}
-                except Exception:
+                        equity = {
+                            "p_win": float(p_win),
+                            "p_tie": float(p_tie),
+                            "p_lose": float(p_lose),
+                        }
+                except Exception as e:
+                    print("[predict] equity prediction failed:", e)
                     equity = None
 
+            # Grab nudge setting from blend or raw input
             eq_nudge = float(self.blend.equity_nudge_pre)
             try:
-                req_nudge = float(getattr(req, "raw", {}).get("equity_nudge"))
-                if math.isfinite(req_nudge):
-                    eq_nudge = req_nudge
-            except Exception:
-                pass
+                raw_nudge = getattr(req, "raw", {}).get("equity_nudge")
+                if raw_nudge is not None:
+                    parsed = float(raw_nudge)
+                    if math.isfinite(parsed):
+                        eq_nudge = parsed
+            except Exception as e:
+                print("[predict] equity_nudge parse failed:", e)
 
-            return self.rng_pre.predict(
-                req,
-                equity=equity,
-                temperature=float(self.blend.temperature),
-                equity_nudge=eq_nudge,
-            )
+            # Forward to preflop policy predictor
+            return self._predict_preflop(req)
 
-        return self._predict_postflop(req)
+        else:
+            # ----- POSTFLOP -----
+            return self._predict_postflop(req)

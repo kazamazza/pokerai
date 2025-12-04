@@ -1,0 +1,51 @@
+{
+  "feature_order": [
+    "stack_bb",
+    "hero_pos",
+    "villain_pos",
+    "action_seq_1",
+    "action_seq_2",
+    "action_seq_3"
+  ],
+  "id_maps": {
+    "stack_bb": {
+      "25.0": 0,
+      "60.0": 1,
+      "100.0": 2,
+      "150.0": 3
+    },
+    "hero_pos": {
+      "BB": 0,
+      "SB": 1
+    },
+    "villain_pos": {
+      "BB": 0,
+      "BTN": 1,
+      "CO": 2,
+      "HJ": 3,
+      "UTG": 4
+    },
+    "action_seq_1": {
+      "LIMP": 0,
+      "RAISE": 1
+    },
+    "action_seq_2": {
+      "3BET": 0,
+      "CALL": 1,
+      "CHECK": 2
+    },
+    "action_seq_3": {
+      "4BET": 0,
+      "CALL": 1,
+      "NONE": 2
+    }
+  },
+  "cards": {
+    "stack_bb": 4,
+    "hero_pos": 2,
+    "villain_pos": 5,
+    "action_seq_1": 2,
+    "action_seq_2": 3,
+    "action_seq_3": 3
+  }
+}

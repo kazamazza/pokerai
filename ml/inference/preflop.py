@@ -4,10 +4,8 @@ from typing import Union, Sequence, Dict, Optional, Any, List
 import torch.nn.functional as F
 import numpy as np
 import torch
-from ml.features.hands import hand_to_169_label
 from ml.inference.deduce_context import deduce_preflop_context
-from ml.inference.ev_calculator import EVCalculator
-from ml.inference.policy.types import PolicyRequest, PolicyResponse, Action
+from ml.inference.policy.types import PolicyRequest
 from ml.models.preflop_rangenet import RangeNetLit
 from ml.utils.sidecar import load_sidecar
 
@@ -179,16 +177,25 @@ class PreflopPolicy:
         return np.array(legal, dtype="float32")
 
     @torch.no_grad()
-    def predict(
-            self,
-            req: PolicyRequest,
-            *,
-            equity: Optional[Dict[str, float]] = None,
-            temperature: float = 1.0,
-            equity_nudge: float = 0.0,
-    ) -> PolicyResponse:
-        # -------- 1) derive preflop context --------
+    def predict(self, req: PolicyRequest) -> np.ndarray:
+        """
+        PURE RANGENET inference.
+        Returns a 169-dim probability vector.
+        Includes full debug prints to verify:
+            - deduced context
+            - raw row values
+            - encoded categorical IDs
+            - logits
+            - softmax
+        """
+
+        print("\n================= PREFLOP RANGE DEBUG =================")
+
+        # ----- Step 1: Basic fields -----
         stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
+        print("[stack_bb]", stack)
+
+        # ----- Step 2: Deduce context -----
         ctx_res = deduce_preflop_context(
             hero_pos=req.hero_pos,
             villain_pos=req.villain_pos,
@@ -196,91 +203,42 @@ class PreflopPolicy:
             raw=req.raw,
             pot_bb=req.pot_bb,
         )
-        hero_pos = ctx_res["hero_pos"]
-        opener_pos = ctx_res["opener_pos"]
-        opener_action = ctx_res["opener_action"]
-        facing_open = bool(ctx_res["facing_open"])
+        print("[deduce_preflop_context]", ctx_res)
 
-        # -------- 2) encode input row for RangeNet --------
+        # ----- Step 3: Build raw row exactly matching x_cols -----
         row_raw = {
             "STACK_BB": stack,
-            "HERO_POS": hero_pos,
-            "OPENER_POS": opener_pos,
-            "OPENER_ACTION": opener_action,
+            "HERO_POS": ctx_res["hero_pos"],
+            "OPENER_POS": ctx_res["opener_pos"],
+            "OPENER_ACTION": ctx_res["opener_action"],
             "CTX": (req.raw.get("ctx") or "SRP").upper(),
         }
+        print("[row_raw]", row_raw)
+
+        # Normalize to UPPER-case keys (expected by id_maps/sidecar)
         row = {k.upper(): v for k, v in {k.lower(): v for k, v in row_raw.items()}.items()}
+        print("[row_normalized]", row)
+
+        # ----- Step 4: Encode using sidecar id_maps -----
         xb = self._encode_row(row)
 
-        logits = self.model(xb)  # [1, 169]
-        rng = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
-        rng = (rng / float(rng.sum())) if rng.sum() > 1e-8 else np.ones(169, dtype="float32") / 169.0
+        print("[encoded_row IDs]")
+        for feat in self.feature_order:
+            tid = xb[feat].item()
+            print(f"   {feat}: {row.get(feat)}  ->  id={tid}")
 
-        hero_mass = None
-        if req.hero_hand:
-            try:
-                hid = hand_to_169_label(req.hero_hand)
-                hero_mass = float(rng[int(hid)])
-            except Exception:
-                pass
+        # ----- Step 5: Forward through model -----
+        logits = self.model(xb)  # shape [1,169]
+        logits_np = logits.detach().cpu().numpy().squeeze()
 
-        # -------- 3) define action space --------
-        if facing_open:
-            tokens = ["FOLD", "CALL", "RAISE_200", "RAISE_300"]
-        else:
-            tokens = ["FOLD", "OPEN_200", "OPEN_300"]
+        print("[logits first 10]", np.round(logits_np[:10], 4))
 
-        # -------- 4) compute EVs --------
-        ev_sig = EVCalculator().compute(req)
-        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
+        # ----- Step 6: Softmax -----
+        probs = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
+        probs = probs / probs.sum() if probs.sum() > 1e-8 else np.ones(169) / 169.0
 
-        # -------- 5) dynamic base prior --------
-        base_before = self._dynamic_base_prior(tokens, req, evs=evs)
-        base = base_before.copy()
+        print("[probs first 10]", np.round(probs[:10], 5))
+        print("[probs sum]", probs.sum())
+        print("=======================================================\n")
 
-        # -------- 6) optional equity nudge --------
-        if equity and equity_nudge > 0:
-            p_win = float(equity.get("p_win", 0.5))
-            tilt = (p_win - 0.5) * equity_nudge
-            if facing_open and "CALL" in tokens:
-                base[tokens.index("CALL")] += tilt
-            elif not facing_open and "OPEN_200" in tokens:
-                base[tokens.index("OPEN_200")] += tilt
-            base = np.clip(base, 0, 1)
-            if base.sum() > 0:
-                base /= base.sum()
-
-        log_base = np.log(base + 1e-12)
-        log_base_before = np.log(base_before + 1e-12)
-        delta_eq_l1 = float(np.abs(log_base - log_base_before).sum())
-
-        # -------- 7) apply temperature --------
-        probs = self._softmax_np(log_base, temperature)
-
-        # -------- 8) legality mask --------
-        legal_mask = self._legal_mask(tokens, req)
-        if legal_mask.sum() > 0:
-            probs = probs * legal_mask
-            probs = probs / probs.sum()  # re-normalize
-
-        # -------- 9) finalize --------
-        best_idx = int(np.argmax(probs))
-        best_action = tokens[best_idx]
-
-        return PolicyResponse(
-            actions=tokens,
-            probs=probs,
-            evs=[evs.get(a, 0.0) for a in tokens],
-            best_action=best_action,
-            notes=[f"preflop policy (T={temperature:.2f}, eq_nudge={equity_nudge:.3f})"],
-            debug={
-                "street": 0,
-                "facing_open": facing_open,
-                "input_row": row_raw,
-                "villain_range_169_sum": float(rng.sum()),
-                "hero_prior_mass_in_villain_range": hero_mass,
-                "equity": equity or {},
-                "delta_eq_l1": delta_eq_l1,
-                "evs": evs,
-            },
-        )
+        return probs

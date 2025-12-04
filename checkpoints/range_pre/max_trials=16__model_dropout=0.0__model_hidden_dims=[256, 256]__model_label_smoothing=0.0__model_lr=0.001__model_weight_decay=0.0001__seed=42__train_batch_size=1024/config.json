@@ -1,14 +1,15 @@
 {
   "inputs": {
-    "parquet": "data/datasets/rangenet_preflop_from_flop.parquet"
+    "parquet": "data/datasets/rangenet_preflop_from_flop_NL10.parquet"
   },
   "dataset": {
     "x_cols": [
       "stack_bb",
       "hero_pos",
-      "opener_pos",
-      "opener_action",
-      "ctx"
+      "villain_pos",
+      "action_seq_1",
+      "action_seq_2",
+      "action_seq_3"
     ],
     "y_cols": [
       "y_0",
@@ -199,7 +200,7 @@
     "dropout": 0.0,
     "lr": 0.001,
     "weight_decay": 0.0001,
-    "label_smoothing": 0.05
+    "label_smoothing": 0.0
   },
   "train": {
     "batch_size": 1024,
@@ -212,7 +213,7 @@
     "precision": "16-mixed",
     "seed": 42,
     "train_frac": 0.8,
-    "checkpoints_dir": "checkpoints/range_pre/max_trials=16__model_dropout=0.0__model_hidden_dims=[256, 256]__model_label_smoothing=0.05__model_lr=0.001__model_weight_decay=0.0001__seed=42__train_batch_size=1024",
+    "checkpoints_dir": "checkpoints/range_pre/max_trials=16__model_dropout=0.0__model_hidden_dims=[256, 256]__model_label_smoothing=0.0__model_lr=0.001__model_weight_decay=0.0001__seed=42__train_batch_size=1024",
     "monitor": "val_kl",
     "mode": "min",
     "min_delta": 0.0001,

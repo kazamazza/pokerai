@@ -3,11 +3,11 @@
 # ---- Inputs
 inputs:
   # This is the parquet you just built via build_preflop_from_flop_manifest.py
-  parquet: data/datasets/rangenet_preflop_from_flop.parquet
+  parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
 
 # ---- Dataset schema
 dataset:
-  x_cols: [ "stack_bb", "hero_pos", "opener_pos", "opener_action", "ctx" ]
+  x_cols: [ "stack_bb", "hero_pos", "villain_pos", "action_seq_1", "action_seq_2", "action_seq_3" ]
   # 169 probabilities, AA..32o in your canonical order
   y_cols: [
     "y_0","y_1","y_2","y_3","y_4","y_5","y_6","y_7","y_8","y_9",
