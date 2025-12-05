@@ -197,10 +197,10 @@
       256,
       256
     ],
-    "dropout": 0.0,
+    "dropout": 0.1,
     "lr": 0.001,
     "weight_decay": 0.0001,
-    "label_smoothing": 0.0
+    "label_smoothing": 0.05
   },
   "train": {
     "batch_size": 1024,
@@ -213,7 +213,7 @@
     "precision": "16-mixed",
     "seed": 42,
     "train_frac": 0.8,
-    "checkpoints_dir": "checkpoints/range_pre/max_trials=16__model_dropout=0.0__model_hidden_dims=[256, 256]__model_label_smoothing=0.0__model_lr=0.001__model_weight_decay=0.0001__seed=42__train_batch_size=1024",
+    "checkpoints_dir": "checkpoints/range_pre/max_trials=16__model_dropout=0.1__model_hidden_dims=[256, 256]__model_label_smoothing=0.05__model_lr=0.001__model_weight_decay=0.0001__seed=42__train_batch_size=1024",
     "monitor": "val_kl",
     "mode": "min",
     "min_delta": 0.0001,
