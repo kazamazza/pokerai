@@ -11,6 +11,10 @@ HANDS_169: List[str] = ALL_HANDS
 
 HAND169_TO_ID: dict[str, int] = {lab: i for i, lab in enumerate(HANDS_169)}
 
+def hand169_id_from_hand_code(cards: str) -> int | None:
+    label = hand_to_169_label(cards)
+    return hand169_label_to_id(label)
+
 def hand_to_169_label(cards: str) -> str:
     """Return canonical 169 label like 'AKs', 'QJo', '77'."""
     s = cards.strip().upper()

@@ -18,7 +18,7 @@ from ml.etl.ev.mc import EVMC
 from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
 from ml.utils.config import load_model_config
 from ml.etl.ev.sampling import sample_random_hand_excluding
-from ml.features.hands import hand169_label_to_id
+from ml.features.hands import hand169_label_to_id, hand169_id_from_hand_code
 
 
 def _estimate_total_iters(
@@ -112,7 +112,7 @@ def build_preflop(cfg: Dict[str, Any]) -> pd.DataFrame:
                 for _ in range(samples_per_combo):
                     # Sample hero hand (we also store hand_id; dataset can choose to use it or ignore it)
                     hero_hand = sample_random_hand_excluding(exclude=[])
-                    hand_id = hand169_label_to_id(hero_hand)
+                    hand_id = hand169_id_from_hand_code(hero_hand)
 
                     # Generate legal tokens
                     toks = gen.generate(

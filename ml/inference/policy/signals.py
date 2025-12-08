@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple, List
 import numpy as np
-from ml.features.hands import hand_to_169_label
+from ml.features.hands import hand_to_169_label, hand169_id_from_hand_code
 from ml.inference.policy.types import PolicyRequest
 
 
@@ -117,10 +117,9 @@ class SignalCollector:
                 return EquitySig(False, err="no_hero_hand")
 
             # build 169 id (robust, no int() on a string label)
-            label = hand_to_169_label(req.hero_hand)
-            hid = _label_to_169_id(label)
+            hid = hand169_id_from_hand_code(req.hero_hand)
             if hid is None:
-                return EquitySig(False, err=f"unknown_169_label:{label}")
+                return EquitySig(False, err="unknown_169_hand")
 
             pay = {"street": int(getattr(req, "street", 1)), "hand_id": int(hid)}
             # If your equity model accepts board, pass it (harmless if ignored).

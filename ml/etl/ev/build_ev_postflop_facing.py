@@ -10,6 +10,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+sys.path.append(str(ROOT_DIR))
+
 from ml.etl.ev.mc import EVMC
 from ml.etl.ev.ranges import VillainRangeProvider
 from ml.etl.ev.sampling import sample_random_hand_excluding, sample_random_flop_excluding
@@ -19,9 +24,6 @@ from ml.inference.postflop_ctx import ALLOWED_PAIRS
 from ml.utils.board_mask import make_board_mask_52
 from ml.utils.config import load_model_config
 from ml.models.vocab_actions import FACING_ACTION_VOCAB as ACTION_TOKENS
-
-ROOT_DIR = Path(__file__).resolve().parents[3]
-sys.path.append(str(ROOT_DIR))
 
 
 def _default_pot_by_ctx(ctx: str) -> float:

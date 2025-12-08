@@ -5,6 +5,7 @@
 # Aligned to policy sidecar (64 clusters, NL10 stakes_id=2).
 # ==========================================================
 
+
 dataset:
   seed: 42
 
@@ -21,6 +22,11 @@ dataset:
 
   # Balance across contexts / boards / stakes
   stratify_keys: ["ctx", "board_cluster_id", "stakes_id"]
+
+board_clustering:
+  type: kmeans
+  artifact: data/artifacts/board_clusters_kmeans_64.json
+  n_clusters: 64
 
 build:
   source_policy_parquet: data/datasets/postflop_policy_facing.parquet
@@ -50,6 +56,8 @@ build:
     LIMPED_SINGLE:
       - ["BB","SB"]
   samples_per_board: 8
+
+
 
 compute:
   engine: eval7
@@ -118,4 +126,7 @@ encoders:
     ip_pos: {"IP": 0}
     oop_pos: {"OOP": 0}
     stakes_id: {"2": 0}
+
+
+
 

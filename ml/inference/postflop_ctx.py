@@ -1,5 +1,4 @@
 # helpers_postflop_ctx.py
-from ml.inference.context_infer import ContextInferer
 
 ALLOWED_PAIRS = {
     "VS_OPEN": {
