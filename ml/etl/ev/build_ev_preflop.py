@@ -1,189 +1,193 @@
-# file: ml/etl/ev/build_ev_preflop.py
 from __future__ import annotations
 import argparse
-from typing import Dict, Iterable, List, Tuple
+import random
+import sys
+from pathlib import Path
+from typing import Any, Dict, List
+
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
-from ml.etl.ev.schema_ev import SCHEMA_PREFLOP
-from ml.etl.ev.utils_ev import (
-    EVSimCfg,
-    PreflopLegality,
-    VillainRangeProvider,
-    RangeProviderCfg,
-    infer_action_sequence,
-    build_preflop_legal_mask,
-    mc_ev_preflop_row,
-    OPEN_SIZE_BY_POS_NL10,
-    stake_to_stakes_id_token,
-)
-from ml.models.vocab_actions import PREFLOP_ACTION_VOCAB
+ROOT_DIR = Path(__file__).resolve().parents[3]
+sys.path.append(str(ROOT_DIR))
 
-ALLOWED_VS_OPEN_PAIRS: List[Tuple[str, str]] = [
-    ("UTG", "SB"), ("UTG", "BB"),
-    ("HJ", "SB"),  ("HJ", "BB"),
-    ("CO", "SB"),  ("CO", "BB"),
-    ("BTN", "SB"), ("BTN", "BB"),
-]
+from ml.etl.ev.common import pairs_from_cfg, stakes_id_from_cfg, faced_fracs_for_stack, sanitize_ev_col, \
+    fill_missing_ev_cols, write_outputs
+from ml.etl.ev.mc import EVMC
+from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
+from ml.utils.config import load_model_config
+from ml.etl.ev.sampling import sample_random_hand_excluding
+from ml.features.hands import hand169_label_to_id
 
-def _rows_for_open_mode(
+
+def _estimate_total_iters(
     *,
-    stake: str,
-    stacks: Iterable[float],
-    pairs: Iterable[Tuple[str, str]],
-    ranges: VillainRangeProvider,
-    sim_cfg: EVSimCfg,
-    rules: PreflopLegality,
-    pot_bb: float = 1.5,
-) -> List[Dict]:
-    out: List[Dict] = []
-    ctx = "VS_OPEN"
-    action_seq = infer_action_sequence(ctx)
-    for stack in stacks:
-        for hero_pos, vill_pos in pairs:
-            faced_bb = 0.0
-            vec = ranges.get(hero_pos, vill_pos, stack, action_seq)
-            if vec is None:
-                continue
-            mask = build_preflop_legal_mask(
-                facing_bet=False, faced_bb=faced_bb, stack_bb=stack, rules=rules
-            )
-            ev = mc_ev_preflop_row(
-                hero_hand=None,
-                pot_bb=pot_bb,
-                stack_bb=stack,
-                faced_bb=faced_bb,
-                facing_bet=False,
-                vocab=PREFLOP_ACTION_VOCAB,
-                mask=mask,
-                villain_vec_169=vec,
-                sim=sim_cfg,
-            )
-            row = {
-                "stakes_id": stake_to_stakes_id_token(stake),
-                "hero_pos_raw": hero_pos,
-                "villain_pos_raw": vill_pos,
-                "street": 0,
-                "pot_bb": pot_bb,
-                "eff_stack_bb": float(stack),
-                "faced_size_bb": 0.0,
-                "ctx": ctx,
-                "action_seq_1": action_seq[0], "action_seq_2": action_seq[1], "action_seq_3": action_seq[2],
-                "facing_bet": False,
-                "hero_hand": "",
-                "rowsrc": "open_mode",
-            }
-            for i, t in enumerate(PREFLOP_ACTION_VOCAB):
-                row[f"ev_{t}"] = float(ev[i])
-                row[f"legal_{t}"] = float(mask[i])
-            out.append(row)
-    return out
+    pairs: List[tuple[str, str]],
+    stacks_bb: List[float],
+    faced_fracs_by_stack: Dict[float, List[float]],
+    include_facing: bool,
+    include_unopened: bool,
+    samples_per_combo: int,
+) -> int:
+    total = 0
+    for stack in stacks_bb:
+        for _hp, _vp in pairs:
+            for ff in faced_fracs_by_stack.get(stack, []):
+                facing_bet = ff > 0.0
+                if facing_bet and not include_facing:
+                    continue
+                if (not facing_bet) and not include_unopened:
+                    continue
+                total += samples_per_combo
+    return total
 
-def _rows_for_facing_mode(
-    *,
-    stake: str,
-    stacks: Iterable[float],
-    pairs: Iterable[Tuple[str, str]],
-    ranges: VillainRangeProvider,
-    sim_cfg: EVSimCfg,
-    rules: PreflopLegality,
-    pot_bb: float = 1.5,
-) -> List[Dict]:
-    out: List[Dict] = []
-    ctx = "VS_OPEN"
-    action_seq = infer_action_sequence(ctx)
-    for stack in stacks:
-        for hero_pos, vill_pos in pairs:
-            opened_bb = OPEN_SIZE_BY_POS_NL10.get(vill_pos, 2.5)
-            faced_bb = float(opened_bb)
-            vec = ranges.get(hero_pos, vill_pos, stack, action_seq)
-            if vec is None:
-                continue
-            mask = build_preflop_legal_mask(
-                facing_bet=True, faced_bb=faced_bb, stack_bb=stack, rules=rules
-            )
-            ev = mc_ev_preflop_row(
-                hero_hand=None,
-                pot_bb=pot_bb,
-                stack_bb=stack,
-                faced_bb=faced_bb,
-                facing_bet=True,
-                vocab=PREFLOP_ACTION_VOCAB,
-                mask=mask,
-                villain_vec_169=vec,
-                sim=sim_cfg,
-            )
-            row = {
-                "stakes_id": stake_to_stakes_id_token(stake),
-                "hero_pos_raw": hero_pos,
-                "villain_pos_raw": vill_pos,
-                "street": 0,
-                "pot_bb": pot_bb + faced_bb,  # opener money in pot already
-                "eff_stack_bb": float(stack),
-                "faced_size_bb": faced_bb,
-                "ctx": ctx,
-                "action_seq_1": action_seq[0], "action_seq_2": action_seq[1], "action_seq_3": action_seq[2],
-                "facing_bet": True,
-                "hero_hand": "",
-                "rowsrc": "facing_mode",
-            }
-            for i, t in enumerate(PREFLOP_ACTION_VOCAB):
-                row[f"ev_{t}"] = float(ev[i])
-                row[f"legal_{t}"] = float(mask[i])
-            out.append(row)
-    return out
+
+def build_preflop(cfg: Dict[str, Any]) -> pd.DataFrame:
+    dataset = cfg.get("dataset") or {}
+    build = cfg.get("build") or {}
+    compute = cfg.get("compute") or {}
+
+    # --- seeds ---
+    seed = int(dataset.get("seed", 42))
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # --- knobs ---
+    stacks_bb: List[float] = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
+    include_facing: bool = bool(build.get("include_facing", True))
+    include_unopened: bool = bool(build.get("include_unopened", True))
+    samples_per_combo: int = int(build.get("samples_per_combination", 64))  # ✅ now used
+    pre_pot_bb: float = float(build.get("pre_pot_bb", 1.5))
+    stakes_id: str = stakes_id_from_cfg(cfg, default="2")
+    pairs: List[tuple[str, str]] = pairs_from_cfg(cfg)
+
+    # faced frac menu per stack (re-uses your helper)
+    faced_fracs_by_stack: Dict[float, List[float]] = {
+        s: faced_fracs_for_stack(cfg, s) for s in stacks_bb
+    }
+
+    # --- EV engine ---
+    n_sims = int(compute.get("preflop_samples", 20000))
+    evmc = EVMC(samples=n_sims, seed=seed)
+
+    # --- finalized preflop generator (reads optional cfg overrides) ---
+    pg = (cfg.get("preflop_generator") or {})
+    gen = PreflopLegalActionGenerator(
+        open_sizes_cbb=tuple(int(x) for x in (pg.get("open_sizes_cbb") or (200, 250, 300))),
+        raise_totals_cbb=tuple(int(x) for x in (pg.get("raise_totals_cbb") or (600, 750, 900, 1200))),
+        allow_allin=bool(pg.get("allow_allin", False)),
+        max_open_cbb=(int(pg["max_open_cbb"]) if pg.get("max_open_cbb") is not None else None),
+    )
+
+    # --- progress meter ---
+    total_iters = _estimate_total_iters(
+        pairs=pairs,
+        stacks_bb=stacks_bb,
+        faced_fracs_by_stack=faced_fracs_by_stack,
+        include_facing=include_facing,
+        include_unopened=include_unopened,
+        samples_per_combo=samples_per_combo,
+    )
+    pbar = tqdm(total=total_iters, desc="Building EV (preflop)", unit="row")
+
+    rows: List[Dict[str, Any]] = []
+
+    for (hero_pos, villain_pos) in pairs:
+        hp = str(hero_pos or "").upper()
+        vp = str(villain_pos or "").upper()
+
+        for stack in stacks_bb:
+            for faced_frac in faced_fracs_by_stack.get(stack, []):
+                facing_bet = faced_frac > 0.0
+                if facing_bet and not include_facing:
+                    continue
+                if (not facing_bet) and not include_unopened:
+                    continue
+
+                free_check = (not facing_bet) and (hp == "BB")
+                faced_bb = (float(faced_frac) * float(stack)) if faced_frac else 0.0
+
+                # Repeat per-combination to add stochasticity (hand sampling etc.)
+                for _ in range(samples_per_combo):
+                    # Sample hero hand (we also store hand_id; dataset can choose to use it or ignore it)
+                    hero_hand = sample_random_hand_excluding(exclude=[])
+                    hand_id = hand169_label_to_id(hero_hand)
+
+                    # Generate legal tokens
+                    toks = gen.generate(
+                        stack_bb=stack,
+                        facing_bet=facing_bet,
+                        faced_size_bb=(faced_bb if faced_bb > 0 else None),
+                        free_check=free_check,
+                    )
+
+                    # EV vector (uses uniform p(win/tie) in current EVMC placeholder;
+                    # can be swapped later to equity-conditioned EVMC)
+                    evs = evmc.compute_ev_vector(
+                        toks,
+                        hero_hand=hero_hand,
+                        board="",  # preflop
+                        stack_bb=stack,
+                        pot_bb=pre_pot_bb,
+                        faced_size_bb=faced_bb,
+                        villain_vec=None,
+                    )
+
+                    rows.append({
+                        # identifiers / features
+                        "stakes_id": stakes_id,
+                        "street": 0,
+                        "hero_pos": hp,
+                        "villain_pos": vp,
+                        "stack_bb": float(stack),
+                        "pot_bb": float(pre_pot_bb),
+                        "faced_frac": float(faced_frac),
+                        "facing_flag": int(facing_bet),
+                        "hand_id": int(hand_id),
+                        "hero_hand": hero_hand,
+                        "board": "",
+
+                        # targets & aux
+                        "tokens": toks,     # order of actions used to align EVs
+                        "evs": evs,         # EV per token (same order)
+                        "weight": n_sims,   # useful for training sampler
+                    })
+
+                    pbar.update(1)
+
+    pbar.close()
+    return pd.DataFrame(rows)
+
 
 def main():
-    ap = argparse.ArgumentParser(description="Build EV labels for Preflop head (parquet).")
-    ap.add_argument("--stake", type=str, default="NL10")
-    ap.add_argument("--ranges", type=str, required=True, help="path to rangenet_preflop_from_flop_<STAKE>.parquet")
-    ap.add_argument("--out", type=str, required=True, help="output parquet path, e.g., data/datasets/ev_preflop.parquet")
-    ap.add_argument("--stacks", type=float, nargs="+", default=[25, 60, 100, 150])
-    ap.add_argument("--pairs", type=str, nargs="+",
-                    default=[f"{a}:{b}" for (a,b) in ALLOWED_VS_OPEN_PAIRS],
-                    help="hero:villain pairs like CO:BB BTN:SB ...")
-    ap.add_argument("--samples", type=int, default=1200)
-    ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--no_open", action="store_true")
-    ap.add_argument("--no_facing", action="store_true")
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--config",
+        type=str,
+        default="ev/preflop/base",
+        help="model[/variant]/profile or full path (see load_model_config).",
+    )
     args = ap.parse_args()
 
-    pairs: List[Tuple[str, str]] = []
-    for s in args.pairs:
-        try:
-            a, b = s.split(":")
-            pairs.append((a.upper(), b.upper()))
-        except Exception:
-            continue
+    parts = args.config.strip().split("/")
+    if len(parts) == 3:
+        model, variant, profile = parts
+        cfg = load_model_config(model=model, variant=variant, profile=profile)
+    elif len(parts) == 2:
+        model, variant = parts
+        cfg = load_model_config(model=model, variant=variant, profile="base")
+    else:
+        cfg = load_model_config(path=f"ml/config/{args.config}.yaml")
 
-    rp = VillainRangeProvider(RangeProviderCfg(ranges_parquet=args.ranges))
-    sim = EVSimCfg(num_samples=int(args.samples), seed=int(args.seed))
-    rules = PreflopLegality()
+    df = build_preflop(cfg)
+    write_outputs(
+        df,
+        cfg,
+        manifest_key="paths.manifest_path",
+        parquet_key="paths.parquet_path",
+    )
 
-    rows: List[Dict] = []
-    if not args.no_open:
-        rows += _rows_for_open_mode(
-            stake=args.stake, stacks=args.stacks, pairs=pairs,
-            ranges=rp, sim_cfg=sim, rules=rules
-        )
-    if not args.no_facing:
-        rows += _rows_for_facing_mode(
-            stake=args.stake, stacks=args.stacks, pairs=pairs,
-            ranges=rp, sim_cfg=sim, rules=rules
-        )
-
-    if not rows:
-        raise SystemExit("No rows produced. Check --pairs/--stacks and ranges parquet.")
-
-    df = pd.DataFrame(rows, columns=SCHEMA_PREFLOP.all_cols)
-
-    # Basic validations
-    assert set(SCHEMA_PREFLOP.label_cols).issubset(df.columns), "label cols missing"
-    assert set(SCHEMA_PREFLOP.mask_cols).issubset(df.columns), "mask cols missing"
-    assert (df[SCHEMA_PREFLOP.mask_cols].values.max() <= 1.0) and (df[SCHEMA_PREFLOP.mask_cols].values.min() >= 0.0)
-
-    # Write parquet
-    df.to_parquet(args.out, index=False)
-    print(f"✅ wrote {len(df):,} rows → {args.out}")
 
 if __name__ == "__main__":
     main()

@@ -28,14 +28,11 @@ FACING_ACTION_VOCAB: List[str] = [
 # -------------------------
 # Preflop (centi-bb schema)
 # -------------------------
-# OPEN_xxx / RAISE_xxx are in bb × 100 (centi-bb). e.g., 2.5bb -> OPEN_250
-PREFLOP_OPEN_TOKENS: List[str]  = ["OPEN_200", "OPEN_250", "OPEN_300"]
-PREFLOP_RAISE_TOKENS: List[str] = ["RAISE_600", "RAISE_750", "RAISE_900", "RAISE_1200"]
 
-PREFLOP_ACTION_VOCAB: List[str] = [
+PREFLOP_ACTION_VOCAB = [
     "FOLD", "CHECK", "CALL", "ALLIN",
-    *PREFLOP_OPEN_TOKENS,
-    *PREFLOP_RAISE_TOKENS,
+    "OPEN_200", "OPEN_250", "OPEN_300",
+    "RAISE_600", "RAISE_750", "RAISE_900", "RAISE_1200",
 ]
 
 # -------------------------

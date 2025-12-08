@@ -8,15 +8,19 @@
 dataset:
   seed: 42
 
-  # Categorical features (match policy sidecar)
-  x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id"]
-  # Continuous features
-  cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]  # size_frac ∈ [0,1], faced/stack
+  # Categorical features (mirror policy sidecar + hand)
+  x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id", "hand_id"]
 
-  y_cols: null  # inferred from model.action_vocab
+  # Continuous features (size_frac ∈ [0,1] = faced/stack)
+  cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]
+
+  # Targets inferred from model.action_vocab (facing tokens)
+  y_cols: null
   weight_col: "weight"
   min_weight: null
-  stratify_keys: ["ctx", "board_cluster_id"]
+
+  # Balance across contexts / boards / stakes
+  stratify_keys: ["ctx", "board_cluster_id", "stakes_id"]
 
 build:
   source_policy_parquet: data/datasets/postflop_policy_facing.parquet
@@ -114,3 +118,4 @@ encoders:
     ip_pos: {"IP": 0}
     oop_pos: {"OOP": 0}
     stakes_id: {"2": 0}
+

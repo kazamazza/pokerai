@@ -8,17 +8,20 @@ dataset:
   seed: 42
 
   # Categorical features
-  x_cols: ["hero_pos", "villain_pos", "stakes_id"]
+  x_cols: ["hero_pos", "villain_pos", "stakes_id", "facing_flag", "free_check", "hand_id"]
+
   # Continuous features
   cont_cols: ["stack_bb", "pot_bb", "faced_frac"]
 
-  # Target vector = EV per action in action_vocab (same order)
-  y_cols: null  # inferred from model.action_vocab
+  # Targets in model.action_vocab order
+  y_cols: null
 
-  # Optional weighting (e.g., MC sim count per row)
+  # Weights (write from builder = # MC sims)
   weight_col: "weight"
   min_weight: null
-  stratify_keys: ["stakes_id"]
+
+  # Keep splits balanced by stakes / state and coarse stack
+  stratify_keys: ["stakes_id", "facing_flag", "stack_bin"]
 
 build:
   # Where to source rows (preflop contexts)
@@ -100,3 +103,9 @@ encoders:
   id_maps:
     stakes_id:
       "2": 0   # NL10 -> 0
+
+preflop_generator:
+  open_sizes_cbb: [200, 250, 300]        # OPEN_2.00bb, 2.50bb, 3.00bb
+  raise_totals_cbb: [600, 750, 900, 1200] # RAISE to 6.00, 7.50, 9.00, 12.00 bb
+  allow_allin: false
+  max_open_cbb: null
