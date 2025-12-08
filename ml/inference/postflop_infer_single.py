@@ -9,6 +9,7 @@ from ml.inference.postflop_single.facing import is_hero_ip, infer_facing_and_siz
 from ml.inference.postflop_single.features import compute_cluster_id, encode_cats, encode_cont
 from ml.inference.postflop_single.legality import mask_root, mask_facing
 from ml.models.postflop_policy_side_net import PostflopPolicySideLit
+from ml.utils.board_mask import make_board_mask_52
 from ml.utils.device import to_device
 from ml.utils.sidecar import load_sidecar
 
@@ -216,7 +217,6 @@ class PostflopPolicyInferSingle:
                 pass
         return is_root, bet_menu
 
-    # ---------- core predict ----------
     @torch.no_grad()
     def predict(
             self,
@@ -225,7 +225,6 @@ class PostflopPolicyInferSingle:
             actor: str = "ip",
             temperature: float = 1.0,
     ) -> "PolicyResponse":
-        # ---- positions (POSTFLOP-aware IP/OOP) ----
         hpos = (getattr(req, "hero_pos", "") or "").upper()
         vpos = (getattr(req, "villain_pos", "") or "").upper()
         try:
@@ -254,8 +253,6 @@ class PostflopPolicyInferSingle:
         board = getattr(req, "board", None) or ""
         pot_bb = float(getattr(req, "pot_bb", 0.0) or 0.0)
         eff_stack_bb = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
-
-        # --- board cluster (optional; compute & remap via id_maps) ---
         cluster_id = compute_cluster_id(board, self.clusterer, self.id_maps, self.board_cluster_feat)
 
         row: Dict[str, Any] = {
@@ -266,12 +263,11 @@ class PostflopPolicyInferSingle:
             "street": street,  # int -> "1" mapping handled by encode_cats (casts to str)
             "board": board,  # used only by board_mask_52 in encode_cont
             "pot_bb": pot_bb,
-            "eff_stack_bb": eff_stack_bb,
+            "eff_stack_bb": eff_stack_bb
         }
         if cluster_id is not None and self.board_cluster_feat:
             row[self.board_cluster_feat] = int(cluster_id)
 
-        # --- bet menu (root) ---
         bet_menu = None
         if isinstance(getattr(req, "bet_sizes", None), (list, tuple)):
             try:
@@ -279,7 +275,6 @@ class PostflopPolicyInferSingle:
             except Exception:
                 bet_menu = None
 
-        # --- facing & faced size ---
         facing, size_frac, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
 
         # Alias eff_stack_bb -> stack_bb if the model expects it

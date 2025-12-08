@@ -1,8 +1,6 @@
 import math
 from typing import Any, Dict, Union, List, Optional
-
 import numpy as np
-
 from ml.features.hands import hand_to_169_label
 from ml.inference.action_context_classifier import ActionContextClassifier
 from ml.inference.context_infer import ContextInferer

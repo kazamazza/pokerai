@@ -1,6 +1,4 @@
 from __future__ import annotations
-import re
-import string
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Literal, Union
 
@@ -41,8 +39,8 @@ class PolicyRequest:
     ctx: Optional[str] = None
     hero_pos: Optional[Position] = None
     villain_pos: Optional[Position] = None
-    hero_hand: Optional[str] = None  # "AhKh"
-    board: Optional[str] = None      # "Ts5cKd" or None
+    hero_hand: Optional[str] = None
+    board: Optional[str] = None
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
     facing_bet: bool = False
@@ -53,8 +51,6 @@ class PolicyRequest:
     allow_allin: Optional[bool] = None
     villain_id: Optional[str] = None
     actions_hist: Optional[List[ActionHistoryEntry]] = None
-    board_mask_52: Optional[List[float]] = None
-    raw: Dict[str, Any] = field(default_factory=dict)
     debug: bool = False
 
     @staticmethod
