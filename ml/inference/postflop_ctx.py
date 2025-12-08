@@ -1,57 +1,86 @@
-# --- helpers/postflop_ctx.py (or near PolicyRequest) ---
-from ml.inference.policy.types import PolicyRequest
+# helpers_postflop_ctx.py
+from ml.inference.context_infer import ContextInferer
 
+ALLOWED_PAIRS = {
+    "VS_OPEN": {
+        ("UTG","SB"),("UTG","BB"),
+        ("HJ","SB"), ("HJ","BB"),
+        ("CO","SB"), ("CO","BB"),
+        ("BTN","SB"),("BTN","BB"),
+    },
+    "BLIND_VS_STEAL": {
+        ("BTN","SB"),("BTN","BB"),
+        ("CO","SB"), ("CO","BB"),
+    },
+    "VS_3BET": {
+        ("BTN","SB"),("BTN","BB"),
+        ("CO","SB"), ("CO","BB"),
+    },
+    "VS_4BET": {
+        ("BTN","SB"),("BTN","BB"),
+        ("CO","SB"), ("CO","BB"),
+    },
+    "LIMPED_SINGLE": {("BB","SB")},
+}
 
-def infer_postflop_ctx(req: "PolicyRequest") -> str:
-    """
-    Infer preflop lineage/context for postflop decisions.
-    Returns one of {"VS_OPEN","VS_3BET","VS_4BET","LIMPED_SINGLE","LIMPED_MULTI"}.
-    Fallback is "VS_OPEN".
-    """
-    # 1) explicit override in raw (highest priority)
-    raw_ctx = (req.raw or {}).get("ctx")
-    if raw_ctx:
-        ctx = str(raw_ctx).strip().upper()
-        # normalize aliases
-        if ctx in {"BLIND_VS_STEAL", "BVS", "STEAL"}:
-            return "VS_OPEN"
-        if ctx in {"VS_OPEN","VS_3BET","VS_4BET","LIMPED_SINGLE","LIMPED_MULTI"}:
-            return ctx
-        # unknown override → safe fallback
-        return "VS_OPEN"
+def _flop_ip(ip: str, oop: str) -> tuple[str,str]:
+    ip = (ip or "").upper(); oop = (oop or "").upper()
+    if {ip,oop} == {"SB","BB"}: return ("BB","SB")
+    order = ["SB","BB","UTG","HJ","CO","BTN"]
+    try:
+        return (ip,oop) if order.index(ip) > order.index(oop) else (oop,ip)
+    except ValueError:
+        return (ip,oop)
 
-    # 2) derive from actions_hist (accept list/tuple/str/mixed)
-    ah = (req.actions_hist
-          or (req.raw or {}).get("actions_hist")
-          or [])
-    if isinstance(ah, str):
-        # allow comma/space separated
-        tokens = [t for t in re.split(r"[,\s]+", ah) if t]
-    else:
-        tokens = list(ah)
+def _pair_in_domain(ip: str, oop: str) -> bool:
+    for ctx, pairs in ALLOWED_PAIRS.items():
+        if (ip, oop) in pairs:
+            return True
+    return False
 
-    toks = [str(x).strip().upper() for x in tokens if x is not None]
+def validate_pair_or_raise(req) -> tuple[str,str]:
+    ip, oop = _flop_ip(req.hero_pos, req.villain_pos)
+    if _pair_in_domain(ip, oop):
+        return ip, oop
+    allowed = sorted({p for pairs in ALLOWED_PAIRS.values() for p in pairs})
+    raise ValueError(
+        f"unseen postflop pair for training domain: ip={ip}, oop={oop}. "
+        f"Allowed pairs: {allowed}. Adjust hero_pos/villain_pos or extend scenarios."
+    )
 
-    # direct signals
-    if any("4BET" in t for t in toks):
-        return "VS_4BET"
-    if any("3BET" in t for t in toks):
-        return "VS_3BET"
+def ensure_ctx_and_action_seq(req) -> None:
+    street = int(getattr(req, "street", 1) or 1)
+    if street == 0:
+        setattr(req, "action_seq", getattr(req, "action_seq", []) or [])
+        return
 
-    # limp logic
-    limp_count   = sum(1 for t in toks if "LIMP" in t)
-    raise_count  = sum(1 for t in toks if "RAISE" in t)
-    call_count   = sum(1 for t in toks if t == "CALL" or "CALL " in t)
-    overcalls    = max(0, call_count - int(raise_count > 0))  # rough “multiway-ish” indicator
+    ip, oop = validate_pair_or_raise(req)
 
-    if limp_count >= 2:
-        return "LIMPED_MULTI"
-    if limp_count == 1:
-        # one limp + no raise + (at least one overcall) → multi
-        if raise_count == 0 and overcalls >= 1:
-            return "LIMPED_MULTI"
-        # one limp + raise (got called or not) → usually single-limp tree
-        return "LIMPED_SINGLE"
+    ctx = getattr(req, "ctx", None)
+    if not ctx:
+        ctx_infer, reason = ContextInferer.infer_with_reason(req)
+        if not ctx_infer:
+            # tolerant fallback by seat-pair when history/pot are unhelpful
+            if (ip, oop) in ALLOWED_PAIRS["LIMPED_SINGLE"]:
+                ctx_infer = "LIMPED_SINGLE"
+            elif (ip, oop) in ALLOWED_PAIRS["VS_OPEN"] or (ip, oop) in ALLOWED_PAIRS.get("BLIND_VS_STEAL", set()):
+                ctx_infer = "VS_OPEN"
+            elif (ip, oop) in ALLOWED_PAIRS["VS_3BET"]:
+                ctx_infer = "VS_3BET"
+            elif (ip, oop) in ALLOWED_PAIRS["VS_4BET"]:
+                ctx_infer = "VS_4BET"
+            else:
+                raise ValueError(f"ctx inference failed: {reason}")
+        ctx = ctx_infer
 
-    # treat blind-vs-steal or no special tokens as SRP
-    return "VS_OPEN"
+    ctx = str(ctx).upper()
+    if ctx == "BLIND_VS_STEAL":
+        ctx = "VS_OPEN"
+
+    setattr(req, "ctx", ctx)
+    setattr(req, "action_seq", {
+        "VS_OPEN":        ["RAISE","CALL",""],
+        "VS_3BET":        ["RAISE","3BET","CALL"],
+        "VS_4BET":        ["RAISE","3BET","4BET"],
+        "LIMPED_SINGLE":  ["LIMP","CHECK",""],
+    }.get(ctx, ["","",""]))

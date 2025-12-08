@@ -1,7 +1,3 @@
-# ---- hand_id -> single canonical combo (eval7.Card, eval7.Card) ----
-# deps: hand_id_to_label(hand_id) -> str in {"AA","AKs","AKo",...}
-
-
 RANKS = "AKQJT98765432"  # 13 ranks in order
 HAND_LABELS = []
 

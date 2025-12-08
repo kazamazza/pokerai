@@ -32,6 +32,7 @@ class ActionHistoryEntry:
     street: Optional[int] = None  # Optional: for more precise street segmentation
     weight: Optional[float] = 1.0  # Optional: override if needed
 
+
 @dataclass
 class PolicyRequest:
     stakes: str = "NL10"
@@ -39,18 +40,27 @@ class PolicyRequest:
     ctx: Optional[str] = None
     hero_pos: Optional[Position] = None
     villain_pos: Optional[Position] = None
-    hero_hand: Optional[str] = None
-    board: Optional[str] = None
+    hero_hand: Optional[str] = None  # e.g., "AhKh"
+    board: Optional[str] = None  # e.g., "Ts5cKd" or None
+
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
+
     facing_bet: bool = False
     faced_size_pct: Optional[float] = None
     faced_size_frac: Optional[float] = None
-    bet_sizes: Optional[List[float]] = None
-    raise_buckets: Optional[List[int]] = None
+
+    # ✅ Postflop defaults: fractions of pot
+    bet_sizes: Optional[List[float]] = field(default_factory=lambda: [0.33, 0.66])
+
+    # ✅ Preflop defaults: raise multipliers
+    raise_buckets: Optional[List[float]] = field(default_factory=lambda: [1.5, 2.0, 3.0])
+
     allow_allin: Optional[bool] = None
     villain_id: Optional[str] = None
     actions_hist: Optional[List[ActionHistoryEntry]] = None
+
+    raw: Dict[str, Any] = field(default_factory=dict)
     debug: bool = False
 
     @staticmethod

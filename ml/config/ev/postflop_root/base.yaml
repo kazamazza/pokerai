@@ -1,0 +1,119 @@
+# ml/config/evnet/postflop_root/base.yaml
+# ==========================================================
+# EVNet — POSTFLOP ROOT (no bet faced)
+# Predict EV per root token (CHECK/BET_xx/DONK_33).
+# Aligned to policy sidecar (64 clusters, NL10 stakes_id=2).
+# ==========================================================
+
+dataset:
+  seed: 42
+
+  # Categorical features (match policy sidecar)
+  x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id"]
+  # Continuous features
+  cont_cols: ["board_mask_52", "pot_bb", "stack_bb"]
+
+  y_cols: null  # inferred from model.action_vocab
+  weight_col: "weight"
+  min_weight: null
+  stratify_keys: ["ctx", "board_cluster_id"]
+
+build:
+  # Source policy rows to mirror training domain
+  source_policy_parquet: data/datasets/postflop_policy_root.parquet
+  # If absent, builder can synthesize from scenarios + menus
+  stacks_bb: [25, 60, 100, 150]
+  contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
+  pairs_ip_oop:
+    VS_OPEN:
+      - ["UTG","BB"]
+      - ["UTG","SB"]
+      - ["HJ","BB"]
+      - ["HJ","SB"]
+      - ["CO","BB"]
+      - ["CO","SB"]
+      - ["BTN","BB"]
+      - ["BTN","SB"]
+    VS_3BET:
+      - ["BTN","BB"]
+      - ["BTN","SB"]
+      - ["CO","BB"]
+      - ["CO","SB"]
+    VS_4BET:
+      - ["BTN","BB"]
+      - ["BTN","SB"]
+      - ["CO","BB"]
+      - ["CO","SB"]
+    LIMPED_SINGLE:
+      - ["BB","SB"]
+  samples_per_board: 8
+
+compute:
+  engine: eval7
+  threads: auto
+  chunk_size: 4096
+  log_every_n: 20000
+  seed: 42
+  mc:
+    min_samples: 256
+    max_samples: 0
+  river_exact: true
+
+paths:
+  manifest_path: data/artifacts/evnet_postflop_root_manifest.parquet
+  parquet_path:  data/datasets/evnet_postflop_root.parquet
+  tmp_dir:       data/tmp/evnet_postflop_root
+
+inputs:
+  # Ranges to sample villain from (already materialized 169-d vecs)
+  preflop_ranges_parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
+  # Board clustering artifact (must match policy)
+  board_clusters_artifact: data/artifacts/board_clusters_kmeans_64.json
+
+validation:
+  strict: true
+
+model:
+  # Must match policy sidecar root action_vocab
+  action_vocab:
+    - "CHECK"
+    - "BET_25"
+    - "BET_33"
+    - "BET_50"
+    - "BET_66"
+    - "BET_75"
+    - "BET_100"
+    - "DONK_33"
+  hidden_dims: [256, 256]
+  dropout: 0.10
+  lr: 0.001
+  weight_decay: 0.0001
+  output_mode: "ev_vector"
+
+train:
+  seed: 42
+  train_frac: 0.80
+  batch_size: 1024
+  num_workers: 0
+  pin_memory: true
+  max_epochs: 20
+  patience: 5
+  monitor: val_loss
+  mode: min
+  accelerator: auto
+  devices: auto
+  precision: 16-mixed
+  checkpoints_dir: checkpoints/evnet_postflop_root
+  resume_from: null
+
+logging:
+  tb_log_dir: logs/tb
+
+encoders:
+  id_maps:
+    street: {"1": 0}
+    ctx: {"LIMPED_SINGLE": 0, "VS_3BET": 1, "VS_4BET": 2, "VS_OPEN": 3}
+    hero_pos: {"IP": 0, "OOP": 1}
+    ip_pos: {"IP": 0}
+    oop_pos: {"OOP": 0}
+    stakes_id: {"2": 0}

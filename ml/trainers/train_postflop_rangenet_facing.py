@@ -18,7 +18,6 @@ from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_a
 from ml.datasets.postflop_policy_facing import PostflopPolicyDatasetFacing, postflop_policy_facing_collate_fn
 from ml.models.postflop_policy_side_net import PostflopPolicySideLit
 from ml.models.vocab_actions import FACING_ACTION_VOCAB
-from ml.models.vocab_actions import FACING_ACTION_VOCAB
 
 
 def run_postflop_sweep(cfg: dict):

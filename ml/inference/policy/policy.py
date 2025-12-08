@@ -1,14 +1,12 @@
 import math
 from typing import Any, Dict, Union, List, Optional
 import numpy as np
-from ml.features.hands import hand_to_169_label
 from ml.inference.action_context_classifier import ActionContextClassifier
-from ml.inference.context_infer import ContextInferer
 from ml.inference.ev_calculator import EVCalculator
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig, tuner_knobs_from_blend
 from ml.inference.policy.projection import FCRProjector
-from ml.inference.policy.signals import SignalCollector
+from ml.inference.policy.signals import SignalCollector, EquitySig
 from ml.inference.policy.tuner import PostflopTuner
 from ml.inference.policy.types import PolicyRequest, PolicyResponse
 import torch
@@ -16,7 +14,9 @@ from ml.inference.policy.utils import postflop_is_hero_ip, mix_ties_if_close, \
     epsilon_explore
 import torch.nn.functional as F
 
+from ml.inference.postflop_ctx import ensure_ctx_and_action_seq
 from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
+from ml.inference.villain_range_provider import VillainRangeProvider
 
 
 class PolicyInfer:
@@ -63,7 +63,6 @@ class PolicyInfer:
         try:
             from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX  # type: ignore
             self.action_vocab = list(_VOC)
-            self._vocab_index = dict(_VIX)
             self._vocab_index = dict(_VIX)
         except Exception:
             pass
@@ -218,57 +217,56 @@ class PolicyInfer:
         return m
 
     @torch.no_grad()
-    def _predict_postflop(self, req: "PolicyRequest") -> "PolicyResponse":
+    def _predict_postflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None,
+                          villain_range: Optional[np.ndarray] = None) -> PolicyResponse:
         hero_is_ip = postflop_is_hero_ip(req)
         actor = "ip" if hero_is_ip else "oop"
         side = self._derive_side(req, hero_is_ip=hero_is_ip)
 
+        # ---------- Router model ----------
         router_resp = self.pol_post.predict(req, actor=actor, temperature=1.0, side=side)
-        print("Model raw probs:", router_resp.probs)
-        print("Model logits:", getattr(router_resp, "logits", None))
-
         actions = list(getattr(router_resp, "actions", []) or [])
         if not actions:
             raise RuntimeError("Router returned empty actions")
         self._update_vocab(actions)
         V = len(actions)
 
-        # logits: prefer router logits; fall back to probs -> log
+        # ---------- Logits ----------
         if getattr(router_resp, "logits", None) is not None:
             z = torch.tensor(router_resp.logits, dtype=torch.float32).view(1, V)
         else:
-            p_r = torch.tensor(getattr(router_resp, "probs", None), dtype=torch.float32).view(1, V)
+            p_r = torch.tensor(router_resp.probs, dtype=torch.float32).view(1, V)
             z = torch.log(p_r.clamp_min(1e-8))
 
-        # --- 2) Legal mask: router ∧ menu ---------------------------------------
+        # ---------- Legal mask ----------
         mask_router = getattr(router_resp, "mask", None)
         hero_mask_router = (
             torch.tensor(mask_router, dtype=torch.float32).view(1, V)[0]
             if mask_router is not None else torch.ones(V, dtype=torch.float32)
         )
         menu_mask_t = self._menu_mask(
-            actions,
+            actions=actions,
             actor=actor,
             facing_bet=(side == "facing"),
-            bet_sizes=getattr(req, "bet_sizes", None),
-            raise_buckets=getattr(req, "raise_buckets", None),
-            allow_allin=getattr(req, "allow_allin", None),
+            bet_sizes=req.bet_sizes,
+            raise_buckets=req.raise_buckets,
+            allow_allin=req.allow_allin,
         )
         hero_mask = (hero_mask_router > 0.5).float() * (menu_mask_t > 0.5).float()
         if hero_mask.sum() <= 0:
             hero_mask = torch.ones_like(menu_mask_t)
 
-        eq_sig = self._signals.collect_equity(req)  # EquitySig
-        ex_sig = self._signals.collect_exploit(req)  # ExploitSig
+        # ---------- Signals ----------
+        ex_sig = self._signals.collect_exploit(req)
         facing_info = root_info = None
-
         if side == "facing":
             facing_info = self._signals.collect_facing(req, hero_is_ip)
         elif side == "root":
             root_info = self._signals.collect_root(req, hero_is_ip)
-        z = z.clone()
 
-        if self.blend.lambda_eq > 0.0 and eq_sig.available:
+        # ---------- Equity adjustment ----------
+        z = z.clone()
+        if self.blend.lambda_eq > 0.0 and eq_sig and eq_sig.available:
             eq_margin = float(eq_sig.p_win) - 0.5
             d = self._equity_delta_vector(
                 eq_margin=eq_margin,
@@ -278,18 +276,21 @@ class PolicyInfer:
             d = torch.clamp(d, -float(self.blend.eq_max_logit_delta), float(self.blend.eq_max_logit_delta))
             z = z + float(self.blend.lambda_eq) * d
 
+        # ---------- Exploit adjustment ----------
         if ex_sig.available and self.blend.lambda_expl > 0.0 and ex_sig.raw is not None:
             delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
             z = z + float(self.blend.lambda_expl) * delta
 
+        # ---------- EV Calculation ----------
+        ctx = ActionContextClassifier.from_request(req, side=side)
         ev_calc = EVCalculator()
-        ev_sig = ev_calc.compute(req)
+        ev_sig = ev_calc.compute(req, tokens=actions, villain_range=villain_range)
 
         evs = ev_sig.evs if ev_sig and ev_sig.available else {}
         best_ev = ev_sig.best_ev if ev_sig and ev_sig.available else None
         print("evs:", evs)
-        ctx = ActionContextClassifier.from_request(req, side=side)
 
+        # ---------- Tuner ----------
         if side == "facing":
             tuner_dbg = self._tuner.apply_facing_raise(
                 z=z,
@@ -311,6 +312,8 @@ class PolicyInfer:
                 evs=evs,
                 action_ctx=ctx,
             )
+
+        # ---------- Final output distribution ----------
         p = self._masked_softmax(
             z, hero_mask.view(1, -1),
             T=float(self.blend.temperature),
@@ -318,23 +321,26 @@ class PolicyInfer:
         )
         p = mix_ties_if_close(p, float(self.blend.tie_mix_threshold))
         p = epsilon_explore(p, float(self.blend.epsilon_explore), hero_mask.view(1, -1))
-        p = self._cap_allins(p, eff_stack_bb=float(getattr(req, "eff_stack_bb", 0.0)))
+        p = self._cap_allins(p, eff_stack_bb=float(req.eff_stack_bb or 0.0))
         probs = p[0].tolist()
+
+        best_idx = int(torch.argmax(p[0]))
+        best_action = actions[best_idx]
 
         debug = {
             "router_side": side,
             "menu_mask_sum": float(menu_mask_t.sum().item()),
             "signals": {
                 "equity": {
-                    "available": eq_sig.available,
-                    "p_win": eq_sig.p_win,
-                    "err": eq_sig.err
+                    "available": eq_sig.available if eq_sig else False,
+                    "p_win": eq_sig.p_win if eq_sig else None,
+                    "err": eq_sig.err if eq_sig else None,
                 },
                 "exploit": {
                     "available": ex_sig.available,
                     "counts_total": ex_sig.counts_total,
                     "probs": ex_sig.probs,
-                    "err": ex_sig.err
+                    "err": ex_sig.err,
                 },
                 "facing": {
                     "is_facing": facing_info.is_facing if facing_info else False,
@@ -347,17 +353,12 @@ class PolicyInfer:
             },
             "tuner_debug": tuner_dbg,
             "blend_cfg": self.blend.to_dict(),
-        }
-        if not req.debug:
-            debug = None
-
-        best_idx = int(torch.argmax(p[0]))
-        best_action = actions[best_idx]
+        } if req.debug else None
 
         return PolicyResponse(
             actions=actions,
             probs=probs,
-            evs=[ev_sig.evs.get(a, 0.0) for a in actions],
+            evs=[evs.get(a, 0.0) for a in actions],
             notes=[f"Postflop policy; hero_is_ip={hero_is_ip}"],
             debug=debug,
             best_action=best_action,
@@ -368,32 +369,52 @@ class PolicyInfer:
             hero_range: np.ndarray,
             tokens: list[str],
             req: PolicyRequest,
-            evs: Optional[Dict[str, float]] = None
+            evs: Optional[Dict[str, float]] = None,
+            eq_sig: Optional["EquitySig"] = None,
     ) -> list[float]:
-        """
-        Blends a soft prior using:
-        - base frequency of each action (based on stack, facing, etc)
-        - optional EV signal to boost good actions
-        """
+
         stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
         facing = bool(req.facing_bet)
+
+        # --- Equity normalization ---
+        eq_boost = 1.0
+        if eq_sig and eq_sig.available and eq_sig.p_win is not None:
+            # p_win in [0,1] → scale to [0.8, 1.3]
+            # strong hands get +30% prior, weak hands get -20%
+            eq_boost = 0.8 + 0.5 * float(eq_sig.p_win)
 
         priors = []
         for a in tokens:
             if a == "FOLD":
-                priors.append(0.2 if facing else 0.01)
+                base = 0.2 if facing else 0.01
+                # If equity is poor, folding slightly more likely
+                if eq_sig and eq_sig.available:
+                    base *= (1.2 - eq_boost)  # invert equity
+                priors.append(base)
+
             elif a == "CALL":
-                priors.append(0.35 if facing else 0.0)
+                base = 0.35 if facing else 0.0
+                base *= eq_boost  # strong hands like calling more
+                priors.append(base)
+
             elif a == "CHECK":
-                priors.append(0.35 if not facing else 0.0)
+                base = 0.35 if not facing else 0.0
+                priors.append(base)
+
             elif a.startswith("RAISE_") or a.startswith("OPEN_"):
                 try:
                     amt = float(a.split("_")[1])
                     frac = amt / stack
-                    base = 1.0 - abs(frac - 0.5)  # favor 50% pot bets
+                    base = 1.0 - abs(frac - 0.5)
+
+                    # EV boost
                     if evs and a in evs:
-                        base *= max(evs[a], 0.0) + 1.0  # EV-weighted boost
+                        base *= max(evs[a], 0.0) + 1.0
+
+                    # EQUITY boost → aggressive actions
+                    base *= eq_boost
                     priors.append(base)
+
                 except:
                     priors.append(0.01)
             else:
@@ -417,16 +438,14 @@ class PolicyInfer:
         # Invert: high spread → low T
         return 2.5 - 2.0 * norm  # T ∈ [0.5, 2.5]
 
-    def _predict_preflop(self, req: PolicyRequest) -> PolicyResponse:
-        # Step 1: Get hero range
+    @torch.no_grad()
+    def _predict_preflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None,
+                         villain_range: Optional[np.ndarray] = None) -> PolicyResponse:
+        # Step 1: Compute hero hand range (169-dim)
         hero_range = self.rng_pre.predict(req)
+        print("Hero range:", hero_range)
 
-        # Step 2: Estimate EVs (optional)
-        ev_calc = EVCalculator()
-        ev_sig = ev_calc.compute(req)
-        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
-
-        # Step 3: Generate legal tokens
+        # Step 2: Legal actions
         action_gen = PreflopLegalActionGenerator()
         tokens = action_gen.generate(
             stack_bb=req.eff_stack_bb or req.pot_bb or 100.0,
@@ -434,30 +453,44 @@ class PolicyInfer:
             faced_frac=req.faced_size_frac,
         )
 
-        # ✅ Step 4: Create soft prior based on hero range + EVs
-        base = self._soft_prior_blend(hero_range, tokens, req, evs)
-
+        # Step 3: EV estimation (supports villain range)
+        ev_calc = EVCalculator()
+        ev_sig = ev_calc.compute(req, tokens=tokens, villain_range=villain_range)
+        print(f"EV sig: {ev_sig}")
+        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
         ev_values = np.array([evs.get(tok, 0.0) for tok in tokens], dtype=np.float32)
+
+        # Step 4: Soft prior blend + temperature scaling
+        base_logits = self._soft_prior_blend(hero_range, tokens, req, evs, eq_sig)
+        base_logits = np.array(base_logits, dtype=np.float32)
+        base_logits = base_logits - np.max(base_logits)  # for numerical stability
+
         temp = self._compute_temperature(ev_values)
-        base = np.array(base, dtype=np.float32)
+        probs = np.exp(base_logits / max(temp, 1e-6))
+        probs = probs / probs.sum() if probs.sum() > 0 else np.ones(len(tokens)) / len(tokens)
 
-        # ✅ Step 6: Softmax with temperature
-        logits = base - base.max()  # stabilize
-        probs = np.exp(logits / max(temp, 1e-6))
-        probs = probs / probs.sum() if probs.sum() > 1e-8 else np.ones(len(tokens)) / len(tokens)
+        # Final output
+        best_action = tokens[int(np.argmax(probs))]
 
-        # Step 7: Return
+        debug = {
+            "hero_range": hero_range.tolist(),
+            "equity": eq_sig.p_win if eq_sig else None,
+            "ev_values": ev_values.tolist(),
+            "temp": temp,
+            "tokens": tokens,
+        } if req.debug else None
+
         return PolicyResponse(
             actions=tokens,
             probs=probs.tolist(),
             evs=ev_values.tolist(),
-            best_action=tokens[int(np.argmax(probs))],
-            notes=[f"preflop policy (soft prior + EV temp T={temp:.2f})"],
-            debug={"hero_range": hero_range.tolist()}
+            best_action=best_action,
+            notes=[f"preflop policy (range + EV + equity priors T={temp:.2f})"],
+            debug=debug,
         )
 
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
-        # --- Parse input ---
+        # Parse input
         if isinstance(req_input, dict):
             req = PolicyRequest(**req_input)
         elif isinstance(req_input, PolicyRequest):
@@ -467,45 +500,38 @@ class PolicyInfer:
 
         req.legalize()
 
-        # --- Infer context if missing ---
-        if not getattr(req, "ctx", None):
-            req.ctx = ContextInferer.infer_from_request(req)
-            print("[predict] inferred ctx:", req.ctx)
-
-        # --- Route by street ---
-        street = int(getattr(req, "street", 0))
-        if street == 0:
-            # ----- PREFLOP -----
-            equity = None
-            if self.eq and req.hero_hand:
-                try:
-                    hand169 = int(hand_to_169_label(req.hero_hand))
-                    out = self.eq.predict([{"street": 0, "hand_id": hand169}])
-                    if out:
-                        p_win, p_tie, p_lose = out[0]
-                        equity = {
-                            "p_win": float(p_win),
-                            "p_tie": float(p_tie),
-                            "p_lose": float(p_lose),
-                        }
-                except Exception as e:
-                    print("[predict] equity prediction failed:", e)
-                    equity = None
-
-            # Grab nudge setting from blend or raw input
-            eq_nudge = float(self.blend.equity_nudge_pre)
-            try:
-                raw_nudge = getattr(req, "raw", {}).get("equity_nudge")
-                if raw_nudge is not None:
-                    parsed = float(raw_nudge)
-                    if math.isfinite(parsed):
-                        eq_nudge = parsed
-            except Exception as e:
-                print("[predict] equity_nudge parse failed:", e)
-
-            # Forward to preflop policy predictor
-            return self._predict_preflop(req)
-
+        # Ensure ctx & action_seq BEFORE ranges/EV (postflop only)
+        if int(getattr(req, "street", 1) or 1) == 0:
+            if not hasattr(req, "action_seq") or req.action_seq is None:
+                req.action_seq = []
         else:
-            # ----- POSTFLOP -----
-            return self._predict_postflop(req)
+            ensure_ctx_and_action_seq(req)
+
+        # Villain range provider (stake-cached on the instance)
+        stake_token = str(getattr(req, "stakes", "NL10")).upper().replace(" ", "")
+        provider_path = f"data/datasets/rangenet_preflop_from_flop_{stake_token}.parquet"
+        if not hasattr(self, "_range_providers"):
+            self._range_providers = {}
+        if provider_path not in self._range_providers:
+            self._range_providers[provider_path] = VillainRangeProvider(provider_path)
+        range_provider = self._range_providers[provider_path]
+
+        # Load villain range vector (exact/nearest inside provider)
+        try:
+            villain_range_vec = range_provider.get_range_vector(
+                hero_pos=req.hero_pos,
+                villain_pos=req.villain_pos,
+                stack=req.eff_stack_bb or req.pot_bb or 100.0,
+                action_seq=getattr(req, "action_seq", []),
+            )
+        except Exception:
+            villain_range_vec = None
+
+        # Equity signal
+        eq_sig = self._signals.collect_equity(req)
+
+        # Route to street-specific policy logic
+        if int(getattr(req, "street", 1) or 1) == 0:
+            return self._predict_preflop(req, eq_sig=eq_sig, villain_range=villain_range_vec)
+        else:
+            return self._predict_postflop(req, eq_sig=eq_sig, villain_range=villain_range_vec)

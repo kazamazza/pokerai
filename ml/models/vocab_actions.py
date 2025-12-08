@@ -1,16 +1,20 @@
-ROOT_ACTION_VOCAB = [
-    "CHECK",     # allowed when no bet faced
+from typing import List, Optional, Sequence, Set
+
+# -------------------------
+# Postflop (from sidecars)
+# -------------------------
+ROOT_ACTION_VOCAB: List[str] = [
+    "CHECK",
     "BET_25",
     "BET_33",
     "BET_50",
     "BET_66",
     "BET_75",
     "BET_100",
-    "DONK_33",   # OOP-only root action
+    "DONK_33",
 ]
 
-# --- Facing actions (for responding to a bet) ---
-FACING_ACTION_VOCAB = [
+FACING_ACTION_VOCAB: List[str] = [
     "FOLD",
     "CALL",
     "RAISE_150",
@@ -20,3 +24,44 @@ FACING_ACTION_VOCAB = [
     "RAISE_500",
     "ALLIN",
 ]
+
+# -------------------------
+# Preflop (centi-bb schema)
+# -------------------------
+# OPEN_xxx / RAISE_xxx are in bb × 100 (centi-bb). e.g., 2.5bb -> OPEN_250
+PREFLOP_OPEN_TOKENS: List[str]  = ["OPEN_200", "OPEN_250", "OPEN_300"]
+PREFLOP_RAISE_TOKENS: List[str] = ["RAISE_600", "RAISE_750", "RAISE_900", "RAISE_1200"]
+
+PREFLOP_ACTION_VOCAB: List[str] = [
+    "FOLD", "CHECK", "CALL", "ALLIN",
+    *PREFLOP_OPEN_TOKENS,
+    *PREFLOP_RAISE_TOKENS,
+]
+
+# -------------------------
+# Helpers (preflop tokens)
+# -------------------------
+def encode_open_cbb(size_bb: float) -> str:
+    return f"OPEN_{int(round(float(size_bb) * 100))}"
+
+def encode_raise_total_cbb(total_bb: float) -> str:
+    return f"RAISE_{int(round(float(total_bb) * 100))}"
+
+def decode_open_cbb(tok: str) -> Optional[float]:
+    if not tok.startswith("OPEN_"): return None
+    try: return int(tok.split("_", 1)[1]) / 100.0
+    except Exception: return None
+
+def decode_raise_total_cbb(tok: str) -> Optional[float]:
+    if not tok.startswith("RAISE_"): return None
+    try: return int(tok.split("_", 1)[1]) / 100.0
+    except Exception: return None
+
+def is_postflop_root(tok: str) -> bool:
+    return tok in set(ROOT_ACTION_VOCAB)
+
+def is_postflop_facing(tok: str) -> bool:
+    return tok in set(FACING_ACTION_VOCAB)
+
+def is_preflop(tok: str) -> bool:
+    return tok in set(PREFLOP_ACTION_VOCAB)

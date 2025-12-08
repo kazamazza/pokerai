@@ -1,32 +1,103 @@
+# file: ml/inference/preflop/generator.py
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence, Tuple
+
+from ml.models.vocab_actions import PREFLOP_ACTION_VOCAB
+
+
+@dataclass
 class PreflopLegalActionGenerator:
     """
-    Generates legal preflop action tokens like FOLD, CALL, OPEN_200, RAISE_300 etc
-    based on stack, facing, and faced size.
+    Deterministic preflop action generator (centi-bb tokens).
+    - OPEN_250 => 2.50bb total.
+    - RAISE_750 => 7.50bb final total vs faced.
+    - Emits CHECK only when BB has a free option (caller sets free_check=True).
+    - Filters by stack and faced size; preserves stable ordering.
     """
+    open_sizes_cbb: Sequence[int]  = field(default_factory=lambda: (200, 250, 300))
+    raise_totals_cbb: Sequence[int] = field(default_factory=lambda: (600, 750, 900, 1200))
+    allow_allin: bool = False
+    max_open_cbb: Optional[int] = None  # None -> cap at stack
+    _tol: float = 1e-9
 
-    def __init__(self, *, min_open_bb=2.0, raise_multipliers=[2.5, 3.0, 4.0], max_bb_factor=2.0):
-        self.min_open_bb = min_open_bb
-        self.raise_multipliers = raise_multipliers
-        self.max_bb_factor = max_bb_factor
+    def _order_key(self, tok: str) -> Tuple[int, float]:
+        if tok == "FOLD":  return (0, 0.0)
+        if tok == "CHECK": return (1, 0.0)
+        if tok == "CALL":  return (2, 0.0)
+        if tok.startswith("OPEN_"):
+            try: v = float(tok.split("_", 1)[1])
+            except Exception: v = 0.0
+            return (3, v)
+        if tok.startswith("RAISE_"):
+            try: v = float(tok.split("_", 1)[1])
+            except Exception: v = 0.0
+            return (4, v)
+        if tok == "ALLIN": return (5, float("inf"))
+        return (9, 0.0)
 
-    def generate(self, stack_bb: float, facing_bet: bool, faced_frac: float | None = None) -> list[str]:
-        faced_frac = faced_frac or 0.0
-        max_raise = stack_bb * self.max_bb_factor
-        tokens = []
+    @staticmethod
+    def _bb_to_cbb(x: float) -> int:
+        return int(round(max(0.0, float(x)) * 100))
 
-        if facing_bet:
-            tokens.append("FOLD")
-            if faced_frac > 0.0:
-                tokens.append("CALL")
-            for m in self.raise_multipliers:
-                amt = round(faced_frac * stack_bb * m)
-                if self.min_open_bb <= amt <= max_raise:
-                    tokens.append(f"RAISE_{int(amt)}")
+    @staticmethod
+    def _cbb_to_bb(x: int) -> float:
+        return max(0, int(x)) / 100.0
+
+    def _cap_open(self, open_cbb: int, stack_cbb: int) -> bool:
+        if open_cbb <= 0: return False
+        if self.max_open_cbb is not None and open_cbb > self.max_open_cbb: return False
+        return open_cbb <= stack_cbb
+
+    @staticmethod
+    def _cap_raise(total_cbb: int, stack_cbb: int, faced_cbb: int) -> bool:
+        if total_cbb <= faced_cbb: return False
+        return total_cbb <= stack_cbb
+
+    def generate(
+        self,
+        *,
+        stack_bb: float,
+        facing_bet: bool,
+        faced_size_bb: Optional[float] = None,
+        faced_frac: Optional[float] = None,
+        free_check: bool = False,  # True when BB can check for free (no unopened action faced)
+    ) -> List[str]:
+        stack_cbb = self._bb_to_cbb(stack_bb)
+        faced_cbb = 0
+        if faced_size_bb is not None:
+            faced_cbb = self._bb_to_cbb(faced_size_bb)
+        elif faced_frac is not None and stack_bb > 0:
+            faced_cbb = self._bb_to_cbb(float(faced_frac) * float(stack_bb))
+
+        toks: List[str] = ["FOLD"]
+
+        if not facing_bet:
+            if free_check:
+                toks.append("CHECK")
+            for oc in self.open_sizes_cbb:
+                oc = int(oc)
+                if self._cap_open(oc, stack_cbb):
+                    toks.append(f"OPEN_{oc}")
+            if self.allow_allin and stack_cbb > 0:
+                toks.append("ALLIN")
         else:
-            tokens.append("FOLD")
-            for m in self.raise_multipliers:
-                amt = round(self.min_open_bb * m)
-                if amt <= max_raise:
-                    tokens.append(f"OPEN_{int(amt)}")
+            if faced_cbb > 0:
+                toks.append("CALL")
+            for rc in self.raise_totals_cbb:
+                rc = int(rc)
+                if self._cap_raise(rc, stack_cbb, faced_cbb):
+                    toks.append(f"RAISE_{rc}")
+            if self.allow_allin and stack_cbb > 0:
+                toks.append("ALLIN")
 
-        return sorted(set(tokens), key=lambda x: ["FOLD", "CALL", "CHECK"].index(x) if x in ["FOLD", "CALL", "CHECK"] else 99)
+        # Dedup + stable order
+        toks = sorted(set(toks), key=self._order_key)
+
+        # Optional: clamp to known vocab (keeps training/inference aligned)
+        vocab = set(PREFLOP_ACTION_VOCAB)
+        toks = [t for t in toks if t in vocab]
+        if not toks:
+            # conservative safety: if everything filtered, expose minimal safe set
+            toks = ["FOLD"] + (["CHECK"] if free_check else []) + (["CALL"] if facing_bet and faced_cbb > 0 else [])
+        return toks

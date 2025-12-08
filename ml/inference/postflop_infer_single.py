@@ -4,12 +4,13 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ml.inference.context_infer import ContextInferer
 from ml.inference.policy.types import PolicyRequest, PolicyResponse  # noqa: E402
 from ml.inference.postflop_single.facing import is_hero_ip, infer_facing_and_size
 from ml.inference.postflop_single.features import compute_cluster_id, encode_cats, encode_cont
 from ml.inference.postflop_single.legality import mask_root, mask_facing
 from ml.models.postflop_policy_side_net import PostflopPolicySideLit
-from ml.utils.board_mask import make_board_mask_52
 from ml.utils.device import to_device
 from ml.utils.sidecar import load_sidecar
 
@@ -17,10 +18,7 @@ from ml.utils.sidecar import load_sidecar
 class PostflopPolicyInferSingle:
     """
     Clean, single-side inferencer (ROOT or FACING).
-    - Loads with sidecar schema (cards, feature_order, cont_features, action_vocab).
-    - Derives facing & faced size if not explicit.
-    - Builds features and legality strictly from sidecar.
-    - Returns masked softmax with temperature applied once here.
+    Loads sidecar schema; builds features strictly per sidecar; no silent ctx defaults.
     """
 
     def __init__(
@@ -80,7 +78,6 @@ class PostflopPolicyInferSingle:
         dev = to_device(device)
         sc = load_sidecar(sidecar_path)
 
-        # --- schema from sidecar ---
         feature_order = sc.get("feature_order") or sc.get("cat_feature_order") or []
         card_sizes_raw = sc.get("card_sizes") or sc.get("cards") or {}
         id_maps = sc.get("id_maps") or {}
@@ -93,7 +90,6 @@ class PostflopPolicyInferSingle:
         card_sizes = {str(k): int(v) for k, v in card_sizes_raw.items()}
         lit_side = sc.get("side") or "ip"
 
-        # --- try Lightning load with sidecar-driven init ---
         lit = None
         try:
             lit = PostflopPolicySideLit.load_from_checkpoint(
@@ -102,10 +98,9 @@ class PostflopPolicyInferSingle:
                 side=lit_side,
                 card_sizes=card_sizes,
                 cat_feature_order=feature_order,
-                action_vocab=sidecar_vocab,  # preferred to set head width
+                action_vocab=sidecar_vocab,
             ).eval().to(dev)
         except TypeError:
-            # older checkpoints may not accept action_vocab in __init__
             try:
                 lit = PostflopPolicySideLit.load_from_checkpoint(
                     checkpoint_path=str(checkpoint_path),
@@ -115,7 +110,6 @@ class PostflopPolicyInferSingle:
                     cat_feature_order=feature_order,
                 ).eval().to(dev)
             except Exception:
-                # final fallback: manual init + strict state load
                 state = torch.load(str(checkpoint_path), map_location=dev)
                 state_dict = state.get("state_dict", state) if isinstance(state, dict) else state
                 try:
@@ -134,7 +128,6 @@ class PostflopPolicyInferSingle:
                 lit.load_state_dict(state_dict, strict=True)
                 lit.eval().to(dev)
 
-        # --- resolve vocab: prefer model's own vocab if present ---
         model_vocab = None
         try:
             mv = getattr(lit, "vocab", None)
@@ -144,7 +137,6 @@ class PostflopPolicyInferSingle:
             pass
         action_vocab = model_vocab if model_vocab else list(sidecar_vocab)
 
-        # --- sanity: head width must match vocab size if observable ---
         out_dim = None
         try:
             out_dim = int(getattr(lit, "head").out_features)
@@ -159,7 +151,6 @@ class PostflopPolicyInferSingle:
                 f"Check sidecar/ckpt alignment.\n  sidecar={sidecar_path}\n  ckpt={checkpoint_path}"
             )
 
-        # --- wrap & return (clusterer injected later by router/PolicyInfer) ---
         return cls(
             model=lit,
             feature_order=feature_order,
@@ -168,7 +159,7 @@ class PostflopPolicyInferSingle:
             cont_features=cont_features,
             action_vocab=action_vocab,
             device=dev,
-            clusterer=None,  # intentionally None here; set via router.set_clusterer(...) later
+            clusterer=None,
         )
 
     @classmethod
@@ -206,7 +197,6 @@ class PostflopPolicyInferSingle:
         return facing, size_frac
 
     def infer_root_menu(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[List[float]]]:
-        # You can define this however you want; here’s a safe default
         is_facing, _, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
         is_root = not is_facing
         bet_menu = None
@@ -244,13 +234,34 @@ class PostflopPolicyInferSingle:
                 try:
                     hero_is_ip = POST.index(hpos) > POST.index(vpos)
                 except ValueError:
-                    hero_is_ip = True  # safe default
+                    hero_is_ip = True
 
-        # --- misc fields ---
-        ctx = (getattr(req, "ctx", None)
-               or (getattr(req, "raw", {}) or {}).get("ctx")
-               or "VS_OPEN")
-        board = getattr(req, "board", None) or ""
+        # ctx inference (no silent defaults)
+        ctx_raw = (getattr(req, "ctx", None) or (getattr(req, "raw", {}) or {}).get("ctx"))
+        if not ctx_raw:
+            ctx_infer, reason = ContextInferer.infer_with_reason(req)
+            if not ctx_infer:
+                raise ValueError(f"ctx inference failed: {reason}")
+            ctx = ctx_infer
+        else:
+            ctx = str(ctx_raw).upper()
+
+        print(f"ctx: {ctx}")
+
+        # sidecar compatibility
+        ctx_id_map = self.id_maps.get("ctx", {}) or {}
+        if ctx == "BLIND_VS_STEAL" and "BLIND_VS_STEAL" not in ctx_id_map:
+            ctx = "VS_OPEN"
+        if ctx not in ctx_id_map:
+            raise ValueError(f"ctx '{ctx}' not in sidecar id_maps.ctx={list(ctx_id_map.keys())}")
+
+        # board canonicalization
+        board_in = getattr(req, "board", None) or ""
+        if isinstance(board_in, (list, tuple)):
+            board = "".join(board_in)
+        else:
+            board = str(board_in).replace(" ", "")
+
         pot_bb = float(getattr(req, "pot_bb", 0.0) or 0.0)
         eff_stack_bb = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
         cluster_id = compute_cluster_id(board, self.clusterer, self.id_maps, self.board_cluster_feat)
@@ -259,14 +270,24 @@ class PostflopPolicyInferSingle:
             "hero_pos": ("IP" if hero_is_ip else "OOP"),
             "ip_pos": "IP",
             "oop_pos": "OOP",
-            "ctx": ctx,  # maps via id_maps["ctx"]
-            "street": street,  # int -> "1" mapping handled by encode_cats (casts to str)
-            "board": board,  # used only by board_mask_52 in encode_cont
+            "ctx": ctx,
+            "street": "1",  # flop-only categorical
+            "board": board,
             "pot_bb": pot_bb,
             "eff_stack_bb": eff_stack_bb
         }
-        if cluster_id is not None and self.board_cluster_feat:
-            row[self.board_cluster_feat] = int(cluster_id)
+
+        if self.board_cluster_feat:
+            safe_cluster = int(cluster_id) if cluster_id is not None else 0
+            row[self.board_cluster_feat] = safe_cluster
+
+        if "stakes_id" in self.feature_order:
+            sid_map = self.id_maps.get("stakes_id", {})
+            raw = getattr(getattr(req, "stakes", None), "value", None)
+            key = str(raw if raw is not None else getattr(req, "stakes", "2"))
+            if key not in sid_map and sid_map:
+                key = next(iter(sid_map.keys()))
+            row["stakes_id"] = key
 
         bet_menu = None
         if isinstance(getattr(req, "bet_sizes", None), (list, tuple)):
@@ -277,41 +298,36 @@ class PostflopPolicyInferSingle:
 
         facing, size_frac, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
 
-        # Alias eff_stack_bb -> stack_bb if the model expects it
         if "stack_bb" in self.cont_features and "stack_bb" not in row:
             row["stack_bb"] = eff_stack_bb
-        # Ensure size_frac present when facing; else 0.0
         if "size_frac" in self.cont_features:
             row["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
 
-        # --- encode & forward ---
         x_cat = encode_cats(self.feature_order, self.cards, self.id_maps, [row], self.device)
         x_cont = encode_cont(self.cont_features, [row], self.device)
 
-        logits = self.model(x_cat, x_cont)  # [1, V]
+        logits = self.model(x_cat, x_cont)
         is_root_model = ("CHECK" in self.action_vocab)
 
-        # --- legality mask (side-specific) ---
         if is_root_model:
             mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu).view(1, -1).to(logits.device)
         else:
             mask = mask_facing(self.action_vocab).view(1, -1).to(logits.device)
 
-        # --- masked softmax (temperature applied once here) ---
         big_neg = torch.finfo(logits.dtype).min / 4
         masked = torch.where(mask > 0.5, logits / max(float(temperature), 1e-6), big_neg)
         probs = F.softmax(masked, dim=-1)[0].tolist()
 
-        # optional: richer debug (kept short here)
         dbg = {
             "mask_nz": int(mask.sum().item()),
             "hero_is_ip": hero_is_ip,
             "cluster_feat": self.board_cluster_feat,
-            "board_cluster_id": int(cluster_id) if cluster_id is not None else None,
+            "board_cluster_id": int(row.get(self.board_cluster_feat)) if self.board_cluster_feat else None,
             "facing": facing,
             "size_frac": float(size_frac) if size_frac is not None else None,
-            "encoded_pos": row["hero_pos"],  # "IP"/"OOP"
-            "raw_positions": [hpos, vpos],  # for sanity
+            "encoded_pos": row["hero_pos"],
+            "raw_positions": [hpos, vpos],
+            "ctx": ctx,
         }
         logits_out = logits[0].tolist()
 
@@ -323,11 +339,3 @@ class PostflopPolicyInferSingle:
             debug=dbg,
             logits=logits_out
         )
-
-
-def _has_param(cls, name: str) -> bool:
-    import inspect
-    try:
-        return name in inspect.signature(cls.__init__).parameters
-    except Exception:
-        return False
