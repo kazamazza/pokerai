@@ -1,44 +1,45 @@
-# ml/config/evnet/preflop/base.yaml
-# ==========================================================
-# EVNet — PREFLOP (street=0)
-# Predict EV per preflop token (OPEN_/RAISE_/CALL/etc.).
-# ==========================================================
-
 dataset:
   seed: 42
-
-  # Categorical features
+  # keep these in sync with what your builder actually writes!
   x_cols: ["hero_pos", "villain_pos", "stakes_id", "facing_flag", "free_check", "hand_id"]
-
-  # Continuous features
   cont_cols: ["stack_bb", "pot_bb", "faced_frac"]
-
-  # Targets in model.action_vocab order
   y_cols: null
-
-  # Weights (write from builder = # MC sims)
   weight_col: "weight"
   min_weight: null
-
-  # Keep splits balanced by stakes / state and coarse stack
-  stratify_keys: ["stakes_id", "facing_flag", "stack_bin"]
+  stratify_keys: ["stakes_id", "facing_flag"]  # add "stack_bin" only if builder writes it
 
 build:
-  # Where to source rows (preflop contexts)
   include_facing: true
   include_unopened: true
-  # Sampling
-  stacks_bb: [25, 60, 100, 150]
-  faced_fracs: [0.0, 0.25, 0.33, 0.5]  # 0.0 used for unopened
+
+  # Broader stack coverage (binned by you later if desired)
+  stacks_bb: [25, 40, 60, 80, 100, 150]
+
+  # Faced sizes (0.0 is the unopened branch)
+  faced_fracs: [0.33, 0.66]
+
+  # Enumerate common heads-up preflop seat pairs (hero_pos, villain_pos)
   pairs:
-    - ["UTG","HJ"]   # examples; builder can enumerate all legal preflop pairs as you prefer
+    - ["UTG","HJ"]
     - ["UTG","CO"]
     - ["UTG","BTN"]
+    - ["UTG","SB"]
+    - ["UTG","BB"]
     - ["HJ","CO"]
     - ["HJ","BTN"]
+    - ["HJ","SB"]
+    - ["HJ","BB"]
     - ["CO","BTN"]
-    - ["SB","BB"]
-  samples_per_combination: 64
+    - ["CO","SB"]
+    - ["CO","BB"]
+    - ["BTN","SB"]
+    - ["BTN","BB"]
+    - ["SB","BB"]   # BB can free-check when unopened in this pair
+
+  # Crank this up for production volume (row count scales linearly)
+  samples_per_combination: 512
+
+  pre_pot_bb: 1.5   # preflop antes/pot model (keep as-is unless your game format differs)
 
 compute:
   engine: eval7
@@ -46,7 +47,7 @@ compute:
   chunk_size: 4096
   log_every_n: 20000
   seed: 42
-  preflop_samples: 20000
+  preflop_samples: 5000   # MC sims per row; keep moderate and use 'weight' to reflect it
   river_exact: true
 
 paths:
@@ -55,35 +56,35 @@ paths:
   tmp_dir:       data/tmp/evnet_preflop
 
 inputs:
-  # If you want to reuse any preflop range parquet as helper features later
   preflop_ranges_parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
 
 validation:
   strict: true
 
 model:
-  # Output = len(action_vocab) EVs
+  # MUST match your generator’s centi-bb tokens
   action_vocab:
     - "FOLD"
-    - "CHECK"          # BB vs unopened
-    - "CALL"           # only when facing > 0
-    - "OPEN_2"
-    - "OPEN_25"
-    - "OPEN_3"
-    - "RAISE_2P5"      # 2.5× faced bet (bb units naming)
-    - "RAISE_3"
-    - "RAISE_4"
+    - "CHECK"
+    - "CALL"
+    - "OPEN_200"
+    - "OPEN_250"
+    - "OPEN_300"
+    - "RAISE_600"
+    - "RAISE_750"
+    - "RAISE_900"
+    - "RAISE_1200"
     - "ALLIN"
   hidden_dims: [256, 256]
   dropout: 0.10
   lr: 0.001
   weight_decay: 0.0001
-  output_mode: "ev_vector"   # regression; MSE/Huber over per-action EV
+  output_mode: "ev_vector"
 
 train:
   seed: 42
   train_frac: 0.80
-  batch_size: 1024
+  batch_size: 2048
   num_workers: 0
   pin_memory: true
   max_epochs: 20
@@ -102,10 +103,10 @@ logging:
 encoders:
   id_maps:
     stakes_id:
-      "2": 0   # NL10 -> 0
+      "2": 0  # NL10 -> 0
 
 preflop_generator:
-  open_sizes_cbb: [200, 250, 300]        # OPEN_2.00bb, 2.50bb, 3.00bb
-  raise_totals_cbb: [600, 750, 900, 1200] # RAISE to 6.00, 7.50, 9.00, 12.00 bb
-  allow_allin: false
+  open_sizes_cbb: [200, 250, 300]
+  raise_totals_cbb: [600, 750, 900, 1200]
+  allow_allin: true
   max_open_cbb: null

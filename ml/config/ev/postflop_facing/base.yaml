@@ -32,7 +32,7 @@ build:
   source_policy_parquet: data/datasets/postflop_policy_facing.parquet
   stacks_bb: [25, 60, 100, 150]
   contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
-  size_fracs: [0.25, 0.33, 0.5, 1.0]
+  size_fracs: [0.33, 0.66]
   pairs_ip_oop:
     VS_OPEN:
       - ["UTG","BB"]
@@ -55,9 +55,7 @@ build:
       - ["CO","SB"]
     LIMPED_SINGLE:
       - ["BB","SB"]
-  samples_per_board: 8
-
-
+  samples_per_board: 512
 
 compute:
   engine: eval7

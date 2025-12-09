@@ -32,6 +32,13 @@ class RootInfo:
     is_root: bool
     bet_menu: Optional[List[float]] = None
 
+@dataclass
+class EVSig:
+    available: bool
+    evs: Dict[str, float]
+    best_ev: Optional[float] = None
+    err: Optional[str] = None
+
 
 # --- 169 helpers (no external HAND169_TO_ID required) -----------------------
 _FALLBACK_169_MAP: dict[str, int] | None = None
@@ -73,12 +80,13 @@ def _label_to_169_id(label: str) -> int | None:
 
 
 class SignalCollector:
-    def __init__(self, eq_model, expl_store, pop_model, router=None, router_facing=None):
+    def __init__(self, eq_model, expl_store, pop_model, router=None, router_facing=None, ev_router=None):
         self.eq = eq_model
         self.expl = expl_store
         self.pop = pop_model
         self.router = router
         self.router_facing = router_facing or (getattr(router, "facing", None) if router is not None else None)
+        self.ev_router = ev_router
 
     def _coerce_row3(self, out) -> tuple[float, float, float]:
         import numpy as np
@@ -184,3 +192,13 @@ class SignalCollector:
         if not getattr(req, "facing_bet", False):
             return RootInfo(is_root=True, bet_menu=getattr(req, "bet_sizes", None))
         return RootInfo(is_root=False)
+
+    def collect_ev(self, req, *, tokens: Sequence[str], side: Optional[str]) -> EVSig:
+        if not self.ev_router:
+            return EVSig(False, {}, None, "no_ev_router")
+        out = self.ev_router.predict(req, tokens=tokens, side=side)
+        if not out.available:
+            return EVSig(False, {}, None, out.err)
+        evs = out.evs_by_token
+        be = max(evs.values()) if evs else None
+        return EVSig(True, evs, be, None)

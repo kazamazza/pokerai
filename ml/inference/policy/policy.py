@@ -1,4 +1,3 @@
-import math
 from typing import Any, Dict, Union, List, Optional
 import numpy as np
 from ml.inference.action_context_classifier import ActionContextClassifier
@@ -217,13 +216,17 @@ class PolicyInfer:
         return m
 
     @torch.no_grad()
-    def _predict_postflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None,
-                          villain_range: Optional[np.ndarray] = None) -> PolicyResponse:
+    def _predict_postflop(
+            self,
+            req: PolicyRequest,
+            eq_sig: Optional[EquitySig] = None,
+            villain_range: Optional[np.ndarray] = None,
+    ) -> PolicyResponse:
         hero_is_ip = postflop_is_hero_ip(req)
         actor = "ip" if hero_is_ip else "oop"
         side = self._derive_side(req, hero_is_ip=hero_is_ip)
 
-        # ---------- Router model ----------
+        # ---------- 1) Router model ----------
         router_resp = self.pol_post.predict(req, actor=actor, temperature=1.0, side=side)
         actions = list(getattr(router_resp, "actions", []) or [])
         if not actions:
@@ -231,14 +234,14 @@ class PolicyInfer:
         self._update_vocab(actions)
         V = len(actions)
 
-        # ---------- Logits ----------
+        # logits from router (fall back to probs)
         if getattr(router_resp, "logits", None) is not None:
             z = torch.tensor(router_resp.logits, dtype=torch.float32).view(1, V)
         else:
             p_r = torch.tensor(router_resp.probs, dtype=torch.float32).view(1, V)
             z = torch.log(p_r.clamp_min(1e-8))
 
-        # ---------- Legal mask ----------
+        # ---------- 2) Legal mask (router ⨂ menu) ----------
         mask_router = getattr(router_resp, "mask", None)
         hero_mask_router = (
             torch.tensor(mask_router, dtype=torch.float32).view(1, V)[0]
@@ -256,15 +259,15 @@ class PolicyInfer:
         if hero_mask.sum() <= 0:
             hero_mask = torch.ones_like(menu_mask_t)
 
-        # ---------- Signals ----------
+        # ---------- 3) Signals ----------
         ex_sig = self._signals.collect_exploit(req)
         facing_info = root_info = None
         if side == "facing":
             facing_info = self._signals.collect_facing(req, hero_is_ip)
-        elif side == "root":
+        else:
             root_info = self._signals.collect_root(req, hero_is_ip)
 
-        # ---------- Equity adjustment ----------
+        # ---------- 4) Adjust logits: equity then exploit ----------
         z = z.clone()
         if self.blend.lambda_eq > 0.0 and eq_sig and eq_sig.available:
             eq_margin = float(eq_sig.p_win) - 0.5
@@ -276,21 +279,34 @@ class PolicyInfer:
             d = torch.clamp(d, -float(self.blend.eq_max_logit_delta), float(self.blend.eq_max_logit_delta))
             z = z + float(self.blend.lambda_eq) * d
 
-        # ---------- Exploit adjustment ----------
         if ex_sig.available and self.blend.lambda_expl > 0.0 and ex_sig.raw is not None:
             delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
             z = z + float(self.blend.lambda_expl) * delta
 
-        # ---------- EV Calculation ----------
+        # ---------- 5) EV signal (EVNet router) ----------
+        # ensure size_frac for facing if user didn’t pass it
+        if side == "facing" and getattr(req, "faced_size_frac", None) is None:
+            if facing_info and facing_info.size_frac is not None:
+                try:
+                    req.faced_size_frac = float(facing_info.size_frac)
+                except Exception:
+                    pass
+
+        if not hasattr(self, "ev_router") or self.ev_router is None:
+            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in your factory.")
+
+        try:
+            ev_list = self.ev_router.predict(req, side=side, tokens=actions)  # length V
+            if hasattr(ev_list, "tolist"):
+                ev_list = ev_list.tolist()
+            ev_list = [float(x) for x in ev_list]
+        except Exception:
+            ev_list = [0.0] * V
+
+        evs = {a: ev_list[i] for i, a in enumerate(actions)}
         ctx = ActionContextClassifier.from_request(req, side=side)
-        ev_calc = EVCalculator()
-        ev_sig = ev_calc.compute(req, tokens=actions, villain_range=villain_range)
 
-        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
-        best_ev = ev_sig.best_ev if ev_sig and ev_sig.available else None
-        print("evs:", evs)
-
-        # ---------- Tuner ----------
+        # ---------- 6) Tuner (uses evs) ----------
         if side == "facing":
             tuner_dbg = self._tuner.apply_facing_raise(
                 z=z,
@@ -302,7 +318,7 @@ class PolicyInfer:
                 evs=evs,
                 action_ctx=ctx,
             )
-        elif side == "root":
+        else:
             tuner_dbg = self._tuner.apply_root_bet(
                 z=z,
                 actions=actions,
@@ -313,7 +329,7 @@ class PolicyInfer:
                 action_ctx=ctx,
             )
 
-        # ---------- Final output distribution ----------
+        # ---------- 7) Final distribution ----------
         p = self._masked_softmax(
             z, hero_mask.view(1, -1),
             T=float(self.blend.temperature),
@@ -439,58 +455,88 @@ class PolicyInfer:
         return 2.5 - 2.0 * norm  # T ∈ [0.5, 2.5]
 
     @torch.no_grad()
-    def _predict_preflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None,
-                         villain_range: Optional[np.ndarray] = None) -> PolicyResponse:
-        # Step 1: Compute hero hand range (169-dim)
-        hero_range = self.rng_pre.predict(req)
-        print("Hero range:", hero_range)
+    def _predict_preflop(
+            self,
+            req: PolicyRequest,
+            eq_sig: Optional[EquitySig] = None,
+            villain_range: Optional[np.ndarray] = None,  # kept for signature parity; not used here
+    ) -> PolicyResponse:
+        """
+        Preflop policy:
+          1) hero 169-range (for priors)
+          2) legal token menu (centi-bb OPEN_/RAISE_ + CALL/CHECK/FOLD)
+          3) EV vector from EV router (aligned to tokens)
+          4) soft-prior + temp scaling → probs
+        """
+        # --- 1) Hero range (169) for priors ---
+        hero_range = self.rng_pre.predict(req)  # your existing preflop range net
 
-        # Step 2: Legal actions
-        action_gen = PreflopLegalActionGenerator()
-        tokens = action_gen.generate(
-            stack_bb=req.eff_stack_bb or req.pot_bb or 100.0,
-            facing_bet=req.facing_bet,
-            faced_frac=req.faced_size_frac,
+        # --- 2) Legal tokens (exactly the centi-bb vocab used for EV-preflop training) ---
+        stack_bb = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
+        facing_bet = bool(getattr(req, "facing_bet", False))
+        faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
+
+        # BB has a free check when unopened
+        hero_pos = (getattr(req, "hero_pos", "") or "").upper()
+        free_check = (not facing_bet) and (hero_pos == "BB")
+
+        # Use the finalized centi-bb generator you trained with
+        gen = PreflopLegalActionGenerator(
+            open_sizes_cbb=(200, 250, 300),  # 2.00, 2.50, 3.00 bb
+            raise_totals_cbb=(600, 750, 900, 1200),  # 6.00, 7.50, 9.00, 12.00 bb
+            allow_allin=False,  # match training
+            max_open_cbb=None,
         )
+        tokens = gen.generate(
+            stack_bb=stack_bb,
+            facing_bet=facing_bet,
+            faced_frac=faced_frac,
+            free_check=free_check,
+        )
+        if not tokens:
+            tokens = ["FOLD"] + (["CHECK"] if free_check else [])  # hard safety
 
-        # Step 3: EV estimation (supports villain range)
-        ev_calc = EVCalculator()
-        ev_sig = ev_calc.compute(req, tokens=tokens, villain_range=villain_range)
-        print(f"EV sig: {ev_sig}")
-        evs = ev_sig.evs if ev_sig and ev_sig.available else {}
-        ev_values = np.array([evs.get(tok, 0.0) for tok in tokens], dtype=np.float32)
+        # --- 3) EV signal from EV router (aligned to tokens) ---
+        # Expect self.ev_router to be provided by your PolicyInferFactory.
+        if not hasattr(self, "ev_router") or self.ev_router is None:
+            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in PolicyInferFactory.")
+        ev_values = self.ev_router.predict(req, side="preflop", tokens=tokens)  # List[float], same order as tokens
+        ev_values = np.asarray(ev_values, dtype=np.float32)
 
-        # Step 4: Soft prior blend + temperature scaling
-        base_logits = self._soft_prior_blend(hero_range, tokens, req, evs, eq_sig)
-        base_logits = np.array(base_logits, dtype=np.float32)
-        base_logits = base_logits - np.max(base_logits)  # for numerical stability
+        # --- 4) Soft priors + temperature scaling (uses equity & EV spread) ---
+        base_logits = np.asarray(self._soft_prior_blend(hero_range, tokens, req, dict(zip(tokens, ev_values)), eq_sig),
+                                 dtype=np.float32)
+        base_logits -= base_logits.max(initial=0.0)  # numerical stability
 
-        temp = self._compute_temperature(ev_values)
+        temp = self._compute_temperature(ev_values)  # lower T if EVs are spread out (confident)
         probs = np.exp(base_logits / max(temp, 1e-6))
-        probs = probs / probs.sum() if probs.sum() > 0 else np.ones(len(tokens)) / len(tokens)
+        probs = probs / probs.sum() if probs.sum() > 0 else np.ones(len(tokens), dtype=np.float32) / float(len(tokens))
 
-        # Final output
         best_action = tokens[int(np.argmax(probs))]
 
         debug = {
-            "hero_range": hero_range.tolist(),
-            "equity": eq_sig.p_win if eq_sig else None,
+            "hero_range_sum": float(np.sum(hero_range)),
+            "equity": (eq_sig.p_win if (eq_sig and eq_sig.available) else None),
             "ev_values": ev_values.tolist(),
-            "temp": temp,
+            "temp": float(temp),
             "tokens": tokens,
-        } if req.debug else None
+            "free_check": free_check,
+            "stack_bb": stack_bb,
+            "facing_bet": facing_bet,
+            "faced_frac": faced_frac,
+        } if getattr(req, "debug", False) else None
 
         return PolicyResponse(
             actions=tokens,
-            probs=probs.tolist(),
-            evs=ev_values.tolist(),
+            probs=probs.astype(float).tolist(),
+            evs=ev_values.astype(float).tolist(),
             best_action=best_action,
-            notes=[f"preflop policy (range + EV + equity priors T={temp:.2f})"],
+            notes=[f"preflop policy (range+EV router, T={temp:.2f})"],
             debug=debug,
         )
 
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
-        # Parse input
+        # -------- Parse input --------
         if isinstance(req_input, dict):
             req = PolicyRequest(**req_input)
         elif isinstance(req_input, PolicyRequest):
@@ -500,38 +546,48 @@ class PolicyInfer:
 
         req.legalize()
 
-        # Ensure ctx & action_seq BEFORE ranges/EV (postflop only)
-        if int(getattr(req, "street", 1) or 1) == 0:
+        # -------- Ensure ctx/action_seq BEFORE ranges/EV --------
+        street = int(getattr(req, "street", 1) or 1)
+        if street == 0:
+            # preflop: allow empty sequence but keep it present
             if not hasattr(req, "action_seq") or req.action_seq is None:
                 req.action_seq = []
         else:
             ensure_ctx_and_action_seq(req)
 
-        # Villain range provider (stake-cached on the instance)
-        stake_token = str(getattr(req, "stakes", "NL10")).upper().replace(" ", "")
+        # -------- Villain range provider (stake-cached) --------
+        stake_token = str(
+            getattr(getattr(req, "stakes", None), "value", getattr(req, "stakes", "NL10"))
+        ).upper().replace(" ", "")
         provider_path = f"data/datasets/rangenet_preflop_from_flop_{stake_token}.parquet"
+
         if not hasattr(self, "_range_providers"):
             self._range_providers = {}
         if provider_path not in self._range_providers:
             self._range_providers[provider_path] = VillainRangeProvider(provider_path)
         range_provider = self._range_providers[provider_path]
 
-        # Load villain range vector (exact/nearest inside provider)
+        # Effective stack for lookup (fallbacks if request is sparse)
+        eff_stack = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
+        if eff_stack <= 0.0:
+            eff_stack = float(getattr(req, "pot_bb", 0.0) or 0.0) or 100.0
+
+        # -------- Load villain 169-d vector (exact/nearest inside provider) --------
         try:
-            villain_range_vec = range_provider.get_range_vector(
-                hero_pos=req.hero_pos,
-                villain_pos=req.villain_pos,
-                stack=req.eff_stack_bb or req.pot_bb or 100.0,
-                action_seq=getattr(req, "action_seq", []),
+            villain_range_vec = range_provider.get_vector(
+                hero_pos=(req.hero_pos or "").upper(),
+                villain_pos=(req.villain_pos or "").upper(),
+                stack=eff_stack,
+                action_seq=list(getattr(req, "action_seq", []) or []),
             )
         except Exception:
             villain_range_vec = None
 
-        # Equity signal
+        # -------- Equity signal --------
         eq_sig = self._signals.collect_equity(req)
 
-        # Route to street-specific policy logic
-        if int(getattr(req, "street", 1) or 1) == 0:
+        # -------- Route to street-specific policy --------
+        if street == 0:
             return self._predict_preflop(req, eq_sig=eq_sig, villain_range=villain_range_vec)
         else:
             return self._predict_postflop(req, eq_sig=eq_sig, villain_range=villain_range_vec)

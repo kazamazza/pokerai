@@ -205,6 +205,8 @@ class EVParquetDataset(Dataset):
             notes="EVParquetDataset auto-generated schema",
         )
 
+
+
     # ----------------------- public API -----------------------
 
     def __len__(self) -> int:
@@ -258,6 +260,35 @@ class EVParquetDataset(Dataset):
 
     # ----------------------- helpers -----------------------
 
+    @property
+    def cont_cols(self) -> List[str]:
+        return list(self.cont_cols_raw)
+
+    @classmethod
+    def from_parquet(
+            cls,
+            *,
+            parquet_path: str,
+            action_vocab: Optional[Sequence[str]] = None,
+            action_vocab_import: Optional[str] = None,
+            x_cols: Sequence[str],
+            cont_cols: Sequence[str],
+            y_cols: Optional[Sequence[str]] = None,
+            weight_col: Optional[str] = None,
+            id_maps: Optional[Mapping[str, Mapping[str, int]]] = None,
+            cache_arrays: bool = True,
+    ) -> "EVParquetDataset":
+        return cls(
+            parquet_path=parquet_path,
+            action_vocab=action_vocab,
+            action_vocab_import=action_vocab_import,
+            x_cols=x_cols,
+            cont_cols=cont_cols,
+            y_cols=y_cols,
+            weight_col=weight_col,
+            id_maps=id_maps,
+            cache_arrays=cache_arrays,
+        )
     @property
     def sidecar(self) -> EVSidecar:
         return self._sidecar
@@ -394,3 +425,10 @@ class EVParquetDataset(Dataset):
         if self.weight_col and self.weight_col not in self.df.columns:
             # silently create a ones column to avoid crashing
             self.df[self.weight_col] = 1.0
+
+def ev_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    x_cat  = torch.stack([b["x_cat"]  for b in batch], dim=0)
+    x_cont = torch.stack([b["x_cont"] for b in batch], dim=0)
+    y      = torch.stack([b["y"]      for b in batch], dim=0)
+    w      = torch.stack([b["w"]      for b in batch], dim=0) if ("w" in batch[0]) else torch.ones(len(batch))
+    return {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}

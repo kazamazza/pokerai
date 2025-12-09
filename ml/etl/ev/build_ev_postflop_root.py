@@ -22,6 +22,8 @@ from ml.inference.postflop_ctx import ALLOWED_PAIRS
 from ml.utils.board_mask import make_board_mask_52
 from ml.utils.config import load_model_config
 from ml.models.vocab_actions import ROOT_ACTION_VOCAB as ACTION_TOKENS
+from ml.features.hands import hand169_id_from_hand_code
+from ml.etl.ev.common import pairs_from_cfg, stakes_id_from_cfg, write_outputs
 
 def _default_pot_by_ctx(ctx: str) -> float:
     c = (ctx or "").upper()
@@ -32,18 +34,16 @@ def _default_pot_by_ctx(ctx: str) -> float:
     return 7.5
 
 
-def build_ev_postflop_root(cfg_path: Optional[str] = None) -> pd.DataFrame:
-    """
-    Build EV parquet for POSTFLOP ROOT (first-to-act, OOP model in your sidecar).
-    - Uses ROOT action vocab (CHECK, BET_xx, DONK_33).
-    - EVMC must understand BET_xx/DONK_33 as pot-fraction bets.
-    """
-    cfg = (
-        load_model_config(path=cfg_path)
-        if (cfg_path and cfg_path.endswith(".yaml"))
-        else load_model_config(model="ev", variant="postflop_root", profile="base")
-    )
+def _action_seq_for_ctx(ctx: str) -> List[str]:
+    ctx = (ctx or "").upper()
+    if ctx == "VS_OPEN":        return ["RAISE", "CALL", ""]
+    if ctx == "VS_3BET":        return ["RAISE", "3BET", "CALL"]
+    if ctx == "VS_4BET":        return ["RAISE", "3BET", "4BET"]
+    if ctx == "LIMPED_SINGLE":  return ["LIMP", "CHECK", ""]
+    return ["", "", ""]
 
+
+def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
     dataset = cfg.get("dataset", {}) or {}
     build    = cfg.get("build", {}) or {}
     compute  = cfg.get("compute", {}) or {}
@@ -55,10 +55,10 @@ def build_ev_postflop_root(cfg_path: Optional[str] = None) -> pd.DataFrame:
     random.seed(seed)
     np.random.seed(seed)
 
-    # Build knobs
-    stacks_bb: List[float]  = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
-    samples_per_combo: int  = int(build.get("samples_per_combination", 64))
-    ctxs: List[str]         = [str(x).upper() for x in build.get("ctxs", ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
+    # Knobs
+    stacks_bb: List[float] = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
+    samples_per_board: int = int(build.get("samples_per_board", 8))
+    ctxs: List[str] = [str(x).upper() for x in build.get("contexts", ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
     pot_overrides: Dict[str, float] = {k.upper(): float(v) for k, v in (build.get("pot_by_ctx", {}) or {}).items()}
 
     # Stake artifacts
@@ -68,45 +68,48 @@ def build_ev_postflop_root(cfg_path: Optional[str] = None) -> pd.DataFrame:
 
     # Engines / artifacts
     vrp       = VillainRangeProvider(ranges_parquet)
-    clusterer = load_board_clusterer(cfg)
+    clusterer = load_board_clusterer(cfg)  # needs board_clustering in cfg
     evmc      = EVMC(samples=int(compute.get("root_samples", 5000)), seed=seed)
 
-    rows: List[Dict[str, float | int | str | None]] = []
-
-    # Progress estimation
+    # Progress
     total_pairs = sum(len(ALLOWED_PAIRS.get(c, ())) for c in ctxs)
-    total = total_pairs * max(1, len(stacks_bb)) * samples_per_combo
-    pbar = tqdm(total=total, desc="ev_postflop_root", ncols=100)
+    total = total_pairs * max(1, len(stacks_bb)) * samples_per_board
+    pbar = tqdm(total=total, desc=f"Building EV (postflop:root)[{stakes_token}]", unit="row", ncols=100)
+
+    rows: List[Dict[str, Any]] = []
 
     for ctx in ctxs:
         allowed_pairs = sorted(ALLOWED_PAIRS.get(ctx, set()))
         if not allowed_pairs:
             continue
 
-        action_seq = infer_action_sequence(ctx)
-        base_pot   = pot_overrides.get(ctx, _default_pot_by_ctx(ctx))
+        action_seq = _action_seq_for_ctx(ctx)
+        base_pot   = float(pot_overrides.get(ctx, _default_pot_by_ctx(ctx)))
 
         for (ip_seat, oop_seat) in allowed_pairs:
-            # Root sidecar is OOP in your dump → hero_pos="OOP"
-            hero_pos = "OOP"
+            # Root sidecar is OOP → hero_pos="OOP" (actor at root)
+            hero_pos_role = "OOP"
+            ip_pos, oop_pos = "IP", "OOP"
 
             for stack in stacks_bb:
-                # faced_size for root is 0 (no bet faced); size_frac not needed
-                faced_bb = 0.0
+                # Root: not facing a bet
+                size_frac = 0.0
+                faced_bb  = 0.0
 
-                for _ in range(samples_per_combo):
-                    # Sample hero & flop with collision guards in helpers
+                for _ in range(samples_per_board):
+                    # Sample hero & board (avoid collisions)
                     hero  = sample_random_hand_excluding(exclude=[])
                     board = sample_random_flop_excluding(exclude=[hero[:2], hero[2:]])
+                    hand_id = int(hand169_id_from_hand_code(hero))
 
-                    # Features
+                    # Board features
                     bmask = make_board_mask_52(board)
                     try:
                         cluster_id = int(clusterer.predict(board))
                     except Exception:
                         cluster_id = 0
 
-                    # Preflop villain range vec (169-d) keyed by action_seq
+                    # Preflop villain 169-d vector
                     vvec = vrp.get_vector(
                         hero_pos=ip_seat,
                         villain_pos=oop_seat,
@@ -114,7 +117,7 @@ def build_ev_postflop_root(cfg_path: Optional[str] = None) -> pd.DataFrame:
                         action_seq=action_seq,
                     )
 
-                    # EVs aligned to ROOT vocab order
+                    # EVs for ROOT vocab (CHECK/BET_xx/DONK_33)
                     evs = evmc.compute_ev_vector(
                         ACTION_TOKENS,
                         hero_hand=hero,
@@ -125,46 +128,75 @@ def build_ev_postflop_root(cfg_path: Optional[str] = None) -> pd.DataFrame:
                         villain_vec=vvec,
                     )
 
-                    # Row
-                    row = {
-                        "stakes_id": stakes_id,
-                        "street": 1,
+                    rows.append({
+                        # Categorical inputs (match dataset.x_cols)
+                        "hero_pos": hero_pos_role,     # "OOP"
+                        "ip_pos": ip_pos,              # "IP"
+                        "oop_pos": oop_pos,            # "OOP"
                         "ctx": ctx,
-                        "ip_pos": "IP",
-                        "oop_pos": "OOP",
-                        "hero_pos": hero_pos,          # "OOP"
-                        "board": board,
-                        "board_cluster_id": cluster_id,
+                        "street": 1,
+                        "board_cluster_id": int(cluster_id),
+                        "stakes_id": stakes_id,
+                        "hand_id": hand_id,
+
+                        # Continuous inputs (match dataset.cont_cols)
+                        "board_mask_52": bmask,
                         "pot_bb": float(base_pot),
                         "stack_bb": float(stack),
-                        # board mask (bm0..bm51) to keep loader simple
-                        **{f"bm{i}": float(bmask[i]) for i in range(52)},
-                        # EV targets one column per action token
-                        **{f"ev_{tok}": float(e) for tok, e in zip(ACTION_TOKENS, evs)},
-                        # weight = number of sims used
+                        "size_frac": float(size_frac),  # 0.0 at root
+
+                        # Targets (one column per action in vocab)
+                        **{f"ev_{tok}": float(val) for tok, val in zip(ACTION_TOKENS, evs)},
+
+                        # Weight = MC sims count
                         "weight": int(evmc.samples),
-                        # optional for audit/debug
+
+                        # Optional audit fields
+                        "board": board,
                         "hero_hand": hero,
                         "ip_seat": ip_seat,
                         "oop_seat": oop_seat,
-                    }
-                    rows.append(row)
+                    })
+
                     pbar.update(1)
 
     pbar.close()
     df = pd.DataFrame(rows)
 
-    out_path = paths.get("parquet_path") or f"data/datasets/ev_postflop_root_{stakes_token}.parquet"
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(out_path, index=False)
-    print(f"✅ ev_postflop_root → {out_path}  rows={len(df):,}")
-
+    # Persist via your helper
+    write_outputs(
+        df,
+        cfg,
+        manifest_key="paths.manifest_path",
+        parquet_key="paths.parquet_path",
+    )
     return df
 
 
-if __name__ == "__main__":
+def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="", help="Optional direct YAML path.")
+    ap.add_argument("--config", type=str, default="ml/config/ev/postflop_root/base.yaml",
+                    help="Path to YAML, or 'ev/postflop_root/base' triple.")
     args = ap.parse_args()
-    build_ev_postflop_root(cfg_path=args.config.strip() or None)
+
+    cfg_arg = args.config.strip()
+    if cfg_arg.endswith(".yaml"):
+        cfg = load_model_config(path=cfg_arg)
+    else:
+        parts = cfg_arg.split("/")
+        if len(parts) == 3:
+            model, variant, profile = parts
+            cfg = load_model_config(model=model, variant=variant, profile=profile)
+        elif len(parts) == 2:
+            model, variant = parts
+            cfg = load_model_config(model=model, variant=variant, profile="base")
+        else:
+            cfg = load_model_config(path=cfg_arg)
+
+    df = build_ev_postflop_root(cfg)
+    print(f"✅ ev_postflop_root → {cfg.get('paths',{}).get('parquet_path','<unknown>')}  rows={len(df):,}")
+
+
+if __name__ == "__main__":
+    main()

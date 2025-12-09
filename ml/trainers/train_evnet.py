@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Mapping
 
+import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
-import torch
 from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader, Subset
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
+
+from ml.datasets.evnet import EVParquetDataset, ev_collate_fn, _import_symbol
+from ml.datasets.utils_dataset import stratified_indices
+from ml.models.evnet import EVLit, EVNetConfig, EVNet
+from ml.trainers.sweep import run_sweep, parse_scalar_from_ckpt, finalize_best_artifacts
+from ml.utils.config import load_model_config
+from ml.utils.ev_sidecar import write_ev_sidecar
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Utils
@@ -78,18 +87,51 @@ def _make_datasets(
     seed = int(d_cfg.get("seed", 42))
     train_frac = float(_get(cfg, "train.train_frac", 0.8))
 
-    # Use the dataset's convenience factory
-    return EVParquetDataset.from_parquet(
+    full_ds = EVParquetDataset(
         parquet_path=parquet_path,
         action_vocab=action_vocab,
         x_cols=x_cols,
         cont_cols=cont_cols,
         y_cols=y_cols,
         weight_col=weight_col,
-        stratify_keys=stratify_keys,
-        train_frac=train_frac,
-        seed=seed,
     )
+
+    n = len(full_ds.df)
+    idx = np.arange(n)
+    rng = np.random.RandomState(seed)
+
+    if stratify_keys:
+        train_idx, val_idx = stratified_indices(full_ds.df, stratify_keys, train_frac, seed)
+    else:
+        rng.shuffle(idx)
+        cut = int(n * train_frac)
+        train_idx, val_idx = idx[:cut], idx[cut:]
+
+    train_df = full_ds.df.iloc[train_idx].reset_index(drop=True)
+    val_df   = full_ds.df.iloc[val_idx].reset_index(drop=True)
+
+    # Reuse id_maps so encodings are identical across splits
+    id_maps = getattr(full_ds, "id_maps", None)
+
+    train_ds = EVParquetDataset(
+        dataframe=train_df,
+        action_vocab=action_vocab,
+        x_cols=x_cols,
+        cont_cols=cont_cols,
+        y_cols=y_cols,
+        weight_col=weight_col,
+        id_maps=id_maps,
+    )
+    val_ds = EVParquetDataset(
+        dataframe=val_df,
+        action_vocab=action_vocab,
+        x_cols=x_cols,
+        cont_cols=cont_cols,
+        y_cols=y_cols,
+        weight_col=weight_col,
+        id_maps=id_maps,
+    )
+    return train_ds, val_ds
 
 
 def _make_trainer(cfg: Dict[str, Any], ckpt_dir: str, tb_dir: str, resume_from: Optional[str]) -> pl.Trainer:
@@ -161,78 +203,149 @@ def _write_ev_sidecar(best_ckpt: Optional[str], *, action_vocab: List[str], ds: 
         return None
 
 
-# ───────────────────────────────────────────────────────────────────────────────
-# Single-run training (used by sweep too)
-# ───────────────────────────────────────────────────────────────────────────────
-def run_train_ev(cfg: Dict[str, Any]) -> str:
-    # Repro
-    seed = int(_get(cfg, "train.seed", _get(cfg, "dataset.seed", 42)))
-    pl.seed_everything(seed, workers=True)
+def run_train(cfg: Mapping[str, Any]) -> str:
+    # -------------------- seed --------------------
+    seed = int(_get(cfg, "train.seed", 42))
+    pl.seed_everything(seed)
 
-    # Paths & vocab
-    parquet_path, ckpt_dir, tb_dir = _resolve_paths_from_cfg(cfg)
-    action_vocab = _resolve_action_vocab(cfg, parquet_path)
-
-    # Datasets / loaders
-    train_ds, val_ds = _make_datasets(parquet_path, cfg, action_vocab)
-    batch_size = int(_get(cfg, "train.batch_size", 1024))
-    num_workers = int(_get(cfg, "train.num_workers", 0))
-    pin_memory = bool(_get(cfg, "train.pin_memory", True))
-
-    train_dl = torch.utils.data.DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory
+    # -------------------- paths -------------------
+    parquet_path = (
+        _get(cfg, "inputs.parquet")
+        or _get(cfg, "paths.parquet_path")
+        or _get(cfg, "paths.parquet")
     )
-    val_dl = torch.utils.data.DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory
-    )
+    if not parquet_path:
+        raise ValueError("Missing parquet path (tried inputs.parquet, paths.parquet_path, paths.parquet)")
 
-    # Model
-    hidden_dims = list(_get(cfg, "model.hidden_dims", [256, 256]))
-    dropout = float(_get(cfg, "model.dropout", 0.10))
-    lr = float(_get(cfg, "model.lr", 1e-3))
-    weight_decay = float(_get(cfg, "model.weight_decay", 1e-4))
-    l1 = float(_get(cfg, "model.l1", 0.0))
+    # ----------------- vocab resolve --------------
+    action_vocab = None
+    imp = _get(cfg, "model.action_vocab_import", None)
+    if imp:
+        action_vocab = _import_symbol(imp)
+    if action_vocab is None:
+        action_vocab = _get(cfg, "model.action_vocab", None)
+    if not action_vocab:
+        raise ValueError("model.action_vocab or model.action_vocab_import is required")
 
-    lit = EVLightningModule(
+    # --------------- dataset schema ---------------
+    x_cols     = list(_get(cfg, "dataset.x_cols", []))
+    cont_cols  = list(_get(cfg, "dataset.cont_cols", []))
+    y_cols     = _get(cfg, "dataset.y_cols", None)          # usually None → infer from vocab
+    weight_col = _get(cfg, "dataset.weight_col", "weight")
+    strat_keys = _get(cfg, "dataset.stratify_keys", None)
+    train_frac = float(_get(cfg, "train.train_frac", 0.8))
+
+    # ------------------ dataset -------------------
+    ds = EVParquetDataset(
+        parquet_path=parquet_path,
         action_vocab=action_vocab,
-        hidden_dims=hidden_dims,
-        dropout=dropout,
-        lr=lr,
-        weight_decay=weight_decay,
-        l1=l1,
+        x_cols=x_cols,
+        cont_cols=cont_cols,
+        y_cols=y_cols,
+        weight_col=weight_col,
     )
 
-    # Trainer
-    trainer = _make_trainer(cfg, ckpt_dir, tb_dir, resume_from=_get(cfg, "train.resume_from"))
-
-    # Fit
-    resume_path = _get(cfg, "train.resume_from")
-    if resume_path:
-        trainer.fit(lit, train_dl, val_dl, ckpt_path=str(resume_path))
+    # ------------- train/val split ----------------
+    if strat_keys:
+        train_idx, val_idx = stratified_indices(ds.df, strat_keys, train_frac, seed)
     else:
-        trainer.fit(lit, train_dl, val_dl)
+        n = len(ds)
+        cut = int(n * train_frac)
+        idx = list(range(n))
+        train_idx, val_idx = idx[:cut], idx[cut:]
 
-    # Best ckpt
+    train_ds, val_ds = Subset(ds, train_idx), Subset(ds, val_idx)
+
+    # ----------------- dataloaders ----------------
+    batch_size  = int(_get(cfg, "train.batch_size", 1024))
+    num_workers = int(_get(cfg, "train.num_workers", 0))
+    pin_memory  = bool(_get(cfg, "train.pin_memory", True))
+
+    train_dl = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=ev_collate_fn,
+    )
+    val_dl = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+        collate_fn=ev_collate_fn,
+    )
+
+    # ------------------- model --------------------
+    # Robust cont_dim: infer from one sample to include expanded board_mask_52, etc.
+    sample = ds[0]
+    cont_dim = int(sample["x_cont"].shape[-1])
+    cat_cardinalities = [len(ds.id_maps[c]) for c in ds.x_cols]
+    vocab = ds.action_vocab
+
+    net_cfg = EVNetConfig(
+        cat_cardinalities=cat_cardinalities,
+        cont_dim=cont_dim,
+        action_vocab=vocab,
+        hidden_dims=_get(cfg, "model.hidden_dims", [256, 256]),
+        dropout=float(_get(cfg, "model.dropout", 0.10)),
+        lr=float(_get(cfg, "model.lr", 1e-3)),
+        weight_decay=float(_get(cfg, "model.weight_decay", 1e-4)),
+    )
+    net = EVNet(net_cfg)
+    lit = EVLit(net, lr=net_cfg.lr, weight_decay=net_cfg.weight_decay)
+
+    # --------------- logging/callbacks ------------
+    ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/evnet"))
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    monitor  = _get(cfg, "train.monitor", "val_loss")
+    mode     = _get(cfg, "train.mode", "min")
+    patience = int(_get(cfg, "train.patience", 5))
+
+    logger = pl.loggers.TensorBoardLogger(
+        save_dir=_get(cfg, "logging.tb_log_dir", "logs/tb"),
+        name="evnet",
+    )
+    ckpt_cb = pl.callbacks.ModelCheckpoint(
+        dirpath=str(ckpt_dir),
+        filename="evnet-{epoch:02d}-{" + monitor + ":.4f}",
+        monitor=monitor, mode=mode,
+        save_last=True, save_top_k=1,
+        auto_insert_metric_name=False,
+    )
+    early_cb = pl.callbacks.EarlyStopping(monitor=monitor, mode=mode, patience=patience)
+
+    trainer = pl.Trainer(
+        max_epochs=int(_get(cfg, "train.max_epochs", 20)),
+        accelerator=_get(cfg, "train.accelerator", "auto"),
+        devices=_get(cfg, "train.devices", "auto"),
+        precision=_get(cfg, "train.precision", "16-mixed"),
+        log_every_n_steps=50,
+        callbacks=[ckpt_cb, early_cb],
+        deterministic=True,
+        enable_progress_bar=True,
+        logger=logger,
+    )
+
+    # -------------------- fit ---------------------
+    resume = _get(cfg, "train.resume_from", None)
+    trainer.fit(lit, train_dl, val_dl, ckpt_path=str(resume) if resume else None)
+
+    # ---------------- best ckpt -------------------
     best_ckpt = None
     for cb in trainer.callbacks:
-        if isinstance(cb, ModelCheckpoint) and cb.best_model_path:
+        if getattr(cb, "best_model_path", ""):
             best_ckpt = cb.best_model_path
             break
-    if not best_ckpt:
-        # fallback: last model if available
-        for cb in trainer.callbacks:
-            if isinstance(cb, ModelCheckpoint) and getattr(cb, "last_model_path", None):
-                best_ckpt = cb.last_model_path
-                break
+    best_ckpt = best_ckpt or getattr(ckpt_cb, "last_model_path", None) or str(ckpt_dir / "last.ckpt")
 
-    print(f"✅ EV training complete. Best ckpt: {best_ckpt}")
-
-    # Sidecar (minimal)
-    sidecar = _write_ev_sidecar(best_ckpt, action_vocab=action_vocab, ds=train_ds)  # type: ignore
-    if sidecar:
-        print(f"💾 wrote sidecar → {sidecar}")
-
-    return best_ckpt or str(Path(ckpt_dir) / "last.ckpt")
+    # ---------------- sidecar ---------------------
+    meta = {
+        "model_name": "EVNet",
+        "action_vocab": list(vocab),
+        "x_cols": list(ds.x_cols),
+        "cont_cols": list(ds.cont_cols_raw),
+        "id_maps": ds.id_maps,
+        "notes": "Auto-written by tools/train_ev.py",
+    }
+    write_ev_sidecar(best_ckpt, meta)
+    return best_ckpt
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -243,7 +356,7 @@ def run_ev_sweep(cfg: Dict[str, Any]):
     res = run_sweep(
         base_cfg=cfg,
         sweep=cfg["sweep"],
-        run_fn=run_train_ev,
+        run_fn=run_train,
         score_fn=parse_scalar_from_ckpt,
         base_ckpt_dir=base_dir,
         monitor=_get(cfg, "train.monitor", "val_loss"),
@@ -301,7 +414,7 @@ def main():
     if args.sweep and isinstance(cfg.get("sweep"), dict) and cfg["sweep"]:
         run_ev_sweep(cfg)
     else:
-        run_train_ev(cfg)
+        run_train(cfg)
 
 
 if __name__ == "__main__":

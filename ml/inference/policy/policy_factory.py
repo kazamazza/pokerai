@@ -23,6 +23,12 @@ class PolicyInferFactory:
         "preflop":   {"ckpt": "checkpoints/range_pre/best.ckpt",            "sidecar": "checkpoints/range_pre/best_sidecar.json"},
         "post_root": {"ckpt": "checkpoints/postflop_policy_root/best.ckpt", "sidecar": "checkpoints/postflop_policy_root/best_sidecar.json"},
         "post_face": {"ckpt": "checkpoints/postflop_policy_facing/best.ckpt","sidecar":"checkpoints/postflop_policy_facing/best_sidecar.json"},
+        "ev_pre": {"ckpt": "checkpoints/evnet_preflop/best.ckpt",
+                   "sidecar": "checkpoints/evnet_preflop/best_sidecar.json"},
+        "ev_root": {"ckpt": "checkpoints/evnet_postflop_root/best.ckpt",
+                    "sidecar": "checkpoints/evnet_postflop_root/best_sidecar.json"},
+        "ev_face": {"ckpt": "checkpoints/evnet_postflop_facing/best.ckpt",
+                    "sidecar": "checkpoints/evnet_postflop_facing/best_sidecar.json"},
         "clusterer": {"ckpt": None, "sidecar": None},
     }
 
@@ -90,6 +96,33 @@ class PolicyInferFactory:
     def _build_exploit_store(self) -> PlayerExploitStore:
         return PlayerExploitStore(cfg=None)
 
+    def _build_ev_router(self, clusterer=None):
+        from ml.inference.ev.router import EVRouter
+        cfg = self.CKPTS
+
+        def _safe(p):
+            return (Path(p).exists() and p) or None
+
+        pre_ckpt = _safe(cfg["ev_pre"]["ckpt"])
+        pre_side = _safe(cfg["ev_pre"]["sidecar"])
+        root_ckpt = cfg["ev_root"]["ckpt"]
+        root_side = cfg["ev_root"]["sidecar"]
+        face_ckpt = cfg["ev_face"]["ckpt"]
+        face_side = cfg["ev_face"]["sidecar"]
+
+        if not Path(root_ckpt).exists() or not Path(root_side).exists():
+            raise FileNotFoundError("EV root checkpoint/sidecar missing")
+        if not Path(face_ckpt).exists() or not Path(face_side).exists():
+            raise FileNotFoundError("EV facing checkpoint/sidecar missing")
+
+        return EVRouter.from_checkpoints(
+            preflop_ckpt=pre_ckpt, preflop_sidecar=pre_side,
+            root_ckpt=root_ckpt, root_sidecar=root_side,
+            facing_ckpt=face_ckpt, facing_sidecar=face_side,
+            device=str(self.device) if self.device else "auto",
+            clusterer=clusterer,
+        )
+
     def _build_clusterer(self):
         try:
             if not Path(self.ARTIFACT).exists():
@@ -114,6 +147,7 @@ class PolicyInferFactory:
             range_pre=self._build_preflop_policy(),
             policy_post=self._build_postflop_router(),
             clusterer=self._build_clusterer(),
+            ev=self._build_ev_router(clusterer=clusterer),
             params={},
         )
         return PolicyInfer(deps)
