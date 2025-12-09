@@ -167,7 +167,6 @@ def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
     write_outputs(
         df,
         cfg,
-        manifest_key="paths.manifest_path",
         parquet_key="paths.parquet_path",
     )
     return df

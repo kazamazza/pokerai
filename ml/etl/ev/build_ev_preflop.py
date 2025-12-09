@@ -150,7 +150,6 @@ def main():
     write_outputs(
         df,
         cfg,
-        manifest_key="paths.manifest_path",
         parquet_key="paths.parquet_path",
     )
 

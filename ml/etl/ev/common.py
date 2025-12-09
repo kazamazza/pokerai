@@ -41,11 +41,41 @@ def fill_missing_ev_cols(df: pd.DataFrame) -> pd.DataFrame:
         df[c] = df[c].fillna(0.0)
     return df
 
-def write_outputs(df: pd.DataFrame, cfg: Dict[str, Any], *, manifest_key: str, parquet_key: str) -> None:
-    paths = cfg.get("paths") or {}
-    manifest_path = paths.get(manifest_key, "data/artifacts/tmp_manifest.parquet")
-    parquet_path  = paths.get(parquet_key,  "data/datasets/tmp_dataset.parquet")
-    df.to_parquet(manifest_path, index=False)
-    df.to_parquet(parquet_path, index=False)
-    print(f"✅ wrote manifest: {manifest_path}  rows={len(df):,}")
-    print(f"✅ wrote parquet:  {parquet_path}   rows={len(df):,}")
+def _get(d: dict, dotted: str, default=None):
+    cur = d
+    for part in str(dotted).split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
+
+def write_outputs(
+    df,
+    cfg: dict,
+    *,
+    manifest_key: str = "paths.manifest_path",
+    parquet_key: str  = "paths.parquet_path",
+) -> None:
+    manifest_path = _get(cfg, manifest_key, None)
+    parquet_path  = _get(cfg, parquet_key,  None)
+
+    if manifest_path:
+        Path(manifest_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(manifest_path, index=False)
+        print(f"✅ wrote manifest: {manifest_path}  rows={len(df):,}")
+
+    if parquet_path:
+        Path(parquet_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(parquet_path, index=False)
+        print(f"✅ wrote parquet:  {parquet_path}   rows={len(df):,}")
+
+    if not manifest_path and not parquet_path:
+        # final safety fallback
+        fallback_manifest = "data/artifacts/tmp_manifest.parquet"
+        fallback_parquet  = "data/datasets/tmp_dataset.parquet"
+        Path("data/artifacts").mkdir(parents=True, exist_ok=True)
+        Path("data/datasets").mkdir(parents=True, exist_ok=True)
+        df.to_parquet(fallback_manifest, index=False)
+        df.to_parquet(fallback_parquet,  index=False)
+        print(f"⚠️ no output paths in cfg; wrote fallbacks:\n"
+              f"   manifest → {fallback_manifest}\n   parquet  → {fallback_parquet}")
