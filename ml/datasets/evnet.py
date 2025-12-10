@@ -1,9 +1,6 @@
-# file: ml/data/ev/ev_parquet_dataset.py
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
-
 import importlib
 import math
 import numpy as np
@@ -11,109 +8,184 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+from ml.utils.ev import _board_mask_from_row
 
-def _import_symbol(path: str) -> Any:
-    """
-    Import "pkg.mod:SYMBOL" or "pkg.mod.SYMBOL" and return the symbol.
-    """
-    if not path:
-        raise ValueError("empty import path")
-    if ":" in path:
-        mod, sym = path.split(":", 1)
-    else:
-        # last dot as separator
-        i = path.rfind(".")
-        if i <= 0:
-            raise ValueError(f"cannot parse import path: {path}")
-        mod, sym = path[:i], path[i + 1 :]
+
+def _ensure_list_str(xs: Sequence[Any]) -> List[str]:
+    return [str(x) for x in (xs or [])]
+
+
+def _import_symbol(path: str):
+    mod, sym = path.split(":")
+    import importlib
     return getattr(importlib.import_module(mod), sym)
 
 
-def _ensure_list_str(x: Iterable[Any]) -> List[str]:
-    return [str(a) for a in list(x)]
+def _hashable_strat_key(df: pd.DataFrame, keys: Sequence[str]) -> pd.Series:
+    # WHY: make stable, compact keys for group-wise splitting
+    return df[keys].astype(str).agg("|".join, axis=1)
+
+# file: ml/data/ev_dataset.py  (patched)
+
+# file: ml/data/ev_sidecar.py
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional
 
 
-def _board_mask_from_row(row: Mapping[str, Any]) -> Optional[List[float]]:
-    """
-    Accept either:
-      - columns bm0..bm51
-      - a single 'board_mask_52' column containing a 52-length sequence
-    Returns a python list[float] length 52, or None if not present.
-    """
-    # vector column
-    if "board_mask_52" in row:
-        v = row["board_mask_52"]
-        if isinstance(v, (list, tuple, np.ndarray)) and len(v) == 52:
-            return [float(x) for x in v]
-    # expanded columns
-    keys = [f"bm{i}" for i in range(52)]
-    if all(k in row for k in keys):
-        return [float(row[k]) for k in keys]
-    return None
-
-
-def _hashable_strat_key(df: pd.DataFrame, keys: Sequence[str]) -> np.ndarray:
-    """Build a hashable stratification key from multiple columns (as strings)."""
-    if not keys:
-        return np.zeros(len(df), dtype=np.int64)
-    cols = []
-    for k in keys:
-        v = df[k] if k in df.columns else pd.Series([""], index=df.index)
-        cols.append(v.astype(str))
-    cat = pd.util.hash_pandas_object(pd.concat(cols, axis=1), index=False).values
-    return cat.astype(np.int64)
+def _norm_id_maps(raw: Optional[Mapping[str, Mapping[str, int]]]) -> Dict[str, Dict[str, int]]:
+    """why: freeze categorical encodings; ensure str→int."""
+    out: Dict[str, Dict[str, int]] = {}
+    for k, mp in (raw or {}).items():
+        out[str(k)] = {str(a): int(b) for a, b in (mp or {}).items()}
+    return out
 
 
 @dataclass
 class EVSidecar:
+    # Required
     action_vocab: List[str]
     x_cols: List[str]
     cont_cols: List[str]
     id_maps: Dict[str, Dict[str, int]]
-    cont_expanded_cols: List[str]  # after expansion (e.g., board_mask_52 → bm0..bm51)
-    notes: Optional[str] = None
 
+    # Optional/derived
+    schema_version: str = "ev_sidecar_v1"
+    model_name: str = "EVNet"
+    units: str = "bb"  # fixed expectation for EV scale
+    cont_expanded_cols: List[str] = field(default_factory=list)
+    notes: str = ""
+    created_utc: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    checkpoint_file: Optional[str] = None
+
+    # ---- Derived helpers ----
+    @property
+    def vocab_index(self) -> Dict[str, int]:
+        return {tok: i for i, tok in enumerate(self.action_vocab)}
+
+    @property
+    def cat_cardinalities(self) -> Dict[str, int]:
+        return {c: len(self.id_maps.get(c, {})) for c in self.x_cols}
+
+    # ---- Serialization ----
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "schema_version": self.schema_version,
+            "model_name": self.model_name,
             "action_vocab": list(self.action_vocab),
+            "vocab_index": self.vocab_index,
+            # canonical keys
             "x_cols": list(self.x_cols),
             "cont_cols": list(self.cont_cols),
             "id_maps": {k: dict(v) for k, v in self.id_maps.items()},
+            "cat_cardinalities": self.cat_cardinalities,
             "cont_expanded_cols": list(self.cont_expanded_cols),
-            "notes": self.notes or "",
+            "units": self.units,
+            "notes": self.notes,
+            "created_utc": self.created_utc,
+            "checkpoint_file": self.checkpoint_file,
+            # legacy aliases (for older readers)
+            "cat_feature_order": list(self.x_cols),
+            "cont_feature_order": list(self.cont_cols),
         }
 
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent, sort_keys=True)
+
+    def save(self, path: str | Path, duplicate_stem_copy: bool = False) -> str:
+        """why: persist alongside checkpoints and optionally duplicate with _sidecar suffix."""
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        payload = self.to_json()
+        if p.suffix == "":
+            # treat as directory; write standard filename
+            p = p / "best_sidecar.json"
+        p.write_text(payload)
+        if duplicate_stem_copy and p.suffix:
+            stem_copy = p.with_name(f"{p.stem}_sidecar.json")
+            stem_copy.write_text(payload)
+        return str(p)
+
+    # ---- Deserialization ----
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "EVSidecar":
+        # accept legacy keys
+        action_vocab = list(d.get("action_vocab") or [])
+        x_cols = list(d.get("x_cols") or d.get("cat_feature_order") or [])
+        cont_cols = list(d.get("cont_cols") or d.get("cont_feature_order") or [])
+        id_maps = _norm_id_maps(d.get("id_maps"))
+
+        if not action_vocab or not x_cols or not cont_cols:
+            raise ValueError("EVSidecar requires action_vocab, x_cols/cont_cols")
+
+        return cls(
+            action_vocab=action_vocab,
+            x_cols=x_cols,
+            cont_cols=cont_cols,
+            id_maps=id_maps,
+            schema_version=str(d.get("schema_version") or "ev_sidecar_v1"),
+            model_name=str(d.get("model_name") or "EVNet"),
+            units=str(d.get("units") or "bb"),
+            cont_expanded_cols=list(d.get("cont_expanded_cols") or []),
+            notes=str(d.get("notes") or ""),
+            created_utc=str(d.get("created_utc") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            checkpoint_file=d.get("checkpoint_file"),
+        )
+
+    @classmethod
+    def load(cls, path: str | Path) -> "EVSidecar":
+        p = Path(path)
+        data = json.loads(p.read_text())
+        return cls.from_dict(data)
+
+    # ---- Convenience from dataset ----
+    @classmethod
+    def from_dataset(
+        cls,
+        *,
+        action_vocab: List[str],
+        x_cols: List[str],
+        cont_cols: List[str],
+        id_maps: Mapping[str, Mapping[str, int]],
+        cont_expanded_cols: Optional[List[str]] = None,
+        model_name: str = "EVNet",
+        checkpoint_file: Optional[str] = None,
+        notes: str = "",
+    ) -> "EVSidecar":
+        return cls(
+            action_vocab=list(action_vocab),
+            x_cols=list(x_cols),
+            cont_cols=list(cont_cols),
+            id_maps=_norm_id_maps(id_maps),
+            model_name=model_name,
+            checkpoint_file=checkpoint_file,
+            notes=notes,
+            cont_expanded_cols=list(cont_expanded_cols or []),
+        )
 
 class EVParquetDataset(Dataset):
     """
-    Generic EV dataset for all three EV models (preflop, postflop-root, postflop-facing).
-
-    - Targets are EVs aligned to `action_vocab`, pulled from columns `ev_<TOKEN>`.
-    - Categorical inputs (`x_cols`) are integer-encoded via `id_maps` (provided or auto-built).
-    - Continuous inputs (`cont_cols`) are concatenated to a single float vector.
-      Special handling:
-        * "board_mask_52" is expanded from either a 52-d vector column or bm0..bm51 columns.
-
-    __getitem__ returns a dict with:
-      - "x_cat":  LongTensor [C]        (categorical features as ids)
-      - "x_cont": FloatTensor [D]       (continuous features)
-      - "y":      FloatTensor [V]       (EV vector; same order as action_vocab)
-      - "w":      FloatTensor []        (scalar weight)
-      - "meta":   dict                  (original values for optional debugging)
+    Minimal EV dataset:
+      - Targets: ['ev_<tok>' for tok in action_vocab] (units: bb).
+      - Optional 'board_mask_52' cont col expanded to bm0..bm51.
+      - Optional illegal mask column: 'illegal_mask_root'/'illegal_mask_facing' → y_mask (1=learn,0=ignore).
     """
-
     def __init__(
         self,
         *,
         parquet_path: Optional[str] = None,
         dataframe: Optional[pd.DataFrame] = None,
         action_vocab: Optional[Sequence[str]] = None,
-        action_vocab_import: Optional[str] = None,  # e.g. "ml.models.vocab_actions:FACING_ACTION_VOCAB"
+        action_vocab_import: Optional[str] = None,
         x_cols: Sequence[str],
         cont_cols: Sequence[str],
-        y_cols: Optional[Sequence[str]] = None,     # default → ["ev_<tok>" for tok in action_vocab]
+        y_cols: Optional[Sequence[str]] = None,
         weight_col: Optional[str] = None,
-        id_maps: Optional[Mapping[str, Mapping[str, int]]] = None,  # provide to fix encodings
+        id_maps: Optional[Mapping[str, Mapping[str, int]]] = None,  # <-- restored
         cache_arrays: bool = True,
     ):
         if (parquet_path is None) == (dataframe is None):
@@ -125,7 +197,6 @@ class EVParquetDataset(Dataset):
             action_vocab = _import_symbol(action_vocab_import)
         if not action_vocab:
             raise ValueError("action_vocab is required (or action_vocab_import must resolve to it)")
-
         self.action_vocab: List[str] = _ensure_list_str(action_vocab)
 
         # Columns configuration
@@ -133,31 +204,29 @@ class EVParquetDataset(Dataset):
         self.cont_cols_raw: List[str] = _ensure_list_str(cont_cols)
         self.weight_col = str(weight_col) if weight_col else None
 
-        # Target columns (default from vocab)
-        if y_cols is None:
-            self.y_cols = [f"ev_{tok}" for tok in self.action_vocab]
-        else:
-            self.y_cols = _ensure_list_str(y_cols)
+        # Target columns (default from vocab order)
+        self.y_cols = _ensure_list_str(y_cols) if y_cols is not None else [f"ev_{tok}" for tok in self.action_vocab]
 
         self._validate_presence()
 
-        # Build/accept categorical id maps
+        # ---- categorical encodings (freeze if provided) ----
         self.id_maps: Dict[str, Dict[str, int]] = {}
         if id_maps:
+            # use provided maps exactly
             for k, mp in id_maps.items():
-                self.id_maps[str(k)] = {str(a): int(b) for a, b in mp.items()}
+                self.id_maps[str(k)] = {str(a): int(b) for a, b in (mp or {}).items()}
+
         for col in self.x_cols:
             if col not in self.id_maps:
                 vals = sorted(self.df[col].astype(str).unique().tolist())
                 self.id_maps[col] = {v: i for i, v in enumerate(vals)}
 
-        # Expand continuous columns (handle board_mask_52)
+        # ---- expand continuous columns (board_mask_52) ----
         self.cont_expanded_cols: List[str] = []
         for c in self.cont_cols_raw:
             if c == "board_mask_52":
                 keys = [f"bm{i}" for i in range(52)]
                 if "board_mask_52" in self.df.columns:
-                    # normalize to bm0..bm51 columns in-memory (explode once)
                     arr = self.df["board_mask_52"].apply(
                         lambda v: list(v) if isinstance(v, (list, tuple, np.ndarray)) else [0.0] * 52
                     )
@@ -165,7 +234,6 @@ class EVParquetDataset(Dataset):
                     for i, k in enumerate(keys):
                         self.df[k] = bm[:, i]
                 else:
-                    # expect bm0..bm51 already present
                     missing = [k for k in keys if k not in self.df.columns]
                     if missing:
                         raise KeyError(f"missing board mask columns: {missing[:4]}... total missing={len(missing)}")
@@ -173,14 +241,20 @@ class EVParquetDataset(Dataset):
             else:
                 self.cont_expanded_cols.append(c)
 
-        # Cache to numpy arrays for speed (optional)
+        # Optional y_mask (illegal tokens)
+        self._has_illegal_mask = False
+        if "illegal_mask_root" in self.df.columns or "illegal_mask_facing" in self.df.columns:
+            self._has_illegal_mask = True
+            self._illegal_col = "illegal_mask_root" if "illegal_mask_root" in self.df.columns else "illegal_mask_facing"
+
+        # ---- cache arrays ----
         self._cache_arrays = bool(cache_arrays)
         if self._cache_arrays:
-            # categorical
+            # categorical → ids via frozen maps; unseen values map to 0
             cat_arrays = []
             for col in self.x_cols:
                 mp = self.id_maps[col]
-                cat_arrays.append(self.df[col].astype(str).map(mp).astype(np.int64).values)
+                cat_arrays.append(self.df[col].astype(str).map(mp).fillna(0).astype(np.int64).values)
             self._X_cat = np.stack(cat_arrays, axis=1) if cat_arrays else np.zeros((len(self.df), 0), dtype=np.int64)
 
             # continuous
@@ -189,14 +263,69 @@ class EVParquetDataset(Dataset):
             # targets
             self._Y = self.df[self.y_cols].astype(np.float32).values
 
-            # weights
+            # sample weights
             if self.weight_col and self.weight_col in self.df.columns:
                 self._W = self.df[self.weight_col].astype(np.float32).values
             else:
                 self._W = np.ones((len(self.df),), dtype=np.float32)
 
-        # store a light sidecar for consumers
-        self._sidecar = EVSidecar(
+            # per-token mask (1=learn, 0=ignore)
+            if self._has_illegal_mask:
+                mask_list = self.df[self._illegal_col].tolist()
+                self._M = np.array([[0 if m else 1 for m in row] for row in mask_list], dtype=np.float32)  # invert
+            else:
+                self._M = None
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        if self._cache_arrays:
+            x_cat = torch.as_tensor(self._X_cat[idx], dtype=torch.long) if self._X_cat.shape[1] else torch.zeros(0, dtype=torch.long)
+            x_cont = torch.as_tensor(self._X_cont[idx], dtype=torch.float32) if self._X_cont.shape[1] else torch.zeros(0, dtype=torch.float32)
+            y = torch.as_tensor(self._Y[idx], dtype=torch.float32)
+            w = torch.as_tensor(self._W[idx], dtype=torch.float32)
+            out = {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}
+            if getattr(self, "_M", None) is not None:
+                out["y_mask"] = torch.as_tensor(self._M[idx], dtype=torch.float32)
+            return out
+
+        # non-cached path (rare)
+        row = self.df.iloc[idx]
+        # cats
+        ids = []
+        for col in self.x_cols:
+            mp = self.id_maps[col]
+            ids.append(int(mp.get(str(row[col]), 0)))
+        x_cat = torch.tensor(ids, dtype=torch.long) if ids else torch.zeros(0, dtype=torch.long)
+        # cont
+        cont_vals: List[float] = []
+        if "board_mask_52" in self.cont_cols_raw:
+            bm = _board_mask_from_row(row)
+            if bm is None:
+                raise KeyError("board_mask_52 requested but not available in row")
+            cont_vals.extend([float(x) for x in bm])
+            for c in self.cont_cols_raw:
+                if c != "board_mask_52":
+                    cont_vals.append(float(row[c]))
+        else:
+            for c in self.cont_cols_raw:
+                cont_vals.append(float(row[c]))
+        x_cont = torch.tensor(cont_vals, dtype=torch.float32) if cont_vals else torch.zeros(0, dtype=torch.float32)
+        # targets/weights
+        y = torch.tensor([float(row[c]) for c in self.y_cols], dtype=torch.float32)
+        w = torch.tensor(float(row[self.weight_col]) if (self.weight_col and self.weight_col in row) else 1.0, dtype=torch.float32)
+        out = {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}
+        if self._has_illegal_mask:
+            mask = row[self._illegal_col]
+            m = torch.tensor([0.0 if v else 1.0 for v in mask], dtype=torch.float32)
+            out["y_mask"] = m
+        return out
+
+    # expose maps for splits/sidecar
+    @property
+    def sidecar(self) -> EVSidecar:
+        return EVSidecar(
             action_vocab=self.action_vocab,
             x_cols=self.x_cols,
             cont_cols=self.cont_cols_raw,
@@ -205,230 +334,15 @@ class EVParquetDataset(Dataset):
             notes="EVParquetDataset auto-generated schema",
         )
 
-
-
-    # ----------------------- public API -----------------------
-
-    def __len__(self) -> int:
-        return len(self.df)
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        if self._cache_arrays:
-            x_cat = torch.as_tensor(self._X_cat[idx], dtype=torch.long) if self._X_cat.shape[1] else torch.zeros(0, dtype=torch.long)
-            x_cont = torch.as_tensor(self._X_cont[idx], dtype=torch.float32) if self._X_cont.shape[1] else torch.zeros(0, dtype=torch.float32)
-            y = torch.as_tensor(self._Y[idx], dtype=torch.float32)
-            w = torch.as_tensor(self._W[idx], dtype=torch.float32)
-            meta = None
-        else:
-            row = self.df.iloc[idx]
-            # categorical
-            cat_ids: List[int] = []
-            for col in self.x_cols:
-                mp = self.id_maps[col]
-                cat_ids.append(int(mp[str(row[col])]))
-            x_cat = torch.tensor(cat_ids, dtype=torch.long) if cat_ids else torch.zeros(0, dtype=torch.long)
-
-            # continuous
-            cont_vals: List[float] = []
-            # expand board mask on the fly if requested
-            if "board_mask_52" in self.cont_cols_raw:
-                bm = _board_mask_from_row(row)
-                if bm is None:
-                    raise KeyError("board_mask_52 requested but not available in row")
-                cont_vals.extend([float(x) for x in bm])
-                # add any other cont cols except the special mask
-                for c in self.cont_cols_raw:
-                    if c != "board_mask_52":
-                        cont_vals.append(float(row[c]))
-            else:
-                for c in self.cont_cols_raw:
-                    cont_vals.append(float(row[c]))
-            x_cont = torch.tensor(cont_vals, dtype=torch.float32) if cont_vals else torch.zeros(0, dtype=torch.float32)
-
-            # targets
-            y_vals = [float(row[col]) for col in self.y_cols]
-            y = torch.tensor(y_vals, dtype=torch.float32)
-
-            # weight
-            w_val = float(row[self.weight_col]) if (self.weight_col and self.weight_col in row) else 1.0
-            w = torch.tensor(w_val, dtype=torch.float32)
-
-            # meta (optional)
-            meta = None
-
-        return {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w, "meta": meta}
-
-    # ----------------------- helpers -----------------------
-
-    @property
-    def cont_cols(self) -> List[str]:
-        return list(self.cont_cols_raw)
-
-    @classmethod
-    def from_parquet(
-            cls,
-            *,
-            parquet_path: str,
-            action_vocab: Optional[Sequence[str]] = None,
-            action_vocab_import: Optional[str] = None,
-            x_cols: Sequence[str],
-            cont_cols: Sequence[str],
-            y_cols: Optional[Sequence[str]] = None,
-            weight_col: Optional[str] = None,
-            id_maps: Optional[Mapping[str, Mapping[str, int]]] = None,
-            cache_arrays: bool = True,
-    ) -> "EVParquetDataset":
-        return cls(
-            parquet_path=parquet_path,
-            action_vocab=action_vocab,
-            action_vocab_import=action_vocab_import,
-            x_cols=x_cols,
-            cont_cols=cont_cols,
-            y_cols=y_cols,
-            weight_col=weight_col,
-            id_maps=id_maps,
-            cache_arrays=cache_arrays,
-        )
-    @property
-    def sidecar(self) -> EVSidecar:
-        return self._sidecar
-
-    @property
-    def cat_cardinalities(self) -> List[int]:
-        return [len(self.id_maps[c]) for c in self.x_cols]
-
-    @property
-    def cont_dim(self) -> int:
-        # after expansion
-        return len(self.cont_expanded_cols)
-
-    @property
-    def vocab_size(self) -> int:
-        return len(self.action_vocab)
-
-    def export_sidecar(self, path: Union[str, "os.PathLike"]) -> None:
-        import json
-        with open(path, "w") as f:
-            json.dump(self._sidecar.to_dict(), f, indent=2)
-
-    def dataframe(self) -> pd.DataFrame:
-        return self.df
-
-    # ----------------------- class factories -----------------------
-
-    @classmethod
-    def from_config(
-        cls,
-        cfg: Mapping[str, Any],
-        *,
-        parquet_override: Optional[str] = None,
-        dataframe: Optional[pd.DataFrame] = None,
-    ) -> "EVParquetDataset":
-        ds = cfg.get("dataset", {}) or {}
-        paths = cfg.get("paths", {}) or {}
-        model = cfg.get("model", {}) or {}
-
-        parquet_path = parquet_override or paths.get("parquet_path") or (cfg.get("inputs", {}) or {}).get("parquet")
-        if parquet_path is None and dataframe is None:
-            raise ValueError("parquet path not provided and dataframe is None")
-
-        action_vocab: Optional[Sequence[str]] = None
-        action_vocab_import: Optional[str] = None
-
-        # Allow either direct list via "model.action_vocab" or import string via "model.action_vocab_import"
-        if "action_vocab" in model:
-            action_vocab = model.get("action_vocab")
-        elif "action_vocab_import" in model:
-            action_vocab_import = model.get("action_vocab_import")
-
-        x_cols = ds.get("x_cols") or []
-        cont_cols = ds.get("cont_cols") or []
-        y_cols = ds.get("y_cols") or None
-        weight_col = ds.get("weight_col") or None
-
-        return cls(
-            parquet_path=parquet_path,
-            dataframe=dataframe,
-            action_vocab=action_vocab,
-            action_vocab_import=action_vocab_import,
-            x_cols=x_cols,
-            cont_cols=cont_cols,
-            y_cols=y_cols,
-            weight_col=weight_col,
-            id_maps=None,
-            cache_arrays=True,
-        )
-
-    # ----------------------- splitting / collate -----------------------
-
-    @staticmethod
-    def split_train_val(
-        df: pd.DataFrame,
-        *,
-        train_frac: float,
-        seed: int = 42,
-        stratify_keys: Optional[Sequence[str]] = None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Lightweight stratified split without sklearn."""
-        n = len(df)
-        if n == 0:
-            return df.copy(), df.copy()
-        rng = np.random.RandomState(int(seed))
-        if stratify_keys:
-            key = _hashable_strat_key(df, stratify_keys)
-            # split within each key
-            idx_train = []
-            idx_val = []
-            for k, grp in pd.Series(key).groupby(key):
-                idx = grp.index.values
-                m = len(idx)
-                t = int(math.floor(m * float(train_frac)))
-                perm = rng.permutation(idx)
-                idx_train.append(perm[:t])
-                idx_val.append(perm[t:])
-            train_idx = np.concatenate(idx_train) if idx_train else np.array([], dtype=int)
-            val_idx = np.concatenate(idx_val) if idx_val else np.array([], dtype=int)
-        else:
-            perm = rng.permutation(n)
-            t = int(math.floor(n * float(train_frac)))
-            train_idx = perm[:t]
-            val_idx = perm[t:]
-        return df.iloc[train_idx].reset_index(drop=True), df.iloc[val_idx].reset_index(drop=True)
-
-    @staticmethod
-    def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-        if not batch:
-            return {"x_cat": torch.empty(0, 0, dtype=torch.long),
-                    "x_cont": torch.empty(0, 0, dtype=torch.float32),
-                    "y": torch.empty(0, 0, dtype=torch.float32),
-                    "w": torch.empty(0, dtype=torch.float32)}
-        x_cat = torch.stack([b["x_cat"] for b in batch], dim=0) if batch[0]["x_cat"].numel() else torch.zeros(len(batch), 0, dtype=torch.long)
-        x_cont = torch.stack([b["x_cont"] for b in batch], dim=0) if batch[0]["x_cont"].numel() else torch.zeros(len(batch), 0, dtype=torch.float32)
-        y = torch.stack([b["y"] for b in batch], dim=0)
-        w = torch.stack([b["w"] for b in batch], dim=0)
-        return {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}
-
-    # ----------------------- validators -----------------------
-
-    def _validate_presence(self) -> None:
-        missing_x = [c for c in self.x_cols if c not in self.df.columns]
-        if missing_x:
-            raise KeyError(f"missing x_cols in parquet: {missing_x}")
-        missing_cont = [c for c in self.cont_cols_raw if (c != "board_mask_52" and c not in self.df.columns)]
-        # board_mask_52 handled separately, so skip it here
-        if missing_cont:
-            raise KeyError(f"missing cont_cols in parquet: {missing_cont}")
-        missing_y = [c for c in self.y_cols if c not in self.df.columns]
-        if missing_y:
-            raise KeyError(f"missing y_cols in parquet: {missing_y}")
-        # optional weight col – don't error
-        if self.weight_col and self.weight_col not in self.df.columns:
-            # silently create a ones column to avoid crashing
-            self.df[self.weight_col] = 1.0
-
-def ev_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
-    x_cat  = torch.stack([b["x_cat"]  for b in batch], dim=0)
-    x_cont = torch.stack([b["x_cont"] for b in batch], dim=0)
+def ev_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    if not batch:
+        return {"x_cat": torch.empty(0,0,dtype=torch.long), "x_cont": torch.empty(0,0,dtype=torch.float32),
+                "y": torch.empty(0,0,dtype=torch.float32), "w": torch.empty(0,dtype=torch.float32)}
+    x_cat  = torch.stack([b["x_cat"]  for b in batch], dim=0) if batch[0]["x_cat"].numel() else torch.zeros(len(batch), 0, dtype=torch.long)
+    x_cont = torch.stack([b["x_cont"] for b in batch], dim=0) if batch[0]["x_cont"].numel() else torch.zeros(len(batch), 0, dtype=torch.float32)
     y      = torch.stack([b["y"]      for b in batch], dim=0)
-    w      = torch.stack([b["w"]      for b in batch], dim=0) if ("w" in batch[0]) else torch.ones(len(batch))
-    return {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}
+    w      = torch.stack([b["w"]      for b in batch], dim=0)
+    out = {"x_cat": x_cat, "x_cont": x_cont, "y": y, "w": w}
+    if "y_mask" in batch[0]:
+        out["y_mask"] = torch.stack([b["y_mask"] for b in batch], dim=0)
+    return out

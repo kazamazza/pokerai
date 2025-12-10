@@ -20,7 +20,6 @@ from ml.etl.ev.mc import EVMC
 from ml.etl.ev.ranges import VillainRangeProvider
 from ml.etl.ev.sampling import sample_random_hand_excluding, sample_random_flop_excluding
 from ml.features.boards import load_board_clusterer
-from ml.inference.postflop_ctx import ALLOWED_PAIRS
 from ml.utils.board_mask import make_board_mask_52
 from ml.utils.config import load_model_config
 from ml.features.hands import hand169_id_from_hand_code
@@ -69,12 +68,16 @@ def _action_seq_for_ctx(ctx: str) -> List[str]:
     return ["", "", ""]
 
 
+# --- BUILDER PATCH: build_ev_postflop_facing (full function) ---
 def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Build EV parquet for POSTFLOP FACING (IP responds to a bet).
-    Targets: ev_<TOKEN> for each token in facing action vocab.
+    - Uses pairs from build.pairs_ip_oop (required).
+    - hero_pos is the IP seat (e.g., 'BTN'); ip_pos/oop_pos are role tokens.
+    - faced_bb = size_frac * pot_bb (not stack).
+    - Emits illegal_mask_facing (1=illegal, 0=legal) based on stack cap for raises.
     """
-    # ---- Config sections ----
+    # ---- Config ----
     dataset = cfg.get("dataset", {}) or {}
     build    = cfg.get("build", {}) or {}
     compute  = cfg.get("compute", {}) or {}
@@ -82,70 +85,99 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
 
     # ---- Repro ----
     seed = int(dataset.get("seed", 42))
-    random.seed(seed)
-    np.random.seed(seed)
+    random.seed(seed); np.random.seed(seed)
 
-    # ---- Action vocab (resolve from canonical import/file) ----
+    # ---- Facing vocab ----
     ACTION_TOKENS: List[str] = _resolve_facing_tokens(cfg)
 
-    # ---- Knobs (NL10 default menu; accepts legacy keys) ----
-    stacks_bb: List[float]   = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
-    size_fracs: List[float]  = [float(x) for x in (build.get("size_fracs")
-                                                   or build.get("faced_size_fracs")
-                                                   or [0.33, 0.66])]
-    samples_per_board: int   = int(build.get("samples_per_board", build.get("samples_per_combination", 64)))
-    ctxs: List[str]          = [str(x).upper() for x in (build.get("contexts") or build.get("ctxs")
-                                                         or ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
+    # ---- Knobs ----
+    stacks_cfg = build.get("stacks_bb", [25, 40, 60, 80, 100, 150])
+    stacks_bb: List[float] = sorted({float(s) for s in stacks_cfg if float(s) > 0.0})
+    if not stacks_bb:
+        raise ValueError("facing: build.stacks_bb is empty/invalid")
+
+    size_fracs_cfg = build.get("size_fracs", [0.33, 0.66])
+    # keep in (0,1]; round for stable strata
+    size_fracs: List[float] = sorted({round(float(x), 2) for x in size_fracs_cfg if 0.0 < float(x) <= 1.0})
+    if not size_fracs:
+        raise ValueError("facing: build.size_fracs is empty/invalid (expect fractions of pot)")
+
+    samples_per_board: int = max(1, int(build.get("samples_per_board", build.get("samples_per_combination", 64))))
+    ctxs: List[str] = [str(x).upper() for x in
+                       (build.get("contexts") or ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
     pot_overrides: Dict[str, float] = {str(k).upper(): float(v) for k, v in (build.get("pot_by_ctx", {}) or {}).items()}
+
+    # ---- Pairs (required) ----
+    pairs_cfg: Dict[str, List[Tuple[str, str]]] = {
+        str(k).upper(): [(str(ip).upper(), str(oop).upper()) for ip, oop in v]
+        for k, v in (build.get("pairs_ip_oop") or {}).items()
+    }
+
+    def pairs_for_ctx(ctx: str) -> List[Tuple[str, str]]:
+        pairs = pairs_cfg.get(ctx, [])
+        if not pairs:
+            raise ValueError(f"facing: no pairs provided for ctx='{ctx}' in build.pairs_ip_oop")
+        return pairs
+
+    # Global coverage guard
+    if not any(pairs_cfg.get(c, []) for c in ctxs):
+        raise ValueError("facing: build.pairs_ip_oop has no pairs for all contexts; please configure pairs")
 
     # ---- Stake artifacts ----
     stakes_token = str(stake.get("token", "NL10")).upper().replace(" ", "")
-    stakes_id    = str(stake.get("stakes_id", "2"))
+    stakes_id = str(stake.get("stakes_id", "2"))
     ranges_parquet = stake.get("ranges_parquet") or f"data/datasets/rangenet_preflop_from_flop_{stakes_token}.parquet"
-
-    # ---- Engines / artifacts ----
+    # ---- Engines ----
     vrp       = VillainRangeProvider(ranges_parquet)
-    clusterer = load_board_clusterer(cfg)  # expects board_clustering in cfg
+    clusterer = load_board_clusterer(cfg)
     evmc      = EVMC(samples=int(compute.get("facing_samples", 5000)), seed=seed)
 
-    # ---- Pairs per ctx: prefer YAML override; fallback to ALLOWED_PAIRS ----
-    pairs_cfg = build.get("pairs_ip_oop") or {}
-    def pairs_for_ctx(ctx: str) -> List[Tuple[str, str]]:
-        if pairs_cfg:
-            return [tuple(p) for p in pairs_cfg.get(ctx, [])]
-        return sorted(ALLOWED_PAIRS.get(ctx, set()))
+    # ---- Helper: illegal mask for facing (depends on faced size & stack) ----
+    def _illegal_mask_facing(action_tokens: List[str], faced_bb: float, stack_bb: float) -> List[int]:
+        mask: List[int] = []
+        for tok in action_tokens:
+            T = tok.upper()
+            if T in ("FOLD", "CALL"):
+                mask.append(0)
+            elif T == "ALLIN":
+                mask.append(0 if stack_bb > 0 else 1)
+            elif T.startswith("RAISE_"):
+                try:
+                    mult = int(T.split("_", 1)[1]) / 100.0  # e.g., 150 -> 1.5x
+                except Exception:
+                    mask.append(1); continue
+                raise_to_bb = faced_bb * mult
+                # Illegal if target "raise-to" exceeds stack; ALLIN token should cover it
+                mask.append(1 if raise_to_bb > stack_bb + 1e-9 else 0)
+            else:
+                # Any unknown token -> illegal
+                mask.append(1)
+        return mask
 
-    # ---- Progress total ----
-    total_iters = sum(len(pairs_for_ctx(ctx)) * len(stacks_bb) * len(size_fracs) * samples_per_board
-                      for ctx in ctxs)
+    # ---- Progress ----
+    total_iters = sum(len(pairs_for_ctx(ctx)) * len(stacks_bb) * len(size_fracs) * samples_per_board for ctx in ctxs)
 
     rows: List[Dict[str, Any]] = []
     with tqdm(total=total_iters, desc=f"Building EV (postflop:facing)[{stakes_token}]", unit="row", ncols=100) as pbar:
         for ctx in ctxs:
             pairs = pairs_for_ctx(ctx)
-            if not pairs:
-                continue
-
             base_pot = float(pot_overrides.get(ctx, _default_pot_by_ctx(ctx)))
             seq = _action_seq_for_ctx(ctx)
 
             for (ip_seat, oop_seat) in pairs:
-                # Model expects role tokens "IP"/"OOP" (seats kept only for audit)
-                ip_pos, oop_pos = "IP", "OOP"
-                hero_pos_role = "IP"  # facing model predicts IP actions
+                hero_pos_seat = ip_seat
+                ip_pos_role, oop_pos_role = "IP", "OOP"
 
                 for stack in stacks_bb:
                     for frac in size_fracs:
-                        faced_bb = float(frac) * float(stack)
-
+                        faced_bb = float(frac) * float(base_pot)  # bet is fraction of pot
                         for _ in range(samples_per_board):
                             # --- Sample hero & flop; avoid collisions
                             hero  = sample_random_hand_excluding(exclude=[])
                             board = sample_random_flop_excluding(exclude=[hero[:2], hero[2:]])
                             hand_id = hand169_id_from_hand_code(hero)
                             if hand_id is None:
-                                pbar.update(1)
-                                continue
+                                pbar.update(1); continue
 
                             # --- Features
                             bmask = make_board_mask_52(board)
@@ -173,12 +205,15 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                                 villain_vec=vvec,
                             )
 
+                            # --- Per-row illegal mask (exceeding stack raises)
+                            il_mask = _illegal_mask_facing(ACTION_TOKENS, faced_bb=faced_bb, stack_bb=stack)
+
                             # --- Row
                             rows.append({
                                 # Categoricals (match dataset.x_cols)
-                                "hero_pos": hero_pos_role,    # "IP"
-                                "ip_pos": ip_pos,             # "IP"
-                                "oop_pos": oop_pos,           # "OOP"
+                                "hero_pos": hero_pos_seat,   # seat
+                                "ip_pos": ip_pos_role,       # role
+                                "oop_pos": oop_pos_role,     # role
                                 "ctx": ctx,
                                 "street": 1,
                                 "board_cluster_id": int(cluster_id),
@@ -191,28 +226,24 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                                 "stack_bb": float(stack),
                                 "size_frac": float(frac),
 
-                                # Targets aligned to vocab (ev_<token>)
+                                # Targets aligned to vocab
                                 **{f"ev_{tok}": float(val) for tok, val in zip(ACTION_TOKENS, evs)},
 
-                                # Training weight = MC sims
+                                # Per-row controls
+                                "illegal_mask_facing": il_mask,
                                 "weight": int(evmc.samples),
 
-                                # Audit (not used by dataset)
+                                # Audit
                                 "board": board,
                                 "hero_hand": hero,
                                 "ip_seat": ip_seat,
                                 "oop_seat": oop_seat,
                             })
-
                             pbar.update(1)
 
     df = pd.DataFrame(rows)
-
-    # Persist via your standard helper (write only the configured parquet)
     write_outputs(df, cfg, parquet_key="paths.parquet_path")
     return df
-
-
 
 def main():
     import argparse

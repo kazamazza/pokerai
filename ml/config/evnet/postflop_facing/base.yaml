@@ -6,6 +6,9 @@
 # ==========================================================
 
 
+# =========================
+# POSTFLOP FACING — CONFIG
+# =========================
 dataset:
   seed: 42
 
@@ -20,8 +23,8 @@ dataset:
   weight_col: "weight"
   min_weight: null
 
-  # Balance across contexts / boards / stakes
-  stratify_keys: ["ctx", "board_cluster_id", "stakes_id"]
+  # Balanced across context × seat × board × stack × size
+  stratify_keys: ["ctx", "hero_pos", "board_cluster_id", "stack_bb", "stakes_id", "size_frac"]
 
 board_clustering:
   type: kmeans
@@ -29,10 +32,13 @@ board_clustering:
   n_clusters: 64
 
 build:
-  source_policy_parquet: data/datasets/postflop_policy_facing.parquet
   stacks_bb: [25, 60, 100, 150]
   contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
+
+  # Facing sizes as pot fractions
   size_fracs: [0.33, 0.66]
+
+  # REQUIRED: IP seat vs OOP seat pairs per context
   pairs_ip_oop:
     VS_OPEN:
       - ["UTG","BB"]

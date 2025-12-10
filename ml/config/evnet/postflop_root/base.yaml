@@ -5,24 +5,15 @@
 # Aligned to policy sidecar (64 clusters, NL10 stakes_id=2).
 # ==========================================================
 
+# POSTFLOP ROOT — CONFIG (updated)
 dataset:
   seed: 42
-
-  # Categorical features (mirror policy sidecar + hand)
   x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id", "hand_id"]
-
-  # Continuous features (keep size_frac for schema parity; set 0.0 for root)
   cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]
-
-  # Targets in model.action_vocab order (root tokens)
   y_cols: null
-
-  # Weight each row by MC sims
   weight_col: "weight"
   min_weight: null
-
-  # Keep balance across contexts / boards / stakes
-  stratify_keys: ["ctx", "board_cluster_id", "stakes_id"]
+  stratify_keys: ["ctx", "hero_pos", "board_cluster_id", "stack_bb", "stakes_id"]
 
 board_clustering:
   type: kmeans
@@ -30,10 +21,8 @@ board_clustering:
   n_clusters: 64
 
 build:
-  # Source policy rows to mirror training domain
-  source_policy_parquet: data/datasets/postflop_policy_root.parquet
-  # If absent, builder can synthesize from scenarios + menus
-  stacks_bb: [25, 60, 100, 150]
+  # If absent, builder synthesizes from scenarios + menus
+  stacks_bb: [25, 60, 100, 150]          # <- fixed
   contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
   pairs_ip_oop:
     VS_OPEN:

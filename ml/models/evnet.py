@@ -19,15 +19,10 @@ except Exception:
 # Small utilities
 # -----------------------------
 def _emb_dim_rule(card: int, max_dim: int = 64, min_dim: int = 4) -> int:
-    """
-    Heuristic embedding size from cardinality.
-    log2-cardinality * 4, clamped to [min_dim, max_dim].
-    """
     if card <= 1:
         return 0
     d = int(math.ceil(max(1.0, math.log2(card)) * 4))
     return max(min_dim, min(max_dim, d))
-
 
 def _mlp(d_in: int, hidden: Sequence[int], d_out: int, dropout: float) -> nn.Sequential:
     layers: List[nn.Module] = []
@@ -44,6 +39,7 @@ def _mlp(d_in: int, hidden: Sequence[int], d_out: int, dropout: float) -> nn.Seq
 # -----------------------------
 # Core model
 # -----------------------------
+
 @dataclass
 class EVNetConfig:
     cat_cardinalities: List[int]
@@ -53,79 +49,84 @@ class EVNetConfig:
     dropout: float = 0.10
     max_emb_dim: int = 64
     min_emb_dim: int = 4
-    # optimizer
     lr: float = 1e-3
     weight_decay: float = 1e-4
-
 
 class EVNet(nn.Module):
     """
     Simple, fast EV regressor:
       - Per-categorical-feature embeddings → concat
       - Concat with continuous vector
-      - MLP → |action_vocab| EV outputs
+      - MLP → |action_vocab| EV outputs (units: bb)
     """
-
     def __init__(self, cfg: EVNetConfig):
         super().__init__()
         self.cfg = cfg
         self.vocab = list(cfg.action_vocab)
         self.vocab_size = len(self.vocab)
 
-        # Build embeddings
+        # embeddings
         self.cardinalities: List[int] = list(cfg.cat_cardinalities)
         emb_layers: List[nn.Module] = []
         self.emb_dims: List[int] = []
         for card in self.cardinalities:
             d = _emb_dim_rule(card, cfg.max_emb_dim, cfg.min_emb_dim) if card > 1 else 0
             self.emb_dims.append(d)
-            if d > 0:
-                emb_layers.append(nn.Embedding(card, d))
-            else:
-                emb_layers.append(nn.Identity())
+            emb_layers.append(nn.Embedding(card, d) if d > 0 else nn.Identity())
         self.embeds = nn.ModuleList(emb_layers)
 
         emb_total = sum(self.emb_dims)
         d_in = emb_total + int(cfg.cont_dim)
         self.backbone = _mlp(d_in, cfg.hidden_dims, self.vocab_size, cfg.dropout)
 
+    @property
+    def config(self) -> EVNetConfig:
+        """WHY: expose for Lightning snapshot/back-compat when EVLit saves hparams."""
+        return self.cfg
+
     def forward(self, x_cat: torch.LongTensor, x_cont: torch.FloatTensor) -> torch.FloatTensor:
         """
-        x_cat: [B, C] (C = len(cat_cardinalities))
+        x_cat: [B, C] (C == len(cat_cardinalities))
         x_cont: [B, D]
-        returns: [B, V] EV predictions
+        returns: [B, V]
         """
         B = x_cont.size(0)
         embs: List[torch.Tensor] = []
         if x_cat.numel() > 0:
-            # per feature embed
             for i, emb in enumerate(self.embeds):
                 if isinstance(emb, nn.Embedding):
                     embs.append(emb(x_cat[:, i]))
                 else:
-                    # Identity — use zeros placeholder to keep dims stable
+                    # keep dim alignment for cat with cardinality 1
                     embs.append(x_cat[:, i].new_zeros((B, 0)))
-        if embs:
-            x = torch.cat([*embs, x_cont], dim=-1)
-        else:
-            x = x_cont
+        x = torch.cat([*embs, x_cont], dim=-1) if embs else x_cont
         return self.backbone(x)
-
 
 # -----------------------------
 # Lightning wrapper (optional)
 # -----------------------------
 # --- loss with per-batch weight normalization ---
 class WeightedMSE(nn.Module):
-    def forward(self, pred: torch.Tensor, target: torch.Tensor, weight: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # per-sample MSE averaged across actions
-        loss = F.mse_loss(pred, target, reduction="none").mean(dim=-1)  # [B]
+    def forward(
+        self,
+        pred: torch.Tensor,          # [B, V]
+        target: torch.Tensor,        # [B, V]
+        weight: Optional[torch.Tensor] = None,   # [B]
+        y_mask: Optional[torch.Tensor] = None,   # [B, V], 1=learn, 0=ignore
+    ) -> torch.Tensor:
+        err2 = (pred - target) ** 2  # [B, V]
+        if y_mask is not None:
+            # why: zero loss for illegal/impossible actions
+            err2 = err2 * y_mask
+            denom = y_mask.sum(dim=-1).clamp_min(1.0)   # avoid /0 when all masked
+            loss_vec = err2.sum(dim=-1) / denom         # [B]
+        else:
+            loss_vec = err2.mean(dim=-1)                 # [B]
         if weight is not None:
             w = weight.view(-1).float()
-            # normalize so mean weight ≈ 1 (prevents huge loss scales from MC counts)
             w = w / w.mean().clamp_min(1e-8)
-            loss = loss * w
-        return loss.mean()
+            loss_vec = loss_vec * w
+        return loss_vec.mean()
 
 # ml/models/evnet.py
 
@@ -208,8 +209,10 @@ class EVLit(pl.LightningModule if pl is not None else nn.Module):  # type: ignor
         y_hat = self.net(batch["x_cat"], batch["x_cont"])
         y     = batch["y"]
         w     = batch.get("w", None)
-        loss  = self.criterion(y_hat, y, w)
-        mae, rmse = self._metrics(y_hat, y)
+        m     = batch.get("y_mask", None)
+        loss  = self.criterion(y_hat, y, w, m)
+        mae   = (y_hat - y).abs().mean()
+        rmse  = torch.sqrt(((y_hat - y) ** 2).mean())
         self.log_dict({"train_loss": loss, "train_mae_bb": mae, "train_rmse_bb": rmse},
                       prog_bar=True, on_step=False, on_epoch=True)
         return loss
@@ -218,10 +221,13 @@ class EVLit(pl.LightningModule if pl is not None else nn.Module):  # type: ignor
         y_hat = self.net(batch["x_cat"], batch["x_cont"])
         y     = batch["y"]
         w     = batch.get("w", None)
-        loss  = self.criterion(y_hat, y, w)
-        mae, rmse = self._metrics(y_hat, y)
+        m     = batch.get("y_mask", None)
+        loss  = self.criterion(y_hat, y, w, m)
+        mae   = (y_hat - y).abs().mean()
+        rmse  = torch.sqrt(((y_hat - y) ** 2).mean())
         self.log_dict({"val_loss": loss, "val_mae_bb": mae, "val_rmse_bb": rmse},
                       prog_bar=True, on_step=False, on_epoch=True)
+        return loss
         return loss
 
     def configure_optimizers(self):  # type: ignore[override]
@@ -253,7 +259,7 @@ def build_ev_model_from_dataset_sidecar(
         weight_decay=float(weight_decay),
     )
     net = EVNet(cfg)
-    lit = EVLit(net, lr=cfg.lr, weight_decay=cfg.weight_decay) if pl is not None else None
+    lit = EVLit(net=net, lr=cfg.lr, weight_decay=cfg.weight_decay) if pl is not None else None  # <-- fixed
     return net, lit
 
 

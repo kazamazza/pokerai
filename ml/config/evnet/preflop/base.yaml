@@ -6,19 +6,21 @@ dataset:
   y_cols: null
   weight_col: "weight"
   min_weight: null
-  stratify_keys: ["stakes_id", "facing_flag"]  # add "stack_bin" only if builder writes it
+  stratify_keys: ["stakes_id", "facing_flag", "free_check"]
 
 build:
   include_facing: true
   include_unopened: true
 
-  # Broader stack coverage (binned by you later if desired)
   stacks_bb: [25, 40, 60, 80, 100, 150]
 
-  # Faced sizes (0.0 is the unopened branch)
-  faced_fracs: [0.33, 0.66]
+  # 1) Generate UNOPENED rows today (avoids bad 'fraction-of-stack' facing sizes)
+  faced_fracs: [0.0]  # unopened branch only
 
-  # Enumerate common heads-up preflop seat pairs (hero_pos, villain_pos)
+  # 2) Stage realistic PRE-FLOP OPEN sizes (enable after builder reads this)
+  faced_open_bbs: [2.0, 2.5, 3.0, 3.5]  # absolute bb, not a fraction of stack
+
+  # 3) Ensure hero=BB appears so free-check exists
   pairs:
     - ["UTG","HJ"]
     - ["UTG","CO"]
@@ -34,12 +36,17 @@ build:
     - ["CO","BB"]
     - ["BTN","SB"]
     - ["BTN","BB"]
-    - ["SB","BB"]   # BB can free-check when unopened in this pair
+    # NEW: hero is BB (free-check when unopened)
+    - ["BB","SB"]
+    - ["BB","BTN"]
+    - ["BB","CO"]
+    - ["BB","HJ"]
+    - ["BB","UTG"]
+
+  pre_pot_bb: 1.5
 
   # Crank this up for production volume (row count scales linearly)
   samples_per_combination: 512
-
-  pre_pot_bb: 1.5   # preflop antes/pot model (keep as-is unless your game format differs)
 
 compute:
   engine: eval7

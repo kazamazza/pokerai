@@ -4,73 +4,101 @@ import torch.nn.functional as F
 import torch
 
 
-def _masked_softmax_from_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    logits = logits.view(1, -1)
-    mask = mask.view(1, -1).to(logits.dtype)
-    big_neg = torch.finfo(logits.dtype).min / 4
-    masked = torch.where(mask > 0.5, logits, big_neg)
-    return F.softmax(masked, dim=-1) * mask / (mask.sum(dim=-1, keepdim=True).clamp_min(1e-12))
+def _masked_softmax_from_logits(z: torch.Tensor, mask: torch.Tensor, eps: float = 1e-9) -> torch.Tensor:
+    """Softmax over masked indices only."""
+    z = z.clone()
+    neg_inf = torch.finfo(z.dtype).min / 4
+    z_masked = z.clone()
+    off = (mask <= 0.5).nonzero(as_tuple=False).view(-1)
+    if off.numel():
+        z_masked[0, off] = neg_inf
+    # stabilize
+    z_masked[0] -= torch.max(z_masked[0][mask > 0.5])
+    e = torch.exp(z_masked)
+    e[0, off] = 0.0
+    s = e.sum(dim=1, keepdim=True).clamp_min(eps)
+    return e / s
 
-def _single_delta_for_target_share(z: torch.Tensor,
-                                  legal_idx: List[int],
-                                  target_idx: int,
-                                  tau_target: float,
-                                  max_boost: float) -> float:
+
+def _aggressive_indices(tokens: Sequence[str], *, side: str, allow_allin: bool = True) -> List[int]:
+    up = [t.upper() for t in tokens]
+    idx: List[int] = []
+    if side == "facing":
+        idx = [i for i, t in enumerate(up) if t.startswith("RAISE_")]
+        if allow_allin:
+            idx += [i for i, t in enumerate(up) if t == "ALLIN"]
+    else:  # root
+        idx = [i for i, t in enumerate(up) if t.startswith("BET_")]
+    return idx
+
+
+def _single_delta_for_target_share(
+    z: torch.Tensor,
+    legal_idx: Sequence[int],
+    chosen_idx: int,
+    tau: float,
+    max_logit_boost: float,
+) -> float:
     """
-    Approximate delta to give target_idx probability ~ tau_target among legal_idx
-    by solving exp(T+δ)/Σ = τ. Using base Σ from current logits.
+    Closed-form delta so that softmax over legal places ~tau on chosen_idx.
     """
-    if tau_target <= 0.0:
+    if chosen_idx not in legal_idx:
         return 0.0
-    z = z.view(1, -1)
-    l = z[0]
-    L = torch.logsumexp(l[legal_idx], dim=0)
-    T = l[target_idx]
-    try:
-        raw = math.log(max(min(tau_target, 0.99), 1e-6)) + float(L - T)
-    except (ValueError, OverflowError):
-        raw = 0.0
-    return float(max(0.0, min(raw, max_boost)))
+    # Z = sum_{k in legal} exp(z_k); a = exp(z_chosen)
+    z_leg = z[0, legal_idx]
+    m = torch.max(z_leg).item()
+    exp_leg = torch.exp(z_leg - m)  # stabilize
+    Z = float(exp_leg.sum().item())
+    a = float(math.exp(float(z[0, chosen_idx].item()) - m))
+    # p' = (a r) / ((Z - a) + a r), r = e^{delta} => solve for r
+    tau = float(max(1e-6, min(1.0 - 1e-6, tau)))
+    numerator = tau * (Z - a)
+    denom = a * (1.0 - tau)
+    if denom <= 0:
+        return 0.0
+    r = numerator / denom
+    if r <= 1e-9:
+        return 0.0
+    delta = math.log(r)
+    return float(max(0.0, min(max_logit_boost, delta)))
 
-def _best_idx_by_evs(actions: Sequence[str],
-                     mask: torch.Tensor,
-                     evs: Dict[str, float],
-                     allow_tokens: Optional[Sequence[str]] = None) -> Optional[int]:
-    allow = set(t.upper() for t in (allow_tokens or []))
-    best_v = None
-    best_i = None
-    for i, a in enumerate(actions):
-        if mask[i] <= 0.5:
-            continue
-        A = a.upper()
-        if allow and (A not in allow):
-            continue
-        v = float(evs.get(a, evs.get(A, float("-inf"))))
-        if best_v is None or v > best_v:
-            best_v, best_i = v, i
-    return best_i
 
-def _parse_pct_from_token(tok: str) -> Optional[int]:
-    try:
-        return int(tok.split("_", 1)[1])
-    except Exception:
-        return None
+def _cap_token_prob(
+    z: torch.Tensor,
+    legal_idx: Sequence[int],
+    cap_idx: int,
+    p_cap: float,
+) -> None:
+    """
+    Reduce probability of index 'cap_idx' to <= p_cap by subtracting gamma from its logit.
+    """
+    if cap_idx not in legal_idx:
+        return
+    p = _masked_softmax_from_logits(z, _mask_from_indices(z, legal_idx))[0]
+    cur = float(p[cap_idx].item())
+    if cur <= p_cap:
+        return
 
-def _aggressive_indices(actions: Sequence[str], *, side: str) -> List[int]:
-    up = [a.upper() for a in actions]
-    if side == "facing":
-        return [i for i, a in enumerate(up) if a.startswith("RAISE_")]
-    if side == "root":
-        return [i for i, a in enumerate(up) if a.startswith("BET_") or a.startswith("DONK_")]
-    # preflop unopened convenience
-    return [i for i, a in enumerate(up) if a.startswith("OPEN_") or a.startswith("RAISE_")]
+    # Let X = sum_{k!=cap} exp(z_k), a = exp(z_cap)
+    z_leg = z[0, legal_idx]
+    m = torch.max(z_leg).item()
+    exp_leg = torch.exp(z_leg - m)
+    # map back to indices
+    cap_local = legal_idx.index(cap_idx)
+    a = float(exp_leg[cap_local].item())
+    X = float(exp_leg.sum().item() - a)
+    p_cap = float(max(1e-6, min(1.0 - 1e-6, p_cap)))
+    # p' = a * e^{-g} / (X + a * e^{-g}) => r = e^{-g} = p' X / (a (1 - p'))
+    r = (p_cap * X) / (a * (1.0 - p_cap))
+    if r <= 0:
+        return
+    gamma = -math.log(max(r, 1e-12))
+    if gamma <= 1e-9:
+        return
+    z[0, cap_idx] -= float(gamma)
 
-def _passive_token(side: str, *, preflop_unopened: bool, free_check: bool) -> str:
-    if side == "facing":
-        return "CALL"
-    if side == "root":
-        return "CHECK"
-    # preflop special
-    if preflop_unopened:
-        return "CHECK" if free_check else "FOLD"
-    return "CALL"
+
+def _mask_from_indices(z: torch.Tensor, legal_idx: Sequence[int]) -> torch.Tensor:
+    mask = torch.zeros_like(z[0])
+    mask[legal_idx] = 1.0
+    return mask

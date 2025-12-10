@@ -3,25 +3,35 @@ from dataclasses import dataclass
 
 @dataclass
 class PromotionConfig:
-    # weights for score ∈ [0, 1]
+    # weights & gates
     w_ev: float = 0.60
     w_eq: float = 0.30
     w_expl: float = 0.10
+    ev_cap_bb: float = 3.0
+    eq_gate: float = 0.55
+    expl_gate: float = 0.05
 
-    # gates & scales
-    eq_gate: float = 0.55          # need at least this equity before promotion grows
-    expl_gate: float = 0.05        # opponent bias needs to exceed this
-    ev_cap_bb: float = 3.0         # cap positive EV gap for normalization (bb)
-
-    # map score to target share
+    # target share mapping
     tau_min: float = 0.12
     tau_max: float = 0.35
-
-    # safety rails
     max_logit_boost: float = 8.0
-    respect_fold_when_facing: bool = True  # do not override pure GTO FOLD baseline by default
-    cap_allin: bool = True
 
-    # optional: temperature scaling after promotion (gentle)
+    # temp rails
     min_temp: float = 0.6
     max_temp: float = 1.2
+
+    # policy rails
+    respect_fold_when_facing: bool = True
+    cap_allin: bool = True
+
+    # strong-hand guard
+    strong_eq_floor: float = 0.80
+    strong_ev_margin_bb: float = 0.50
+    fold_cap_when_strong: float = 0.005
+
+    # EV scale sanity (bb vs centi-bb)
+    ev_is_centi_bb: bool = False
+
+    @staticmethod
+    def default() -> "PromotionConfig":
+        return PromotionConfig()
