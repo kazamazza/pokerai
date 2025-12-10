@@ -71,10 +71,11 @@ def _resolve_preflop_tokens(cfg: Dict[str, Any]) -> List[str]:
 
 def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
     """
-    Build EV parquet for PREFLOP.
-    - Uses absolute open sizes in bb via build.faced_open_bbs.
-    - Produces unopened rows (facing=False) and BB free-check rows.
-    - Anchors EV targets: FOLD=0.0; CHECK=0.0 when free_check==1.
+    Build EV parquet for PREFLOP (bb units).
+    Emits BOTH:
+      - unopened branch (OPEN_*)
+      - facing-open branch (CALL/RAISE_* vs absolute open sizes in bb)
+    Anchors: FOLD=0.0; CHECK=0.0 when BB can free-check.
     """
     # ---- Load config ----
     cfg = (
@@ -86,31 +87,26 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
 
     # ---- Repro ----
     seed = int(dataset.get("seed", 42))
-    random.seed(seed)
-    np.random.seed(seed)
+    random.seed(seed); np.random.seed(seed)
 
     # ---- Vocab ----
-    action_vocab: List[str] = _resolve_preflop_tokens(cfg)
+    action_vocab: List[str] = _resolve_preflop_tokens(cfg)  # PREFLOP_ACTION_VOCAB
 
     # ---- Knobs ----
-    # ---- Knobs ----
-    # stacks_bb: unique, sorted, >0
     stacks_cfg = build.get("stacks_bb", [25, 40, 60, 80, 100, 150])
     stacks: List[float] = sorted({float(s) for s in stacks_cfg if float(s) > 0.0})
     if not stacks:
         raise ValueError("build.stacks_bb is empty or invalid")
 
-    # absolute open sizes in bb for the facing branch (not fraction of stack)
     faced_open_bbs_cfg = build.get("faced_open_bbs", [2.0, 2.5, 3.0, 3.5])
     faced_open_bbs: List[float] = [float(x) for x in faced_open_bbs_cfg if 0.5 <= float(x) <= 20.0]
     if not faced_open_bbs:
         raise ValueError("build.faced_open_bbs is empty or out-of-range")
 
     include_unopened: bool = bool(build.get("include_unopened", True))
-    include_facing: bool = bool(build.get("include_facing", True))
+    include_facing:   bool = bool(build.get("include_facing", True))
 
     pairs: List[Tuple[str, str]] = pairs_from_cfg(cfg)  # [(hero_pos, villain_pos), ...]
-    # must include hero=BB to generate free-check rows
     if include_unopened and not any((hp or "").upper() == "BB" for hp, _ in pairs):
         raise ValueError("preflop: include_unopened=True but no hero=BB pair found in build.pairs")
 
@@ -125,19 +121,19 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
     gen = PreflopLegalActionGenerator(
         open_sizes_cbb=tuple(int(x) for x in (pg_cfg.get("open_sizes_cbb") or (200, 250, 300))),
         raise_totals_cbb=tuple(int(x) for x in (pg_cfg.get("raise_totals_cbb") or (600, 750, 900, 1200))),
-        allow_allin=bool(pg_cfg.get("allow_allin", False)),
+        allow_allin=bool(pg_cfg.get("allow_allin", True)),
         max_open_cbb=(int(pg_cfg["max_open_cbb"]) if pg_cfg.get("max_open_cbb") is not None else None),
     )
 
     # ---- Progress ----
-    per_state = (int(include_unopened) + (len(faced_open_bbs) if include_facing else 0))
+    per_state = (1 if include_unopened else 0) + (len(faced_open_bbs) if include_facing else 0)
     total = len(pairs) * len(stacks) * per_state * samples
     rows: List[Dict[str, Any]] = []
 
     with tqdm(total=total, desc=f"Building EV (preflop)[{stakes_token}]", unit="row", ncols=100) as pbar:
-        for hp, vp in pairs:
-            hp = (hp or "").upper()
-            vp = (vp or "").upper()
+        for hero_pos, villain_pos in pairs:
+            hp = (hero_pos or "").upper()
+            vp = (villain_pos or "").upper()
 
             for stack in stacks:
                 # --- UNOPENED branch ---
@@ -151,30 +147,31 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
                         hero = sample_random_hand_excluding(exclude=[])
                         hand_id = hand169_id_from_hand_code(hero)
                         if hand_id is None:
-                            pbar.update(1)
-                            continue
+                            pbar.update(1); continue
 
                         toks = gen.generate(
-                            stack_bb=stack,
-                            facing_bet=facing,
+                            stack_bb=float(stack),
+                            facing_bet=False,
                             faced_size_bb=None,
                             faced_frac=faced_frac,
                             free_check=free_check,
                         )
-                        # compute EVs for produced tokens (preflop; no board)
+                        toks = [t for t in toks if t in action_vocab]
+                        if not toks:
+                            pbar.update(1); continue
+
                         evs = evmc.compute_ev_vector(
                             toks,
                             hero_hand=hero,
                             board="",
-                            stack_bb=stack,
-                            pot_bb=pre_pot,
+                            stack_bb=float(stack),
+                            pot_bb=float(pre_pot),
                             faced_size_bb=faced_bb,
                             villain_vec=None,
                         )
                         ev_map = {t: float(e) for t, e in zip(toks, evs)}
-                        # Anchor passives
                         ev_map["FOLD"] = 0.0
-                        if free_check:
+                        if free_check and "CHECK" in action_vocab:
                             ev_map["CHECK"] = 0.0
 
                         rows.append({
@@ -184,7 +181,7 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
                             "villain_pos": vp,
                             "stack_bb": float(stack),
                             "pot_bb": float(pre_pot),
-                            "faced_frac": float(faced_frac),   # kept for compatibility
+                            "faced_frac": float(faced_frac),
                             "facing_flag": int(facing),
                             "free_check": int(free_check),
                             "hand_id": int(hand_id),
@@ -200,36 +197,36 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
                         facing = True
                         free_check = False
                         faced_bb = float(open_bb)
-                        # keep faced_frac as a small scalar feature: open_bb / stack
-                        faced_frac = float(faced_bb) / float(stack if stack > 0 else 1.0)
+                        faced_frac = faced_bb / float(stack if stack > 0 else 1.0)
 
                         for _ in range(samples):
                             hero = sample_random_hand_excluding(exclude=[])
                             hand_id = hand169_id_from_hand_code(hero)
                             if hand_id is None:
-                                pbar.update(1)
-                                continue
+                                pbar.update(1); continue
 
                             toks = gen.generate(
-                                stack_bb=stack,
-                                facing_bet=facing,
-                                faced_size_bb=faced_bb,  # important for raise caps
-                                faced_frac=None,         # not used when faced_size_bb is provided
-                                free_check=free_check,
+                                stack_bb=float(stack),
+                                facing_bet=True,
+                                faced_size_bb=faced_bb,   # critical for legal raise caps
+                                faced_frac=None,
+                                free_check=False,
                             )
+                            toks = [t for t in toks if t in action_vocab]
+                            if not toks:
+                                pbar.update(1); continue
 
                             evs = evmc.compute_ev_vector(
                                 toks,
                                 hero_hand=hero,
                                 board="",
-                                stack_bb=stack,
-                                pot_bb=pre_pot,
+                                stack_bb=float(stack),
+                                pot_bb=float(pre_pot),
                                 faced_size_bb=faced_bb,
                                 villain_vec=None,
                             )
                             ev_map = {t: float(e) for t, e in zip(toks, evs)}
-                            # Anchor fold (no chips invested by hero preflop before facing)
-                            ev_map["FOLD"] = 0.0
+                            ev_map["FOLD"] = 0.0  # still valid pre-investment anchor
 
                             rows.append({
                                 "stakes_id": stakes_id,
@@ -250,19 +247,17 @@ def build_ev_preflop(cfg_path: Optional[str] = None) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
-    # ---- Safety asserts: must have both categories & BB present ----
-    try:
-        vc_face = df["facing_flag"].value_counts().to_dict()
-        vc_free = df["free_check"].value_counts().to_dict()
-        vc_hero = df["hero_pos"].value_counts().to_dict()
-        assert 0 in vc_face and 1 in vc_face, f"facing_flag coverage missing: {vc_face}"
-        assert 0 in vc_free and 1 in vc_free, f"free_check coverage missing: {vc_free}"
-        assert "BB" in vc_hero and vc_hero["BB"] > 0, f"hero_pos 'BB' missing: {vc_hero}"
-    except Exception as e:
-        # Fail fast to avoid training a biased head
-        raise RuntimeError(f"Preflop EV parquet failed coverage checks: {e}")
+    # ---- Coverage checks (fail fast) ----
+    vc_face = df["facing_flag"].value_counts().to_dict()
+    vc_free = df["free_check"].value_counts().to_dict()
+    vc_hero = df["hero_pos"].value_counts().to_dict()
+    if not (0 in vc_face and 1 in vc_face):
+        raise RuntimeError(f"facing_flag coverage missing: {vc_face}")
+    if not (0 in vc_free and 1 in vc_free):
+        raise RuntimeError(f"free_check coverage missing: {vc_free}")
+    if "BB" not in vc_hero or vc_hero["BB"] <= 0:
+        raise RuntimeError(f"hero_pos 'BB' missing: {vc_hero}")
 
-    # Persist
     write_outputs(df, cfg, parquet_key="paths.parquet_path")
     return df
 

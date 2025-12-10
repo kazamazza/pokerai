@@ -102,30 +102,28 @@ class EVNet(nn.Module):
         x = torch.cat([*embs, x_cont], dim=-1) if embs else x_cont
         return self.backbone(x)
 
-# -----------------------------
-# Lightning wrapper (optional)
-# -----------------------------
-# --- loss with per-batch weight normalization ---
 class WeightedMSE(nn.Module):
     def forward(
         self,
-        pred: torch.Tensor,          # [B, V]
-        target: torch.Tensor,        # [B, V]
-        weight: Optional[torch.Tensor] = None,   # [B]
-        y_mask: Optional[torch.Tensor] = None,   # [B, V], 1=learn, 0=ignore
+        pred: torch.Tensor,                 # [B,V]
+        target: torch.Tensor,               # [B,V]
+        weight: Optional[torch.Tensor]=None,# [B]
+        y_mask: Optional[torch.Tensor]=None # [B,V] (1=learn, 0=ignore)
     ) -> torch.Tensor:
-        err2 = (pred - target) ** 2  # [B, V]
+        err2 = (pred - target) ** 2         # [B,V]
         if y_mask is not None:
-            # why: zero loss for illegal/impossible actions
-            err2 = err2 * y_mask
-            denom = y_mask.sum(dim=-1).clamp_min(1.0)   # avoid /0 when all masked
-            loss_vec = err2.sum(dim=-1) / denom         # [B]
+            m = y_mask.to(dtype=pred.dtype, device=pred.device)
+            err2 = err2 * m
+            denom = m.sum(dim=-1).clamp_min(1e-8)       # average over kept dims
+            loss_vec = err2.sum(dim=-1) / denom          # [B]
         else:
             loss_vec = err2.mean(dim=-1)                 # [B]
+
         if weight is not None:
-            w = weight.view(-1).float()
+            w = weight.view(-1).to(dtype=pred.dtype, device=pred.device)
             w = w / w.mean().clamp_min(1e-8)
             loss_vec = loss_vec * w
+
         return loss_vec.mean()
 
 # ml/models/evnet.py

@@ -24,12 +24,6 @@ def _import_symbol(path: str):
 def _hashable_strat_key(df: pd.DataFrame, keys: Sequence[str]) -> pd.Series:
     # WHY: make stable, compact keys for group-wise splitting
     return df[keys].astype(str).agg("|".join, axis=1)
-
-# file: ml/data/ev_dataset.py  (patched)
-
-# file: ml/data/ev_sidecar.py
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
