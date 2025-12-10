@@ -11,28 +11,33 @@ class TunerKnobs:
     debug: bool = True
     step: float = 0.6
     tau_floor: float = 0.0
-    tau_ceil: float = 0.6
+    tau_ceil: float = 0.60
 
-    # equity → tau
+    # Weights for how much each signal steers tau (must sum <= 1.0; rest is baseline)
+    eq_weight: float = 0.35
+    expl_weight: float = 0.45
+    ev_weight: float = 0.20
+
+    # equity → component
     eq_tau_gate: float = 0.56
     eq_tau_scale: float = 0.8
     eq_tau_max: float = 0.18
 
-    # exploit → tau
+    # exploit → component (foldy villain or aggro villain)
     expl_fold_gate: float = 0.10
-    expl_fold_scale: float = 0.5
+    expl_fold_scale: float = 0.50
     expl_fold_max: float = 0.20
 
     expl_aggr_gate: float = 0.10
     expl_aggr_scale: float = 0.25
     expl_aggr_max: float = 0.08
 
-    # EV → tau (NEW)
-    ev_tau_gate: float = 0.0
-    ev_tau_scale: float = 0.5
+    # EV → component
+    ev_tau_gate: float = 0.00
+    ev_tau_scale: float = 0.50
     ev_tau_max: float = 0.15
 
-    # guards
+    # guards and limits
     raise_block_if_allin_legal: bool = True
     raise_when_faced_min_size: float = 0.30
     raise_when_faced_max_size: float = 1.00
@@ -41,9 +46,10 @@ class TunerKnobs:
     min_gto_engage_prob: float = 0.01
     raise_bias_eq_boost_gate: float = 0.60
     bet_tau_equity_gate: float = 0.60
-    ctx_exploit_bonus: float = 0.2
-    min_temp: float = 0.2
-    max_temp: float = 1.5
+
+    # strategy blending temp limits
+    min_temp: float = 0.20
+    max_temp: float = 1.50
 
 
 class PostflopTuner:
@@ -65,72 +71,71 @@ class PostflopTuner:
         d = math.log(ratio * (So / max(Sg, 1e-12)))
         return float(max(0.0, min(d, max_boost)))
 
-    def _tau_from_signals(self, base, p_win, ex_probs, ev=None, action_ctx=None):
-        tau = base
-
-        # 1. Equity + fold equity: effective equity
-        if p_win is not None and action_ctx is not None:
-            fold_score = action_ctx.fold_bias_score()
-            effective_equity = p_win + fold_score * (1 - p_win)
-            gap = max(0.0, effective_equity - self.k.eq_tau_gate)
-            tau += min(self.k.eq_tau_scale * gap, self.k.eq_tau_max)
-        elif p_win is not None:
-            gap = max(0.0, p_win - self.k.eq_tau_gate)
-            tau += min(self.k.eq_tau_scale * gap, self.k.eq_tau_max)
-
-        # 2. Exploit signal boost (fold or raise tendencies)
-        if ex_probs is not None:
-            pf, pc, pr = ex_probs
-
-            # Fold bias boost
-            fold_adv = max(0.0, pf - max(pc, pr) - self.k.expl_fold_gate)
-            tau += min(self.k.expl_fold_scale * fold_adv, self.k.expl_fold_max)
-
-            # Aggro bias boost
-            aggr_gap = pr - max(pc, pf)
-            if aggr_gap > self.k.expl_aggr_gate:
-                tau += min(self.k.expl_aggr_scale * aggr_gap, self.k.expl_aggr_max)
-
-        # 3. EV contribution
-        if ev is not None:
-            tau += min(self.k.ev_tau_scale * ev, self.k.ev_tau_max)
-
-        # 4. SPR-aware adjustment (optional soft scaling)
-        if hasattr(self, "pot_bb") and hasattr(self, "eff_stack_bb") and self.pot_bb and self.eff_stack_bb:
-            spr = self.eff_stack_bb / self.pot_bb
-            if spr > 6:
-                tau *= 0.7
-            elif spr < 2:
-                tau *= 1.1
-
-        # 5. Contextual scaling
-        if action_ctx is not None:
-            tau += self.k.ctx_exploit_bonus * action_ctx.fold_bias_score()
-
-        return float(min(max(tau, self.k.tau_floor), self.k.tau_ceil))
-
     def _ruler_single_delta(self, z, legal_idx, target_idx, tau_target, max_boost):
-        """
-        Computes how much to boost a single logit to reach the desired tau_target share.
-        """
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
         T = l[target_idx]
-
-        # New logit after delta: T + delta
-        # New probability: exp(T + delta - logsumexp)
-        # Solve: exp(T + delta - L_new) = tau_target
-        # But since L_new changes with delta, we approximate:
-        #   exp(T + delta - L) ≈ tau_target
-        # → delta ≈ log(tau_target) + L - T
-
         try:
-            raw_delta = math.log(tau_target) + float(L - T)
+            raw_delta = math.log(max(tau_target, 1e-6)) + float(L - T)
         except (ValueError, OverflowError):
             raw_delta = 0.0
+        return float(max(0.0, min(raw_delta, max_boost)))
 
-        delta = max(0.0, min(raw_delta, max_boost))
-        return float(delta)
+    # ---------- new: weighted tau composition ----------
+    def _tau_from_signals(self, base_share, p_win, ex_probs, ev=None, action_ctx=None):
+        """
+        base_share: current passive share (CALL at facing, CHECK at root)
+        Produces tau_target for aggressive group as:
+          tau = clamp( base*(1-w) + eq_w*eq_part + expl_w*expl_part + ev_w*ev_part )
+        """
+        # Components live in [0, tau_ceil]; we sum them with weights.
+        w_eq = float(self.k.eq_weight)
+        w_ex = float(self.k.expl_weight)
+        w_ev = float(self.k.ev_weight)
+        w_sum = max(0.0, min(w_eq + w_ex + w_ev, 1.0))
+
+        # --- equity part ---
+        eq_part = 0.0
+        if p_win is not None:
+            # fold-bias context can inflate effective equity
+            if action_ctx is not None and hasattr(action_ctx, "fold_bias_score"):
+                eff_equity = float(p_win) + float(action_ctx.fold_bias_score()) * (1.0 - float(p_win))
+            else:
+                eff_equity = float(p_win)
+            eq_gap = max(0.0, eff_equity - self.k.eq_tau_gate)
+            eq_part = min(self.k.eq_tau_scale * eq_gap, self.k.eq_tau_max)
+
+        # --- exploit part ---
+        ex_part = 0.0
+        if ex_probs is not None and len(ex_probs) == 3:
+            pf, pc, pr = [float(x) for x in ex_probs]
+            fold_adv = max(0.0, pf - max(pc, pr) - self.k.expl_fold_gate)
+            ex_part += min(self.k.expl_fold_scale * fold_adv, self.k.expl_fold_max)
+            aggr_gap = pr - max(pc, pf)
+            if aggr_gap > self.k.expl_aggr_gate:
+                ex_part += min(self.k.expl_aggr_scale * aggr_gap, self.k.expl_aggr_max)
+
+        # --- EV part ---
+        ev_part = 0.0
+        if ev is not None:
+            # Treat ev as a non-negative advantage scalar (you pass best raise EV or spread)
+            ev_pos = max(0.0, float(ev) - self.k.ev_tau_gate)
+            ev_part = min(self.k.ev_tau_scale * ev_pos, self.k.ev_tau_max)
+
+        # Compose
+        tau = (1.0 - w_sum) * float(base_share) + w_eq * eq_part + w_ex * ex_part + w_ev * ev_part
+
+        # Optional SPR adjustment (gentle)
+        try:
+            spr = float(self.eff_stack_bb) / max(float(self.pot_bb), 1e-6)  # set by caller if you want
+            if spr > 6:
+                tau *= 0.85
+            elif spr < 2.0:
+                tau *= 1.10
+        except Exception:
+            pass
+
+        return float(min(self.k.tau_ceil, max(self.k.tau_floor, tau)))
 
     def apply_facing_raise(self, z, actions, hero_mask, p_win, ex_probs, size_frac, evs=None, action_ctx=None):
         dbg = {}
@@ -177,7 +182,7 @@ class PostflopTuner:
                     return dbg
 
         tau_target = self._tau_from_signals(
-            base=p_share,
+            base_share=p_share,
             p_win=p_win,
             ex_probs=ex_probs,
             ev=max(evs.values()) if evs else None,
@@ -252,28 +257,62 @@ class PostflopTuner:
 
         return dbg
 
-    def apply_root_bet(self, z, actions, hero_mask, p_win, ex_probs, evs=None, action_ctx=None):
+    # ml/inference/tuning/tuner.py
+
+    def apply_root_bet(
+            self,
+            z,
+            actions,
+            hero_mask,
+            p_win,
+            ex_probs,
+            evs=None,
+            action_ctx=None,
+            *,
+            bet_menu_pcts: list[int] | None = None,  # <-- NEW
+    ):
         dbg = {}
         if not self.k.enable:
             return {"applied": False, "reason": "tuner_disabled"}
 
         V = len(actions)
         legal_idx = [i for i in range(V) if hero_mask[i] > 0.5]
-        group_idx = [i for i in legal_idx if actions[i].startswith("BET_")]
+
+        # --- define the aggressive group strictly from router’s bet menu if provided ---
+        bet_set = set(int(x) for x in bet_menu_pcts) if bet_menu_pcts else None
+        group_idx = []
+        for i in legal_idx:
+            tok = actions[i]
+            if not tok.startswith("BET_"):
+                continue
+            if bet_set is None:
+                group_idx.append(i)
+            else:
+                try:
+                    pct = int(tok.split("_", 1)[1])
+                    if pct in bet_set:
+                        group_idx.append(i)
+                except Exception:
+                    pass
+
         passive_idx = [i for i in legal_idx if actions[i] == "CHECK"]
 
         if not group_idx:
-            return {"applied": False, "reason": "no_bet_in_menu_mask"}
+            return {
+                "applied": False,
+                "reason": "no_bet_in_menu_mask",
+                "bet_menu_pcts": (list(bet_set) if bet_set else None),
+            }
 
         l = z[0]
         L = torch.logsumexp(l[legal_idx], dim=0)
         if passive_idx:
             C = torch.logsumexp(l[passive_idx], dim=0)
-            p_share = math.exp(float(C - L))
+            p_share = math.exp(float(C - L))  # current CHECK share
         else:
             p_share = 0.0
 
-        # ----- EV gating -----
+        # ----- EV gating (unchanged) -----
         if evs:
             check_ev = evs.get("CHECK", None)
             bet_evs = {a: ev for a, ev in evs.items() if a.startswith("BET_")}
@@ -286,17 +325,20 @@ class PostflopTuner:
                         "check_ev": round(check_ev, 3),
                         "best_bet_ev": round(best_bet_ev, 3),
                         "evs": bet_evs,
+                        "bet_menu_pcts": (list(bet_set) if bet_set else None),
                     })
                     return dbg
 
+        # ----- new weighted tau from signals (your updated implementation) -----
         tau_target = self._tau_from_signals(
-            base=p_share,
+            base_share=p_share,
             p_win=p_win,
             ex_probs=ex_probs,
-            ev=max(evs.values()) if evs else None,
+            ev=(max(evs.values()) if evs else None),
             action_ctx=action_ctx,
         )
 
+        # ----- chooser path if EVs present -----
         chosen_idx = None
         if evs:
             chooser = AggroBucketChooser(actions, z, hero_mask, evs)
@@ -315,6 +357,7 @@ class PostflopTuner:
                 "delta": delta,
             })
         else:
+            # group soft move
             G = torch.logsumexp(l[group_idx], dim=0)
             g_share = math.exp(float(G - L))
             tau_move = g_share + self.k.step * (tau_target - g_share)
@@ -327,7 +370,7 @@ class PostflopTuner:
                 "delta": delta,
             })
 
-        # ⚡ Inline StrategyBlender usage
+        # optional StrategyBlender (unchanged)
         try:
             blender = StrategyBlender(
                 logits=z[0],
@@ -340,7 +383,7 @@ class PostflopTuner:
             self.temperature = blender.adjust_temperature(
                 eff_stack_bb=getattr(self, "eff_stack_bb", None),
                 pot_bb=getattr(self, "pot_bb", None),
-                delta=max(evs.values()) - min(evs.values()) if evs else None,
+                delta=(max(evs.values()) - min(evs.values())) if evs else None,
                 dbg_out=dbg,
             )
             if self.temperature != 1.0:
@@ -358,8 +401,7 @@ class PostflopTuner:
             "p_win": p_win,
             "ex_probs": ex_probs,
             "ev": evs,
-            "action_context": action_ctx.summary() if action_ctx else None,
+            "bet_menu_pcts": (list(bet_set) if bet_set else None),
             "debug_name": "apply_root_bet",
         })
-
         return dbg

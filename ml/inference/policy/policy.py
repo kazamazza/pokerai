@@ -325,6 +325,21 @@ class PolicyInfer:
                 evs[k] = 0.0
 
         action_ctx = ActionContextClassifier.from_request(req, side)
+        root_bet_menu_pcts = None
+        if root_info is not None:
+            menu = getattr(root_info, "bet_menu", None)  # may be [25,33,50...] or ["BET_33", ...]
+            if menu:
+                root_bet_menu_pcts = []
+                for item in menu:
+                    if isinstance(item, (int, float)):
+                        root_bet_menu_pcts.append(int(round(item)))
+                    elif isinstance(item, str) and item.upper().startswith("BET_"):
+                        try:
+                            root_bet_menu_pcts.append(int(item.split("_", 1)[1]))
+                        except Exception:
+                            pass
+                if not root_bet_menu_pcts:
+                    root_bet_menu_pcts = None  # fall back to "no extra filter"
 
         # ---------------- tuner ----------------
         if side == "facing":
@@ -341,6 +356,7 @@ class PolicyInfer:
                 p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
                 ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
                 evs=evs, action_ctx=action_ctx,
+                bet_menu_pcts=root_bet_menu_pcts,
             )
 
         # ---------------- final distribution (helpers) ----------------

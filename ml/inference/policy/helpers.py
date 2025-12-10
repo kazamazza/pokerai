@@ -152,36 +152,28 @@ def update_vocab_cache(
 # Equity / EV helpers
 # ---------------------------
 
-def equity_delta_vector(
-    *,
-    eq_margin: float,
-    hero_is_ip: bool,
-    facing_bet: bool,
-    action_vocab: Sequence[str],
-    vocab_index: Mapping[str, int],
-) -> torch.Tensor:
-    """Map equity margin into gentle [1,V] logit deltas."""
+def equity_delta_vector(eq_margin, hero_is_ip, facing_bet, action_vocab, vocab_index):
+    import torch
     V = len(action_vocab)
     delta = torch.zeros(V, dtype=torch.float32)
     m = max(-0.25, min(0.25, float(eq_margin)))
-    base = m
 
-    def bump(tok: str, amt: float):
+    def bump(tok, amt):
         j = vocab_index.get(tok)
         if j is not None:
             delta[j] += amt
 
     if facing_bet:
-        bump("CALL", +1.00 * base)
+        bump("CALL", +0.8 * m)
         for tok in ("RAISE_150", "RAISE_200", "RAISE_300"):
-            bump(tok, +0.50 * base)
-        bump("FOLD", -1.25 * base)
+            bump(tok, +0.4 * m)
+        bump("FOLD", -0.6 * m)  # was -1.25*m; gentler
     else:
         for tok in ("BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100"):
-            bump(tok, +0.80 * base)
+            bump(tok, +0.7 * m)
         if not hero_is_ip:
-            bump("DONK_33", +0.80 * base)
-        bump("CHECK", -1.00 * base)
+            bump("DONK_33", +0.6 * m)
+        bump("CHECK", -0.5 * m)
 
     return delta.view(1, -1)
 
