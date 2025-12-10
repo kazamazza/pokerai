@@ -291,7 +291,7 @@ class PostflopPolicyInferSingle:
         if is_root_model:
             mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu,ctx=req.ctx).view(1, -1).to(logits.device)
         else:
-            mask = mask_facing(self.action_vocab).view(1, -1).to(logits.device)
+            mask = mask_facing(self.action_vocab, raise_buckets=req.raise_buckets).view(1, -1).to(logits.device)
 
         big_neg = torch.finfo(logits.dtype).min / 4
         masked = torch.where(mask > 0.5, logits / max(float(temperature), 1e-6), big_neg)

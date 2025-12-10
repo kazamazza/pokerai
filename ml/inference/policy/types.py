@@ -56,7 +56,7 @@ class PolicyRequest:
     # ✅ Preflop defaults: raise multipliers
     raise_buckets: Optional[List[float]] = field(default_factory=lambda: [1.5, 2.0, 3.0])
 
-    allow_allin: Optional[bool] = None
+    allow_allin: Optional[bool] = False
     villain_id: Optional[str] = None
     actions_hist: Optional[List[ActionHistoryEntry]] = None
 

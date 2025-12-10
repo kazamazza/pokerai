@@ -193,10 +193,10 @@ class SignalCollector:
             return RootInfo(is_root=True, bet_menu=getattr(req, "bet_sizes", None))
         return RootInfo(is_root=False)
 
-    def collect_ev(self, req, *, tokens: Sequence[str], side: Optional[str]) -> EVSig:
+    def collect_ev(self, req, *, tokens: Sequence[str], side: str | None) -> EVSig:
         if not self.ev_router:
             return EVSig(False, {}, None, "no_ev_router")
-        out = self.ev_router.predict(req, tokens=tokens, side=side)
+        out = self.ev_router.predict(req, side=side, tokens=tokens)
         if not out.available:
             return EVSig(False, {}, None, out.err)
         evs = out.evs_by_token

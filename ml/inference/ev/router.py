@@ -3,7 +3,8 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 from pathlib import Path
 import torch
 
-from .infer_single import EVInferSingle, EVOutput
+from ml.inference.ev.infer_single import EVInferSingle, EVOutput
+
 
 class EVRouter:
     """
@@ -29,8 +30,9 @@ class EVRouter:
             self.set_clusterer(clusterer)
 
     def set_clusterer(self, clusterer: Any) -> None:
-        if self.root:   self.root.clusterer = clusterer
-        if self.facing: self.facing.clusterer = clusterer
+        if self.root:    self.root.clusterer = clusterer
+        if self.facing:  self.facing.clusterer = clusterer
+        if self.preflop: self.preflop.clusterer = clusterer
 
     @staticmethod
     def _is_facing(req, hero_is_ip: bool) -> Tuple[bool, Optional[float]]:
@@ -60,17 +62,25 @@ class EVRouter:
         except ValueError:
             return True
 
+    # ml/inference/ev/router.py
     @torch.no_grad()
-    def predict(self, req) -> EVOutput:
+    def predict(self, req, *, side: str | None = None, tokens: Sequence[str] | None = None) -> EVOutput:
         street = int(getattr(req, "street", 0) or 0)
+
         if street == 0:
             if not self.preflop:
-                raise RuntimeError("EVRouter: preflop model not available")
-            return self.preflop.predict(req)
+                return EVOutput(False, [], [], {}, {"err": "no_preflop"}, "no_preflop")
+            out = self.preflop.predict(req, tokens=tokens)
+            return out
 
-        hero_is_ip = self._hero_is_ip(req)
-        facing, _ = self._is_facing(req, hero_is_ip=hero_is_ip)
-        return (self.facing if facing else self.root).predict(req)
+        # choose split
+        if side is None:
+            hero_is_ip = self._hero_is_ip(req)
+            facing, _ = self._is_facing(req, hero_is_ip=hero_is_ip)
+            side = "facing" if facing else "root"
+
+        inf = self.facing if side == "facing" else self.root
+        return inf.predict(req, tokens=tokens)
 
     # Convenience constructors
     @classmethod

@@ -3,6 +3,8 @@ import numpy as np
 from ml.inference.action_context_classifier import ActionContextClassifier
 from ml.inference.context_infer import ContextInferer
 from ml.inference.policy.deps import PolicyInferDeps
+from ml.inference.policy.helpers import cap_allins, masked_softmax, equity_delta_vector, normalize_bet_sizes, \
+    normalize_raise_buckets, update_vocab_cache, derive_side, soft_prior_blend, compute_temperature
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig, tuner_knobs_from_blend
 from ml.inference.policy.projection import FCRProjector
 from ml.inference.policy.signals import SignalCollector, EquitySig
@@ -53,6 +55,7 @@ class PolicyInfer:
             expl_store=deps.exploit,
             pop_model=deps.pop,
             router=self.pol_post,  # pass the whole router; collector will use .facing if present
+            ev_router=self.ev_router
         )
         self._proj = FCRProjector()
         self._tuner = PostflopTuner(tuner_knobs_from_blend(self.blend))
@@ -71,189 +74,218 @@ class PolicyInfer:
         if self.eq is not None and not (hasattr(self.eq, "predict_proba") or hasattr(self.eq, "predict")):
             raise TypeError(f"deps.equity lacks predict/predict_proba(). Got: {type(self.eq)!r}")
 
-    def _derive_side(self, req: "PolicyRequest", *, hero_is_ip: bool) -> str:
-        """Return 'root' or 'facing' deterministically from the payload/history."""
-        fb = getattr(req, "facing_bet", None)
-        if isinstance(fb, bool):
-            return "facing" if fb else "root"
-        # explicit faced size implies facing
-        if getattr(req, "faced_size_frac", None) is not None or getattr(req, "faced_size_pct", None) is not None:
-            return "facing"
-        # reuse facing single’s parser if available
-        try:
-            facing_flag, _ = self.pol_post.facing.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
-            return "facing" if facing_flag else "root"
-        except Exception:
-            return "root"
-
-    def _update_vocab(self, actions: List[str]) -> None:
-        """Rebuild index and invalidate F/C/R projection if actions changed."""
-        if actions == self.action_vocab:
-            return
-        self.action_vocab = list(actions)
-        self._vocab_index = {a: i for i, a in enumerate(self.action_vocab)}
-        self._P_fcr = None  # invalidate
-
-    def _equity_delta_vector(self, *, eq_margin: float, hero_is_ip: bool, facing_bet: bool) -> torch.Tensor:
-        """Map equity margin into a [V]-logit delta; gentle shaping."""
-        V = len(self.action_vocab)
-        delta = torch.zeros(V, dtype=torch.float32)
-        m = max(-0.25, min(0.25, float(eq_margin)))
-        base = m
-
-        def bump(tok: str, amt: float):
-            j = self._vocab_index.get(tok)
-            if j is not None:
-                delta[j] += amt
-
-        if facing_bet:
-            bump("CALL", +1.00 * base)
-            for tok in ("RAISE_150", "RAISE_200", "RAISE_300"):
-                bump(tok, +0.50 * base)
-            bump("FOLD", -1.25 * base)
-        else:
-            for tok in ("BET_25", "BET_33", "BET_50", "BET_66", "BET_75", "BET_100"):
-                bump(tok, +0.80 * base)
-            if not hero_is_ip:
-                bump("DONK_33", +0.80 * base)
-            bump("CHECK", -1.00 * base)
-        return delta.view(1, -1)
-
-    def _cap_allins(self, p: torch.Tensor, eff_stack_bb: float) -> torch.Tensor:
-        """Cap ALLIN mass when deep; preserves distribution over legal others."""
-        if eff_stack_bb <= self.blend.risk_floor_stack_bb:
-            return p
-        try:
-            idx = self.action_vocab.index("ALLIN")
-        except ValueError:
-            return p
-        p = p if p.dim() == 2 else p.view(1, -1)
-        if p[0, idx] <= self.blend.max_allin_freq:
-            return p
-        over = p[0, idx] - self.blend.max_allin_freq
-        p = p.clone()
-        p[0, idx] = self.blend.max_allin_freq
-        rest = [i for i in range(len(self.action_vocab)) if i != idx]
-        denom = float(p[0, rest].sum().item()) or 1e-12
-        scale = 1.0 + (over / denom)
-        p[0, rest] *= scale
-        p = p / p.sum(dim=-1, keepdim=True).clamp_min(1e-12)
-        return p
-
-    def _as_batch(self, x: torch.Tensor) -> torch.Tensor:
-        return x if x.dim() == 2 else x.view(1, -1)
-
-    def _masked_softmax(self, logits: torch.Tensor, mask: torch.Tensor, T: float, eps: float) -> torch.Tensor:
-        logits = self._as_batch(logits)
-        mask = self._as_batch(mask).to(logits.dtype)
-        big_neg = torch.finfo(logits.dtype).min / 4
-        masked = torch.where(mask > 0.5, logits / max(T, 1e-6), big_neg)
-        p = F.softmax(masked, dim=-1)
-        p = p * (1 - eps) + (eps / mask.sum(dim=-1, keepdim=True).clamp_min(1.0)) * (mask > 0.5).to(p.dtype)
-        p = p * mask
-        p = p / p.sum(dim=-1, keepdim=True).clamp_min(1e-12)
-        return p
-
-    def _menu_mask(self, actions: List[str], *, actor: str, facing_bet: bool,
-                  bet_sizes: Optional[List[float]],
-                  raise_buckets: Optional[List[int]],
-                  allow_allin: Optional[bool]) -> torch.Tensor:
-        """Menu-aware legalities aligned to actions."""
-        allow_ai = True if allow_allin is None else bool(allow_allin)
-        m = torch.zeros(len(actions), dtype=torch.float32)
-        raise_set = set(int(x) for x in (raise_buckets or []))
-        bet_percents = None
-        if bet_sizes is not None:
-            bet_percents = set(
-                int(round((s if s > 1 else (s * 100.0) + 1e-9)))
-                for s in bet_sizes
-            )
-
-        for i, tok in enumerate(actions):
-            T = tok.upper()
-            legal = False
-
-            if not facing_bet:
-                # ROOT
-                if T == "CHECK":
-                    legal = True
-                elif T.startswith("BET_"):
-                    if bet_percents is None:
-                        legal = True
-                    else:
-                        try:
-                            pct = int(T.split("_", 1)[1])
-                            legal = pct in bet_percents
-                        except Exception:
-                            legal = False
-                elif T.startswith("DONK_"):
-                    legal = (actor == "oop")
-                elif T == "ALLIN":
-                    legal = allow_ai
-            else:
-                if T in ("FOLD", "CALL"):
-                    legal = True
-                elif T.startswith("RAISE_"):
-                    if not raise_set:
-                        legal = True
-                    else:
-                        try:
-                            mult = int(T.split("_", 1)[1])
-                            legal = mult in raise_set
-                        except Exception:
-                            legal = False
-                elif T == "ALLIN":
-                    legal = allow_ai
-
-            if legal:
-                m[i] = 1.0
-
-        if m.sum().item() == 0:
-            m.fill_(1.0)
-
-        return m
-
     @torch.no_grad()
-    def _predict_postflop(
+    def _predict_preflop(
             self,
             req: PolicyRequest,
             eq_sig: Optional[EquitySig] = None
     ) -> PolicyResponse:
+        """
+        Preflop policy:
+          1) generate legal menu (centi-bb OPEN_/RAISE_ + CALL/CHECK/FOLD) that matches EV-preflop training
+          2) get EV vector from EV router (aligned to tokens)
+          3) blend soft priors (optionally equity-aware) + temperature from EV spread
+          4) softmax → probs
+        """
+        # -------- faced size normalization (if facing) --------
+        facing_bet = bool(getattr(req, "facing_bet", False))
+        if facing_bet:
+            # accept percent input
+            if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
+                try:
+                    req.faced_size_frac = float(req.faced_size_pct) / 100.0
+                except Exception:
+                    pass
+            # optional default when facing and not provided
+            if getattr(req, "faced_size_frac", None) is None:
+                req.faced_size_frac = 0.33
+        faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
+
+        # -------- menu generation (must match training vocab) --------
+        stack_bb = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
+        hero_pos = (getattr(req, "hero_pos", "") or "").upper()
+        free_check = (not facing_bet) and (hero_pos == "BB")
+
+        # Respect request gate for ALLIN, but keep False by default to mirror training
+        allow_allin = bool(getattr(req, "allow_allin", False))
+
+        gen = PreflopLegalActionGenerator(
+            open_sizes_cbb=(200, 250, 300),  # 2.00, 2.50, 3.00 bb
+            raise_totals_cbb=(600, 750, 900, 1200),  # 6.00, 7.50, 9.00, 12.00 bb
+            allow_allin=allow_allin,
+            max_open_cbb=None,
+        )
+        tokens = gen.generate(
+            stack_bb=stack_bb,
+            facing_bet=facing_bet,
+            faced_frac=faced_frac,
+            free_check=free_check,
+        )
+        if not tokens:
+            # Hard safety net (shouldn’t happen)
+            tokens = ["FOLD"] + (["CHECK"] if free_check else [])
+
+        # -------- EV signal (aligned to tokens) --------
+        if not hasattr(self, "ev_router") or self.ev_router is None:
+            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in PolicyInferFactory.")
+
+        ev_out = self.ev_router.predict(req, side="preflop", tokens=tokens)  # EVOutput
+        if not ev_out or not ev_out.available:
+            ev_values = np.zeros(len(tokens), dtype=np.float32)
+        else:
+            ev_values = np.asarray(ev_out.evs, dtype=np.float32)
+
+        # -------- soft priors + temperature scaling --------
+        ev_map = {t: float(ev_values[i]) for i, t in enumerate(tokens)}
+        base_logits = np.asarray(soft_prior_blend(tokens, req, evs=ev_map, eq_sig=eq_sig), dtype=np.float32)
+
+        # stabilize
+        if base_logits.size:
+            base_logits -= float(np.max(base_logits))
+
+        T = float(compute_temperature(ev_values))  # lower T if EVs are more spread → more decisive
+        probs = np.exp(base_logits / max(T, 1e-6))
+        Z = probs.sum()
+        if Z <= 0.0 or not np.isfinite(Z):
+            probs = np.ones(len(tokens), dtype=np.float32) / float(len(tokens))
+        else:
+            probs = probs / Z
+
+        best_action = tokens[int(np.argmax(probs))]
+
+        # -------- debug invariants --------
+        debug = None
+        if getattr(req, "debug", False):
+            debug = {
+                "tokens": list(tokens),
+                "ev_values": ev_values.astype(float).tolist(),
+                "temp": T,
+                "facing_bet": facing_bet,
+                "faced_frac": faced_frac,
+                "free_check": free_check,
+                "allow_allin": allow_allin,
+                "stack_bb": stack_bb,
+                "equity": (eq_sig.p_win if (eq_sig and eq_sig.available) else None),
+                # preflop EV sidecar typically does not use ctx; surface if present anyway
+                "ctx": getattr(req, "ctx", None),
+            }
+
+        return PolicyResponse(
+            actions=list(tokens),
+            probs=probs.astype(float).tolist(),
+            evs=ev_values.astype(float).tolist(),
+            best_action=best_action,
+            notes=[f"preflop policy (range+EV router, T={T:.2f})"],
+            debug=debug,
+        )
+
+
+    @torch.no_grad()
+    def _predict_postflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None) -> PolicyResponse:
         hero_is_ip = postflop_is_hero_ip(req)
         actor = "ip" if hero_is_ip else "oop"
-        side = self._derive_side(req, hero_is_ip=hero_is_ip)
+        side = derive_side(req, hero_is_ip=hero_is_ip, pol_post=self.pol_post)
 
+        # 0.6 — context early (and loudly)
+        ctx, ctx_reason = ContextInferer.infer_with_reason(req)
+        if ctx == "BLIND_VS_STEAL":
+            ctx = "VS_OPEN"  # keep EV sidecars happy
+        req.ctx = ctx
+
+        # Normalize faced size BEFORE routing (accept % and default)
+        if side == "facing":
+            if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
+                try:
+                    req.faced_size_frac = float(req.faced_size_pct) / 100.0
+                except Exception:
+                    pass
+            if getattr(req, "faced_size_frac", None) is None:
+                req.faced_size_frac = 0.33
+
+        # --- call policy router (root/facing) ---
         router_resp = self.pol_post.predict(req, actor=actor, temperature=1.0, side=side)
         actions = list(getattr(router_resp, "actions", []) or [])
         if not actions:
             raise RuntimeError("Router returned empty actions")
-        self._update_vocab(actions)
+
+        # keep vocab cache fresh
+        self.action_vocab, self._vocab_index, self._P_fcr = update_vocab_cache(
+            self.action_vocab, actions, self._P_fcr
+        )
         V = len(actions)
 
+        # logits (prefer logits if provided; otherwise log probs)
         if getattr(router_resp, "logits", None) is not None:
             z = torch.tensor(router_resp.logits, dtype=torch.float32).view(1, V)
         else:
             p_r = torch.tensor(router_resp.probs, dtype=torch.float32).view(1, V)
             z = torch.log(p_r.clamp_min(1e-8))
 
+        # ---------------- legal masks ----------------
+        # Router-provided legality (never override)
         mask_router = getattr(router_resp, "mask", None)
         hero_mask_router = (
             torch.tensor(mask_router, dtype=torch.float32).view(1, V)[0]
             if mask_router is not None else torch.ones(V, dtype=torch.float32)
         )
-        menu_mask_t = self._menu_mask(
-            actions=actions,
-            actor=actor,
-            facing_bet=(side == "facing"),
-            bet_sizes=req.bet_sizes,
-            raise_buckets=req.raise_buckets,
-            allow_allin=req.allow_allin,
-        )
-        hero_mask = (hero_mask_router > 0.5).float() * (menu_mask_t > 0.5).float()
-        if hero_mask.sum() <= 0:
-            hero_mask = torch.ones_like(menu_mask_t)
 
-        # ---------- 3) Signals ----------
+        # Role legality (DONK only OOP at root, facing only F/C/R/ALLIN)
+        role_mask = torch.ones(V, dtype=torch.float32)
+        if side == "root":
+            for i, t in enumerate(actions):
+                if t.startswith("DONK_") and actor == "ip":
+                    role_mask[i] = 0.0
+        else:  # facing
+            for i, t in enumerate(actions):
+                T = t.upper()
+                if not (T in ("FOLD", "CALL") or T.startswith("RAISE_") or T == "ALLIN"):
+                    role_mask[i] = 0.0
+
+        # Size/menu legality — use normalized helpers; 0.4 don’t over-mask if no menu
+        allow_allin = True if getattr(req, "allow_allin", None) is None else bool(req.allow_allin)
+        size_mask = torch.ones(V, dtype=torch.float32)
+
+        if side == "facing":
+            if req.raise_buckets is not None:
+                rb = normalize_raise_buckets(req.raise_buckets)  # accepts [1.5,2,3] or [150,200,300]
+                for i, t in enumerate(actions):
+                    if t.startswith("RAISE_"):
+                        try:
+                            suf = int(t.split("_", 1)[1])
+                            if suf not in rb:
+                                size_mask[i] = 0.0
+                        except Exception:
+                            size_mask[i] = 0.0
+            # ALLIN gate
+            for i, t in enumerate(actions):
+                if t == "ALLIN" and not allow_allin:
+                    size_mask[i] = 0.0
+        else:
+            if req.bet_sizes is not None:
+                bs = normalize_bet_sizes(req.bet_sizes)  # accepts [0.33,0.66] or [33,66]
+                for i, t in enumerate(actions):
+                    if t.startswith("BET_"):
+                        try:
+                            pct = int(t.split("_", 1)[1])
+                            if pct not in bs:
+                                size_mask[i] = 0.0
+                        except Exception:
+                            size_mask[i] = 0.0
+            # ALLIN gate
+            for i, t in enumerate(actions):
+                if t == "ALLIN" and not allow_allin:
+                    size_mask[i] = 0.0
+
+        # If caller supplied NO menu at facing, do NOT over-mask raises
+        if side == "facing" and req.raise_buckets is None and req.bet_sizes is None:
+            size_mask = torch.ones_like(size_mask)
+
+        # Final hero mask = router * role * size
+        hero_mask = (hero_mask_router > 0.5).float() * (role_mask > 0.5).float() * (size_mask > 0.5).float()
+        if hero_mask.sum() <= 0:
+            hero_mask = (hero_mask_router > 0.5).float()  # fallback
+
+        # ---------------- signals ----------------
         ex_sig = self._signals.collect_exploit(req)
         facing_info = root_info = None
         if side == "facing":
@@ -261,113 +293,110 @@ class PolicyInfer:
         else:
             root_info = self._signals.collect_root(req, hero_is_ip)
 
-        # ---------- 4) Adjust logits: equity then exploit ----------
+        # ---------------- equity adjust ----------------
         z = z.clone()
         if self.blend.lambda_eq > 0.0 and eq_sig and eq_sig.available:
             eq_margin = float(eq_sig.p_win) - 0.5
-            d = self._equity_delta_vector(
+            d = equity_delta_vector(  # helper
                 eq_margin=eq_margin,
                 hero_is_ip=hero_is_ip,
                 facing_bet=(side == "facing"),
+                action_vocab=self.action_vocab,
+                vocab_index=self._vocab_index,
             ).to(dtype=z.dtype, device=z.device)
             d = torch.clamp(d, -float(self.blend.eq_max_logit_delta), float(self.blend.eq_max_logit_delta))
             z = z + float(self.blend.lambda_eq) * d
 
+        # ---------------- exploit adjust ----------------
         if ex_sig.available and self.blend.lambda_expl > 0.0 and ex_sig.raw is not None:
             delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
             z = z + float(self.blend.lambda_expl) * delta
 
-        # ---------- 5) EV signal (EVNet router) ----------
-        # ensure size_frac for facing if user didn’t pass it
-        if side == "facing" and getattr(req, "faced_size_frac", None) is None:
-            if facing_info and facing_info.size_frac is not None:
-                try:
-                    req.faced_size_frac = float(facing_info.size_frac)
-                except Exception:
-                    pass
+        # ---------------- EV signal (mapped to our actions) ----------------
+        ev_sig = self._signals.collect_ev(req, tokens=actions, side=side)
+        if ev_sig and ev_sig.available:
+            evs = dict(ev_sig.evs)  # {token: ev}
+        else:
+            evs = {a: 0.0 for a in actions}
 
-        ctx, ctx_reason = ContextInferer.infer_with_reason(req)
-        req.ctx = ctx
+        # sanitize EVs
+        for k, v in list(evs.items()):
+            if not (v == v) or v in (float("inf"), float("-inf")):
+                evs[k] = 0.0
+
         action_ctx = ActionContextClassifier.from_request(req, side)
 
-        if not hasattr(self, "ev_router") or self.ev_router is None:
-            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in your factory.")
-
-        try:
-            ev_list = self.ev_router.predict(req, side=side, tokens=actions)  # length V
-            if hasattr(ev_list, "tolist"):
-                ev_list = ev_list.tolist()
-            ev_list = [float(x) for x in ev_list]
-        except Exception:
-            ev_list = [0.0] * V
-
-        evs = {a: ev_list[i] for i, a in enumerate(actions)}
-
-
-        # ---------- 6) Tuner (uses evs) ----------
+        # ---------------- tuner ----------------
         if side == "facing":
             tuner_dbg = self._tuner.apply_facing_raise(
-                z=z,
-                actions=actions,
-                hero_mask=hero_mask,
+                z=z, actions=actions, hero_mask=hero_mask,
                 p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
                 ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
-                size_frac=(facing_info.size_frac if facing_info else None),
-                evs=evs,
-                action_ctx=action_ctx,
+                size_frac=(facing_info.size_frac if facing_info else getattr(req, "faced_size_frac", None)),
+                evs=evs, action_ctx=action_ctx,
             )
         else:
             tuner_dbg = self._tuner.apply_root_bet(
-                z=z,
-                actions=actions,
-                hero_mask=hero_mask,
+                z=z, actions=actions, hero_mask=hero_mask,
                 p_win=(eq_sig.p_win if eq_sig and eq_sig.available else None),
                 ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
-                evs=evs,
-                action_ctx=action_ctx,
+                evs=evs, action_ctx=action_ctx,
             )
 
-        # ---------- 7) Final distribution ----------
-        p = self._masked_softmax(
+        # ---------------- final distribution (helpers) ----------------
+        p = masked_softmax(
             z, hero_mask.view(1, -1),
             T=float(self.blend.temperature),
             eps=float(self.blend.min_legal_prob),
         )
         p = mix_ties_if_close(p, float(self.blend.tie_mix_threshold))
         p = epsilon_explore(p, float(self.blend.epsilon_explore), hero_mask.view(1, -1))
-        p = self._cap_allins(p, eff_stack_bb=float(req.eff_stack_bb or 0.0))
+        p = cap_allins(
+            p,
+            eff_stack_bb=float(getattr(req, "eff_stack_bb", 0.0) or 0.0),
+            action_vocab=self.action_vocab,
+            max_allin_freq=float(self.blend.max_allin_freq),
+            risk_floor_stack_bb=float(self.blend.risk_floor_stack_bb),
+        )
         probs = p[0].tolist()
 
         best_idx = int(torch.argmax(p[0]))
         best_action = actions[best_idx]
 
-        debug = {
-            "router_side": side,
-            "menu_mask_sum": float(menu_mask_t.sum().item()),
-            "signals": {
-                "equity": {
-                    "available": eq_sig.available if eq_sig else False,
-                    "p_win": eq_sig.p_win if eq_sig else None,
-                    "err": eq_sig.err if eq_sig else None,
-                },
-                "exploit": {
-                    "available": ex_sig.available,
-                    "counts_total": ex_sig.counts_total,
-                    "probs": ex_sig.probs,
-                    "err": ex_sig.err,
-                },
-                "facing": {
-                    "is_facing": facing_info.is_facing if facing_info else False,
-                    "size_frac": facing_info.size_frac if facing_info else None,
-                },
-                "root": {
-                    "is_root": root_info.is_root if root_info else False,
-                    "bet_menu": root_info.bet_menu if root_info else None,
-                }
-            },
-            "tuner_debug": tuner_dbg,
-            "blend_cfg": self.blend.to_dict(),
-        } if req.debug else None
+        # ---------------- invariants / reasons ----------------
+        if req.debug:
+            def _where(tokens, pred):
+                return [t for i, t in enumerate(tokens) if bool(pred[i])]
+
+            is_raise = torch.tensor([1.0 if t.startswith("RAISE_") else 0.0 for t in actions])
+            is_bet = torch.tensor([1.0 if t.startswith("BET_") else 0.0 for t in actions])
+
+            inv = {
+                "side": side,
+                "ctx": ctx,
+                "ctx_reason": ctx_reason,
+                "had_raises": bool((is_raise.sum().item()) > 0),
+                "kept_raises_router": _where(actions, (is_raise > 0) * (hero_mask_router > 0.5)),
+                "kept_raises_role": _where(actions, (is_raise > 0) * (role_mask > 0.5)),
+                "kept_raises_size": _where(actions, (is_raise > 0) * (size_mask > 0.5)),
+                "final_kept_raises": _where(actions, (is_raise > 0) * (hero_mask > 0.5)),
+                "had_bets": bool((is_bet.sum().item()) > 0),
+                "final_kept_bets": _where(actions, (is_bet > 0) * (hero_mask > 0.5)),
+                "allow_allin": allow_allin,
+                "menu_mask_sum": float(hero_mask.sum().item()),
+                "router_mask_sum": float((hero_mask_router > 0.5).sum().item()),
+                "role_mask_sum": float((role_mask > 0.5).sum().item()),
+                "size_mask_sum": float((size_mask > 0.5).sum().item()),
+            }
+            debug = {
+                "router_side": side,
+                "invariants": inv,
+                "tuner_debug": tuner_dbg,
+                "pot_bb": float(getattr(req, "pot_bb", 0.0) or 0.0),
+                "faced_size_frac": float(getattr(req, "faced_size_frac", -1.0) or -1.0),
+            }
+        else:
+            debug = None
 
         return PolicyResponse(
             actions=actions,
@@ -378,160 +407,8 @@ class PolicyInfer:
             best_action=best_action,
         )
 
-    def _soft_prior_blend(
-            self,
-            tokens: list[str],
-            req: PolicyRequest,
-            evs: Optional[Dict[str, float]] = None,
-            eq_sig: Optional["EquitySig"] = None,
-    ) -> list[float]:
-
-        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
-        facing = bool(req.facing_bet)
-
-        # --- Equity normalization ---
-        eq_boost = 1.0
-        if eq_sig and eq_sig.available and eq_sig.p_win is not None:
-            # p_win in [0,1] → scale to [0.8, 1.3]
-            # strong hands get +30% prior, weak hands get -20%
-            eq_boost = 0.8 + 0.5 * float(eq_sig.p_win)
-
-        priors = []
-        for a in tokens:
-            if a == "FOLD":
-                base = 0.2 if facing else 0.01
-                # If equity is poor, folding slightly more likely
-                if eq_sig and eq_sig.available:
-                    base *= (1.2 - eq_boost)  # invert equity
-                priors.append(base)
-
-            elif a == "CALL":
-                base = 0.35 if facing else 0.0
-                base *= eq_boost  # strong hands like calling more
-                priors.append(base)
-
-            elif a == "CHECK":
-                base = 0.35 if not facing else 0.0
-                priors.append(base)
-
-            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
-                try:
-                    amt = float(a.split("_")[1])
-                    frac = amt / stack
-                    base = 1.0 - abs(frac - 0.5)
-
-                    # EV boost
-                    if evs and a in evs:
-                        base *= max(evs[a], 0.0) + 1.0
-
-                    # EQUITY boost → aggressive actions
-                    base *= eq_boost
-                    priors.append(base)
-
-                except:
-                    priors.append(0.01)
-            else:
-                priors.append(0.01)
-
-        return priors
-
-    def _compute_temperature(self, evs: np.ndarray) -> float:
-        """
-        Computes softmax temperature from EV spread.
-        - High spread → lower T (confident)
-        - Low spread → higher T (uncertain)
-        """
-        if len(evs) == 0 or np.allclose(evs, evs[0]):
-            return 2.5  # uniform EVs → use high T
-
-        spread = float(np.max(evs) - np.min(evs))
-        # Normalize spread into [0, 1]
-        norm = np.clip(spread / 0.5, 0.0, 1.0)
-
-        # Invert: high spread → low T
-        return 2.5 - 2.0 * norm  # T ∈ [0.5, 2.5]
-
-    @torch.no_grad()
-    def _predict_preflop(
-            self,
-            req: PolicyRequest,
-            eq_sig: Optional[EquitySig] = None
-    ) -> PolicyResponse:
-        """
-        Preflop policy:
-          1) hero 169-range (for priors)
-          2) legal token menu (centi-bb OPEN_/RAISE_ + CALL/CHECK/FOLD)
-          3) EV vector from EV router (aligned to tokens)
-          4) soft-prior + temp scaling → probs
-        """
-        # --- 1) Hero range (169) for priors ---
-        hero_range = self.rng_pre.predict(req)  # your existing preflop range net
-
-        # --- 2) Legal tokens (exactly the centi-bb vocab used for EV-preflop training) ---
-        stack_bb = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
-        facing_bet = bool(getattr(req, "facing_bet", False))
-        faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
-
-        # BB has a free check when unopened
-        hero_pos = (getattr(req, "hero_pos", "") or "").upper()
-        free_check = (not facing_bet) and (hero_pos == "BB")
-
-        # Use the finalized centi-bb generator you trained with
-        gen = PreflopLegalActionGenerator(
-            open_sizes_cbb=(200, 250, 300),  # 2.00, 2.50, 3.00 bb
-            raise_totals_cbb=(600, 750, 900, 1200),  # 6.00, 7.50, 9.00, 12.00 bb
-            allow_allin=False,  # match training
-            max_open_cbb=None,
-        )
-        tokens = gen.generate(
-            stack_bb=stack_bb,
-            facing_bet=facing_bet,
-            faced_frac=faced_frac,
-            free_check=free_check,
-        )
-        if not tokens:
-            tokens = ["FOLD"] + (["CHECK"] if free_check else [])  # hard safety
-
-        # --- 3) EV signal from EV router (aligned to tokens) ---
-        # Expect self.ev_router to be provided by your PolicyInferFactory.
-        if not hasattr(self, "ev_router") or self.ev_router is None:
-            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in PolicyInferFactory.")
-        ev_values = self.ev_router.predict(req, side="preflop", tokens=tokens)  # List[float], same order as tokens
-        ev_values = np.asarray(ev_values, dtype=np.float32)
-
-        # --- 4) Soft priors + temperature scaling (uses equity & EV spread) ---
-        base_logits = np.asarray(self._soft_prior_blend(tokens, req, dict(zip(tokens, ev_values)), eq_sig),
-                                 dtype=np.float32)
-        base_logits -= base_logits.max(initial=0.0)  # numerical stability
-
-        temp = self._compute_temperature(ev_values)  # lower T if EVs are spread out (confident)
-        probs = np.exp(base_logits / max(temp, 1e-6))
-        probs = probs / probs.sum() if probs.sum() > 0 else np.ones(len(tokens), dtype=np.float32) / float(len(tokens))
-
-        best_action = tokens[int(np.argmax(probs))]
-
-        debug = {
-            "hero_range_sum": float(np.sum(hero_range)),
-            "equity": (eq_sig.p_win if (eq_sig and eq_sig.available) else None),
-            "ev_values": ev_values.tolist(),
-            "temp": float(temp),
-            "tokens": tokens,
-            "free_check": free_check,
-            "stack_bb": stack_bb,
-            "facing_bet": facing_bet,
-            "faced_frac": faced_frac,
-        } if getattr(req, "debug", False) else None
-
-        return PolicyResponse(
-            actions=tokens,
-            probs=probs.astype(float).tolist(),
-            evs=ev_values.astype(float).tolist(),
-            best_action=best_action,
-            notes=[f"preflop policy (range+EV router, T={temp:.2f})"],
-            debug=debug,
-        )
-
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
+        print(req_input)
         # -------- Parse input --------
         if isinstance(req_input, dict):
             req = PolicyRequest(**req_input)
