@@ -1,70 +1,62 @@
-# ml/etl/ev/sidecar.py
+# utils/sidecar_evnet.py
 from __future__ import annotations
+import json, os
 from pathlib import Path
-from typing import Any, Mapping, Optional, Dict, List
 from datetime import datetime
-import json
-import os
+from typing import Mapping, Any, Dict, List, Optional
 
-
-def write_ev_sidecar(best_ckpt: Optional[str], meta: Mapping[str, Any]) -> Optional[str]:
-    """
-    Write an EVNet sidecar JSON next to the checkpoint file.
-
-    Args:
-        best_ckpt: Path to a .ckpt file (will write <stem>_sidecar.json beside it).
-        meta: Dict with keys like:
-              - model_name: str
-              - action_vocab: List[str]
-              - x_cols: List[str]
-              - cont_cols: List[str]
-              - id_maps: Dict[str, Dict[str,int]]
-              - notes: str (optional)
-
-    Returns:
-        The sidecar path as string, or None if writing failed.
-    """
-    try:
-        if not best_ckpt:
-            print("write_ev_sidecar: no checkpoint path provided")
-            return None
-
-        ckpt_path = Path(best_ckpt)
-        out_dir = ckpt_path.parent if ckpt_path.suffix else ckpt_path
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        # Resolve names/columns
-        model_name: str = str(meta.get("model_name", "EVNet"))
-        action_vocab: List[str] = list(meta.get("action_vocab", []))
-        x_cols: List[str] = list(meta.get("x_cols", []))
-        cont_cols: List[str] = list(meta.get("cont_cols", []))
-        id_maps: Dict[str, Dict[str, int]] = {str(k): {str(a): int(b) for a, b in (v or {}).items()}
-                                              for k, v in (meta.get("id_maps") or {}).items()}
-
-        vocab_index = {a: i for i, a in enumerate(action_vocab)}
-        cat_cardinalities = {c: len(id_maps.get(c, {})) for c in x_cols}
-
-        payload: Dict[str, Any] = {
-            "model_name": model_name,
-            "action_vocab": action_vocab,
-            "vocab_index": vocab_index,
-            "cat_feature_order": x_cols,
-            "cont_feature_order": cont_cols,
-            "id_maps": id_maps,
-            "cat_cardinalities": cat_cardinalities,
-            "notes": meta.get("notes", ""),
-            "created_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            "checkpoint_file": os.path.basename(str(ckpt_path)) if ckpt_path.suffix else None,
-        }
-
-        sidecar_name = (ckpt_path.stem + "_sidecar.json") if ckpt_path.suffix else "evnet_sidecar.json"
-        sidecar_path = out_dir / sidecar_name
-
-        with sidecar_path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2, sort_keys=True)
-
-        return str(sidecar_path)
-
-    except Exception as e:
-        print(f"write_ev_sidecar: failed to write sidecar: {e}")
+def write_ev_sidecar(
+    best_ckpt: Optional[str],
+    meta: Mapping[str, Any],
+    *,
+    filename: str = "best_sidecar.json",
+    duplicate_stem_copy: bool = False,
+) -> Optional[str]:
+    if not best_ckpt:
+        print("write_ev_sidecar: no checkpoint path provided")
         return None
+
+    ckpt_path = Path(best_ckpt)
+    out_dir = ckpt_path.parent if ckpt_path.suffix else ckpt_path
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name = str(meta.get("model_name", "EVNet"))
+    action_vocab: List[str] = list(meta.get("action_vocab", []))
+    x_cols: List[str]        = list(meta.get("x_cols", []))
+    cont_cols: List[str]     = list(meta.get("cont_cols", []))
+    id_maps_raw: Dict[str, Dict[str, Any]] = dict(meta.get("id_maps") or {})
+    id_maps: Dict[str, Dict[str, int]] = {
+        str(k): {str(a): int(b) for a, b in (mp or {}).items()} for k, mp in id_maps_raw.items()
+    }
+
+    payload: Dict[str, Any] = {
+        "schema_version": "ev_sidecar_v1",
+        "model_name": model_name,
+        "action_vocab": action_vocab,
+        "vocab_index": {a: i for i, a in enumerate(action_vocab)},
+
+        # canonical (old readers)
+        "cat_feature_order": x_cols,
+        "cont_feature_order": cont_cols,
+
+        # aliases (new readers)
+        "x_cols": x_cols,
+        "cont_cols": cont_cols,
+
+        "id_maps": id_maps,
+        "cat_cardinalities": {c: len(id_maps.get(c, {})) for c in x_cols},
+        "notes": meta.get("notes", ""),
+        "created_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "checkpoint_file": os.path.basename(str(ckpt_path)) if ckpt_path.suffix else None,
+    }
+
+    best_path = out_dir / filename
+    best_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    print(f"💾 wrote EV sidecar → {best_path}")
+
+    if duplicate_stem_copy and ckpt_path.suffix:
+        stem_copy = out_dir / f"{ckpt_path.stem}_sidecar.json"
+        stem_copy.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        print(f"↳ mirrored sidecar   → {stem_copy}")
+
+    return str(best_path)

@@ -1,6 +1,7 @@
 # file: ml/etl/ev/build_ev_postflop_facing.py
 from __future__ import annotations
 
+import importlib
 import random
 import sys
 from pathlib import Path
@@ -43,127 +44,155 @@ def _action_seq_for_ctx(ctx: str) -> List[str]:
     return ["", "", ""]
 
 
+def _import_symbol(path: str):
+    """Import 'pkg.mod:SYM' → object."""
+    mod, sym = path.split(":")
+    return getattr(importlib.import_module(mod), sym)
+
+def _resolve_root_tokens(cfg: Dict[str, Any]) -> List[str]:
+    """Resolve ROOT action vocab from cfg; prefer action_vocab_import."""
+    m = cfg.get("model", {}) or {}
+    if m.get("action_vocab_import"):
+        toks = list(_import_symbol(m["action_vocab_import"]))
+        if not toks:
+            raise ValueError("action_vocab_import resolved to empty list")
+        return toks
+    if m.get("action_vocab"):
+        toks = [str(x) for x in m["action_vocab"]]
+        if not toks:
+            raise ValueError("model.action_vocab is empty")
+        return toks
+    # last resort: canonical module
+    try:
+        from ml.models.vocab_actions import ROOT_ACTION_VOCAB
+        return list(ROOT_ACTION_VOCAB)
+    except Exception as e:
+        raise ValueError("Cannot resolve ROOT action vocab; set model.action_vocab_import or model.action_vocab") from e
+
+
 def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
     dataset = cfg.get("dataset", {}) or {}
     build    = cfg.get("build", {}) or {}
     compute  = cfg.get("compute", {}) or {}
     stake    = cfg.get("stake", {}) or {}
-    paths    = cfg.get("paths", {}) or {}
 
-    # Repro
+    # ---- Repro ----
     seed = int(dataset.get("seed", 42))
     random.seed(seed)
     np.random.seed(seed)
 
-    # Knobs
-    stacks_bb: List[float] = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
-    samples_per_board: int = int(build.get("samples_per_board", 8))
-    ctxs: List[str] = [str(x).upper() for x in build.get("contexts", ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
-    pot_overrides: Dict[str, float] = {k.upper(): float(v) for k, v in (build.get("pot_by_ctx", {}) or {}).items()}
+    # ---- Vocab (canonical ROOT from file/import) ----
+    ACTION_TOKENS: List[str] = _resolve_root_tokens(cfg)  # expects ROOT_ACTION_VOCAB order
 
-    # Stake artifacts
+    # ---- Knobs ----
+    stacks_bb: List[float]   = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
+    samples_per_board: int   = int(build.get("samples_per_board", 8))
+    ctxs: List[str]          = [str(x).upper() for x in build.get("contexts", ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
+    pot_overrides: Dict[str, float] = {str(k).upper(): float(v) for k, v in (build.get("pot_by_ctx", {}) or {}).items()}
+
+    # ---- Stake artifacts ----
     stakes_token = str(stake.get("token", "NL10")).upper().replace(" ", "")
     stakes_id    = str(stake.get("stakes_id", "2"))
     ranges_parquet = stake.get("ranges_parquet") or f"data/datasets/rangenet_preflop_from_flop_{stakes_token}.parquet"
 
-    # Engines / artifacts
+    # ---- Engines / artifacts ----
     vrp       = VillainRangeProvider(ranges_parquet)
     clusterer = load_board_clusterer(cfg)  # needs board_clustering in cfg
     evmc      = EVMC(samples=int(compute.get("root_samples", 5000)), seed=seed)
 
-    # Progress
+    # ---- Progress ----
     total_pairs = sum(len(ALLOWED_PAIRS.get(c, ())) for c in ctxs)
-    total = total_pairs * max(1, len(stacks_bb)) * samples_per_board
-    pbar = tqdm(total=total, desc=f"Building EV (postflop:root)[{stakes_token}]", unit="row", ncols=100)
+    total_iters = total_pairs * max(1, len(stacks_bb)) * samples_per_board
 
     rows: List[Dict[str, Any]] = []
+    with tqdm(total=total_iters, desc=f"Building EV (postflop:root)[{stakes_token}]", unit="row", ncols=100) as pbar:
+        for ctx in ctxs:
+            allowed_pairs = sorted(ALLOWED_PAIRS.get(ctx, set()))
+            if not allowed_pairs:
+                continue
 
-    for ctx in ctxs:
-        allowed_pairs = sorted(ALLOWED_PAIRS.get(ctx, set()))
-        if not allowed_pairs:
-            continue
+            action_seq = _action_seq_for_ctx(ctx)
+            base_pot   = float(pot_overrides.get(ctx, _default_pot_by_ctx(ctx)))
 
-        action_seq = _action_seq_for_ctx(ctx)
-        base_pot   = float(pot_overrides.get(ctx, _default_pot_by_ctx(ctx)))
+            for (ip_seat, oop_seat) in allowed_pairs:
+                # Root model acts OOP at start of street
+                hero_pos_role = "OOP"
+                ip_pos, oop_pos = "IP", "OOP"
 
-        for (ip_seat, oop_seat) in allowed_pairs:
-            # Root sidecar is OOP → hero_pos="OOP" (actor at root)
-            hero_pos_role = "OOP"
-            ip_pos, oop_pos = "IP", "OOP"
+                for stack in stacks_bb:
+                    size_frac = 0.0  # root has no faced bet
+                    faced_bb  = 0.0
 
-            for stack in stacks_bb:
-                # Root: not facing a bet
-                size_frac = 0.0
-                faced_bb  = 0.0
+                    for _ in range(samples_per_board):
+                        # --- Sample hero & board; avoid collisions
+                        hero  = sample_random_hand_excluding(exclude=[])
+                        board = sample_random_flop_excluding(exclude=[hero[:2], hero[2:]])
+                        hand_id = hand169_id_from_hand_code(hero)
+                        if hand_id is None:
+                            hand_id = -1  # keep row valid
 
-                for _ in range(samples_per_board):
-                    # Sample hero & board (avoid collisions)
-                    hero  = sample_random_hand_excluding(exclude=[])
-                    board = sample_random_flop_excluding(exclude=[hero[:2], hero[2:]])
-                    hand_id = int(hand169_id_from_hand_code(hero))
+                        # --- Board features
+                        bmask = make_board_mask_52(board)
+                        try:
+                            cluster_id = int(clusterer.predict(board))
+                        except Exception:
+                            cluster_id = 0
 
-                    # Board features
-                    bmask = make_board_mask_52(board)
-                    try:
-                        cluster_id = int(clusterer.predict(board))
-                    except Exception:
-                        cluster_id = 0
+                        # --- Villain preflop range vector (169-d)
+                        vvec = vrp.get_vector(
+                            hero_pos=ip_seat,
+                            villain_pos=oop_seat,
+                            stack=stack,
+                            action_seq=action_seq,
+                        )
 
-                    # Preflop villain 169-d vector
-                    vvec = vrp.get_vector(
-                        hero_pos=ip_seat,
-                        villain_pos=oop_seat,
-                        stack=stack,
-                        action_seq=action_seq,
-                    )
+                        # --- EVs for ROOT vocab (CHECK, BET_xx, DONK_33)
+                        evs = evmc.compute_ev_vector(
+                            ACTION_TOKENS,
+                            hero_hand=hero,
+                            board=board,
+                            stack_bb=stack,
+                            pot_bb=base_pot,
+                            faced_size_bb=faced_bb,
+                            villain_vec=vvec,
+                        )
 
-                    # EVs for ROOT vocab (CHECK/BET_xx/DONK_33)
-                    evs = evmc.compute_ev_vector(
-                        ACTION_TOKENS,
-                        hero_hand=hero,
-                        board=board,
-                        stack_bb=stack,
-                        pot_bb=base_pot,
-                        faced_size_bb=faced_bb,
-                        villain_vec=vvec,
-                    )
+                        # --- Row
+                        rows.append({
+                            # Categorical (match dataset.x_cols)
+                            "hero_pos": hero_pos_role,     # "OOP"
+                            "ip_pos": ip_pos,              # "IP"
+                            "oop_pos": oop_pos,            # "OOP"
+                            "ctx": ctx,
+                            "street": 1,
+                            "board_cluster_id": int(cluster_id),
+                            "stakes_id": stakes_id,
+                            "hand_id": int(hand_id),
 
-                    rows.append({
-                        # Categorical inputs (match dataset.x_cols)
-                        "hero_pos": hero_pos_role,     # "OOP"
-                        "ip_pos": ip_pos,              # "IP"
-                        "oop_pos": oop_pos,            # "OOP"
-                        "ctx": ctx,
-                        "street": 1,
-                        "board_cluster_id": int(cluster_id),
-                        "stakes_id": stakes_id,
-                        "hand_id": hand_id,
+                            # Continuous (match dataset.cont_cols)
+                            "board_mask_52": bmask,
+                            "pot_bb": float(base_pot),
+                            "stack_bb": float(stack),
+                            "size_frac": float(size_frac),  # 0.0 at root
 
-                        # Continuous inputs (match dataset.cont_cols)
-                        "board_mask_52": bmask,
-                        "pot_bb": float(base_pot),
-                        "stack_bb": float(stack),
-                        "size_frac": float(size_frac),  # 0.0 at root
+                            # Targets (one column per action in vocab)
+                            **{f"ev_{tok}": float(val) for tok, val in zip(ACTION_TOKENS, evs)},
 
-                        # Targets (one column per action in vocab)
-                        **{f"ev_{tok}": float(val) for tok, val in zip(ACTION_TOKENS, evs)},
+                            # Weight = #MC sims used
+                            "weight": int(evmc.samples),
 
-                        # Weight = MC sims count
-                        "weight": int(evmc.samples),
+                            # Optional audit/debug
+                            "board": board,
+                            "hero_hand": hero,
+                            "ip_seat": ip_seat,
+                            "oop_seat": oop_seat,
+                        })
 
-                        # Optional audit fields
-                        "board": board,
-                        "hero_hand": hero,
-                        "ip_seat": ip_seat,
-                        "oop_seat": oop_seat,
-                    })
+                        pbar.update(1)
 
-                    pbar.update(1)
-
-    pbar.close()
     df = pd.DataFrame(rows)
 
-    # Persist via your helper
+    # Persist via your helper (write dataset parquet; manifest optional elsewhere)
     write_outputs(
         df,
         cfg,
@@ -175,7 +204,7 @@ def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", type=str, default="ml/config/ev/postflop_root/base.yaml",
+    ap.add_argument("--config", type=str, default="ml/config/evnet/postflop_root/base.yaml",
                     help="Path to YAML, or 'ev/postflop_root/base' triple.")
     args = ap.parse_args()
 

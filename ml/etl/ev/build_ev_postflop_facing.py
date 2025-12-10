@@ -1,6 +1,7 @@
 # file: ml/etl/ev/build_ev_postflop_facing.py
 from __future__ import annotations
 
+import importlib
 import random
 import sys
 from pathlib import Path
@@ -22,7 +23,6 @@ from ml.features.boards import load_board_clusterer
 from ml.inference.postflop_ctx import ALLOWED_PAIRS
 from ml.utils.board_mask import make_board_mask_52
 from ml.utils.config import load_model_config
-from ml.models.vocab_actions import FACING_ACTION_VOCAB as ACTION_TOKENS
 from ml.features.hands import hand169_id_from_hand_code
 from ml.etl.ev.common import write_outputs
 
@@ -35,32 +35,67 @@ def _default_pot_by_ctx(ctx: str) -> float:
     if c == "VS_4BET":       return 50.0
     return 7.5
 
+def _import_symbol(path: str):
+    """Import 'pkg.mod:SYM' → object."""
+    mod, sym = path.split(":")
+    return getattr(importlib.import_module(mod), sym)
+
+def _resolve_facing_tokens(cfg: Dict[str, Any]) -> List[str]:
+    """Resolve FACING action vocab from cfg; prefer model.action_vocab_import."""
+    m = cfg.get("model", {}) or {}
+    if m.get("action_vocab_import"):
+        toks = list(_import_symbol(m["action_vocab_import"]))
+        if not toks:
+            raise ValueError("action_vocab_import resolved to empty list")
+        return toks
+    if m.get("action_vocab"):
+        toks = [str(x) for x in m["action_vocab"]]
+        if not toks:
+            raise ValueError("model.action_vocab is empty")
+        return toks
+    # fallback to canonical module
+    try:
+        from ml.models.vocab_actions import FACING_ACTION_VOCAB
+        return list(FACING_ACTION_VOCAB)
+    except Exception as e:
+        raise ValueError("Cannot resolve FACING action vocab; set model.action_vocab_import or model.action_vocab") from e
+
+def _action_seq_for_ctx(ctx: str) -> List[str]:
+    c = (ctx or "").upper()
+    if c == "VS_OPEN":       return ["RAISE", "CALL", ""]
+    if c == "VS_3BET":       return ["RAISE", "3BET", "CALL"]
+    if c == "VS_4BET":       return ["RAISE", "3BET", "4BET"]
+    if c == "LIMPED_SINGLE": return ["LIMP", "CHECK", ""]
+    return ["", "", ""]
+
+
 def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     Build EV parquet for POSTFLOP FACING (IP responds to a bet).
-    - Targets columns: ev_<TOKEN> for each token in FACING_ACTION_VOCAB.
-    - Categorical/continuous columns align with your postflop-facing dataset YAML.
+    Targets: ev_<TOKEN> for each token in facing action vocab.
     """
     # ---- Config sections ----
     dataset = cfg.get("dataset", {}) or {}
     build    = cfg.get("build", {}) or {}
     compute  = cfg.get("compute", {}) or {}
     stake    = cfg.get("stake", {}) or {}
-    # paths handled at end by write_outputs
 
     # ---- Repro ----
     seed = int(dataset.get("seed", 42))
     random.seed(seed)
     np.random.seed(seed)
 
-    # ---- Knobs (aligned to NL10 menus; accept new & legacy keys) ----
+    # ---- Action vocab (resolve from canonical import/file) ----
+    ACTION_TOKENS: List[str] = _resolve_facing_tokens(cfg)
+
+    # ---- Knobs (NL10 default menu; accepts legacy keys) ----
     stacks_bb: List[float]   = [float(s) for s in build.get("stacks_bb", [25, 60, 100, 150])]
     size_fracs: List[float]  = [float(x) for x in (build.get("size_fracs")
                                                    or build.get("faced_size_fracs")
                                                    or [0.33, 0.66])]
     samples_per_board: int   = int(build.get("samples_per_board", build.get("samples_per_combination", 64)))
-    ctxs: List[str]          = [str(x).upper() for x in (build.get("contexts") or build.get("ctxs") or
-                                                         ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
+    ctxs: List[str]          = [str(x).upper() for x in (build.get("contexts") or build.get("ctxs")
+                                                         or ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"])]
     pot_overrides: Dict[str, float] = {str(k).upper(): float(v) for k, v in (build.get("pot_by_ctx", {}) or {}).items()}
 
     # ---- Stake artifacts ----
@@ -73,30 +108,12 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
     clusterer = load_board_clusterer(cfg)  # expects board_clustering in cfg
     evmc      = EVMC(samples=int(compute.get("facing_samples", 5000)), seed=seed)
 
-    # ---- Action vocab (facing) ----
-    try:
-        from ml.models.vocab_actions import FACING_ACTION_VOCAB as ACTION_TOKENS
-    except Exception:
-        # fallback: legality set (order becomes sorted)
-        from ml.inference.postflop_single.legality import FACING_TOKENS as _TOK_SET
-        ACTION_TOKENS = sorted(_TOK_SET)
-
     # ---- Pairs per ctx: prefer YAML override; fallback to ALLOWED_PAIRS ----
     pairs_cfg = build.get("pairs_ip_oop") or {}
-
     def pairs_for_ctx(ctx: str) -> List[Tuple[str, str]]:
         if pairs_cfg:
             return [tuple(p) for p in pairs_cfg.get(ctx, [])]
         return sorted(ALLOWED_PAIRS.get(ctx, set()))
-
-    # ---- Action sequence for preflop ranges lookup ----
-    def action_seq_for_ctx(ctx: str) -> List[str]:
-        c = (ctx or "").upper()
-        if c == "VS_OPEN":       return ["RAISE", "CALL", ""]
-        if c == "VS_3BET":       return ["RAISE", "3BET", "CALL"]
-        if c == "VS_4BET":       return ["RAISE", "3BET", "4BET"]
-        if c == "LIMPED_SINGLE": return ["LIMP", "CHECK", ""]
-        return ["", "", ""]
 
     # ---- Progress total ----
     total_iters = sum(len(pairs_for_ctx(ctx)) * len(stacks_bb) * len(size_fracs) * samples_per_board
@@ -110,7 +127,7 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                 continue
 
             base_pot = float(pot_overrides.get(ctx, _default_pot_by_ctx(ctx)))
-            seq = action_seq_for_ctx(ctx)
+            seq = _action_seq_for_ctx(ctx)
 
             for (ip_seat, oop_seat) in pairs:
                 # Model expects role tokens "IP"/"OOP" (seats kept only for audit)
@@ -127,7 +144,6 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                             board = sample_random_flop_excluding(exclude=[hero[:2], hero[2:]])
                             hand_id = hand169_id_from_hand_code(hero)
                             if hand_id is None:
-                                # extremely rare; skip row but keep progress moving
                                 pbar.update(1)
                                 continue
 
@@ -138,7 +154,7 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                             except Exception:
                                 cluster_id = 0
 
-                            # --- Villain range vec (169-d) from preflop parquet
+                            # --- Villain preflop range vec (169-d) for this context
                             vvec = vrp.get_vector(
                                 hero_pos=ip_seat,
                                 villain_pos=oop_seat,
@@ -175,10 +191,10 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                                 "stack_bb": float(stack),
                                 "size_frac": float(frac),
 
-                                # Targets: one column per action token
+                                # Targets aligned to vocab (ev_<token>)
                                 **{f"ev_{tok}": float(val) for tok, val in zip(ACTION_TOKENS, evs)},
 
-                                # Weight = MC sims
+                                # Training weight = MC sims
                                 "weight": int(evmc.samples),
 
                                 # Audit (not used by dataset)
@@ -192,13 +208,8 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
-    # Persist via your standard helper (manifest/parquet from cfg.paths)
-    write_outputs(
-        df,
-        cfg,
-        parquet_key="paths.parquet_path",
-    )
-
+    # Persist via your standard helper (write only the configured parquet)
+    write_outputs(df, cfg, parquet_key="paths.parquet_path")
     return df
 
 
@@ -209,7 +220,7 @@ def main():
     ap.add_argument(
         "--config",
         type=str,
-        default="ml/config/ev/postflop_facing/base.yaml",
+        default="ml/config/evnet/postflop_facing/base.yaml",
         help="Path to YAML (recommended). Also accepts 'model/variant/profile' triple.",
     )
     args = ap.parse_args()

@@ -120,36 +120,69 @@ class EVInferSingle:
 
     @classmethod
     def from_checkpoint(
-        cls,
-        *,
-        checkpoint_path: Union[str, Path],
-        sidecar_path: Union[str, Path],
-        mode: str,
-        device: str = "auto",
-        clusterer: Optional[Any] = None,
+            cls,
+            *,
+            checkpoint_path: Union[str, Path],
+            sidecar_path: Union[str, Path],
+            mode: str,
+            device: str = "auto",
+            clusterer: Optional[Any] = None,
     ) -> "EVInferSingle":
         dev = _to_device(device)
         sc = _load_json(sidecar_path)
 
-        x_cols = sc.get("x_cols") or sc.get("feature_order") or []
-        cont_cols = sc.get("cont_cols") or []
+        # schema for encoding (we still need this just like Equity)
+        x_cols = sc.get("cat_feature_order") or sc.get("x_cols") or sc.get("feature_order") or []
+        cont_cols = sc.get("cont_feature_order") or sc.get("cont_cols") or []
         id_maps = sc.get("id_maps") or {}
-        action_vocab = sc.get("action_vocab") or []
-
+        action_vocab = list(sc.get("action_vocab") or [])
         if not x_cols or not cont_cols or not action_vocab:
-            raise ValueError(f"incomplete EV sidecar: {sidecar_path}")
+            missing = []
+            if not x_cols: missing.append("cat_feature_order/x_cols")
+            if not cont_cols: missing.append("cont_feature_order/cont_cols")
+            if not action_vocab: missing.append("action_vocab")
+            raise ValueError(f"incomplete EV sidecar: {sidecar_path} (missing: {', '.join(missing)})")
 
-        # your Lightning wrapper name; adjust import if you moved it
-        from ml.models.evnet import EVLit
-        lit = EVLit.load_from_checkpoint(checkpoint_path=str(checkpoint_path), map_location=dev).eval().to(dev)
+        # Clean path: load with saved hparams (EVLit reconstructs its EVNet)
+        from ml.models.evnet import EVLit, EVNet, EVNetConfig
+        try:
+            lit = EVLit.load_from_checkpoint(str(checkpoint_path), map_location=dev).eval().to(dev)
+        except TypeError:
+            # Backward-compat: older checkpoints without hparams → rebuild from sidecar
+            cat_cards = [len((id_maps or {}).get(c, {})) for c in x_cols]
+
+            def _feat_size(n: str) -> int:
+                return 52 if str(n) == "board_mask_52" else 1
+
+            cont_dim = int(sum(_feat_size(n) for n in cont_cols))
+            # best-effort defaults for older runs
+            hidden_dims = [256, 256]
+            dropout = 0.10
+            max_emb_dim = 32
+            arch = sc.get("arch") or {}
+            hidden_dims = arch.get("hidden_dims", hidden_dims)
+            dropout = arch.get("dropout", dropout)
+            max_emb_dim = arch.get("max_emb_dim", max_emb_dim)
+
+            net = EVNet(EVNetConfig(
+                cat_cardinalities=cat_cards,
+                cont_dim=cont_dim,
+                action_vocab=action_vocab,
+                hidden_dims=hidden_dims,
+                dropout=float(dropout),
+                max_emb_dim=int(max_emb_dim),
+            ))
+            lit = EVLit.load_from_checkpoint(
+                str(checkpoint_path), map_location=dev, net=net, lr=1e-3, weight_decay=1e-4
+            ).eval().to(dev)
 
         return cls(
             model=lit,
-            mode=mode,
-            x_cols=x_cols,
-            cont_cols=cont_cols,
+            x_cols=list(x_cols),
+            cont_cols=list(cont_cols),
+            id_maps={str(k): {str(a): int(b) for a, b in (mp or {}).items()} for k, mp in (id_maps or {}).items()},
             action_vocab=action_vocab,
-            id_maps=id_maps,
+            mode=str(mode),
             device=dev,
             clusterer=clusterer,
         )
@@ -232,14 +265,7 @@ class EVInferSingle:
         cluster_id = self._cluster_id(board) if ("board_cluster_id" in self.x_cols) else None
 
         # ctx
-        ctx = str(getattr(req, "ctx", "") or "").upper()
-        if not ctx and street > 0:
-            from ml.inference.postflop_ctx_and_row import ContextInferer
-            ctx, _ = ContextInferer.infer_with_reason(req)
-            if not ctx:
-                ctx = "VS_OPEN"
-        ctx = self._ctx_guard(ctx)
-
+        ctx = req.ctx
         # stakes
         sid = None
         if "stakes_id" in self.x_cols:

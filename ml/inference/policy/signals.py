@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Sequence
 import numpy as np
 from ml.features.hands import hand_to_169_label, hand169_id_from_hand_code
 from ml.inference.policy.types import PolicyRequest

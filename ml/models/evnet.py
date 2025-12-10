@@ -115,49 +115,113 @@ class EVNet(nn.Module):
 # -----------------------------
 # Lightning wrapper (optional)
 # -----------------------------
+# --- loss with per-batch weight normalization ---
 class WeightedMSE(nn.Module):
     def forward(self, pred: torch.Tensor, target: torch.Tensor, weight: Optional[torch.Tensor] = None) -> torch.Tensor:
-        loss = F.mse_loss(pred, target, reduction="none")
-        loss = loss.mean(dim=-1)  # average over actions
+        # per-sample MSE averaged across actions
+        loss = F.mse_loss(pred, target, reduction="none").mean(dim=-1)  # [B]
         if weight is not None:
-            loss = loss * weight.view(-1)
+            w = weight.view(-1).float()
+            # normalize so mean weight ≈ 1 (prevents huge loss scales from MC counts)
+            w = w / w.mean().clamp_min(1e-8)
+            loss = loss * w
         return loss.mean()
 
+# ml/models/evnet.py
 
 class EVLit(pl.LightningModule if pl is not None else nn.Module):  # type: ignore[misc]
     """
-    Lightweight Lightning wrapper for EVNet.
-    Expects batch dicts from EVParquetDataset.collate_fn:
-      {"x_cat","x_cont","y","w"}
+    Lightning wrapper for EVNet.
+    Now supports clean load_from_checkpoint() by saving "config" in hparams:
+      - If 'net' is provided, we snapshot its config into hparams.
+      - If 'net' is None, we rebuild EVNet from hparams['config'].
     """
 
-    def __init__(self, net: EVNet, lr: float = 1e-3, weight_decay: float = 1e-4):
+    def __init__(
+        self,
+        *,
+        # when training new models, pass 'config' instead of 'net'
+        config: Optional[dict] = None,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        # backward-compat: if you still pass a prebuilt net, we snapshot its config
+        net: Optional["EVNet"] = None,
+    ):
         super().__init__()
+
+        # Save hparams so Lightning can recreate the module at load time
+        # NOTE: don't store big objects; just the config and scalars.
+        if net is None and config is None:
+            raise ValueError("EVLit requires either a 'config' dict or a prebuilt 'net'.")
+
+        if net is not None:
+            # Extract config from the provided net (assumes net.config exists)
+            try:
+                cfg = {
+                    "cat_cardinalities": list(net.config.cat_cardinalities),
+                    "cont_dim": int(net.config.cont_dim),
+                    "action_vocab": list(net.config.action_vocab),
+                    "hidden_dims": list(net.config.hidden_dims),
+                    "dropout": float(net.config.dropout),
+                    # include any extra fields you support in EVNetConfig
+                    "max_emb_dim": int(getattr(net.config, "max_emb_dim", 32)),
+                }
+            except Exception:
+                # If EVNet does not expose 'config', require config explicitly
+                if config is None:
+                    raise
+                cfg = dict(config)
+        else:
+            cfg = dict(config)
+
+        # Lightning will pass these back into __init__ during load_from_checkpoint
+        # so ensure the signature matches ('config', 'lr', 'weight_decay').
+        self.save_hyperparameters({"config": cfg, "lr": float(lr), "weight_decay": float(weight_decay)})
+
+        # Build or use the provided network
+        if net is None:
+            net = EVNet(EVNetConfig(
+                cat_cardinalities=cfg["cat_cardinalities"],
+                cont_dim=cfg["cont_dim"],
+                action_vocab=cfg["action_vocab"],
+                hidden_dims=cfg.get("hidden_dims", [256, 256]),
+                dropout=cfg.get("dropout", 0.10),
+                # include if your EVNetConfig supports it; otherwise drop it
+                max_emb_dim=cfg.get("max_emb_dim", 32),
+            ))
+
         self.net = net
         self.lr = float(lr)
         self.weight_decay = float(weight_decay)
         self.criterion = WeightedMSE()
 
-    # ----- pure nn.Module compatibility -----
     def forward(self, x_cat: torch.LongTensor, x_cont: torch.FloatTensor) -> torch.FloatTensor:
         return self.net(x_cat, x_cont)
 
-    # ----- Lightning bits -----
+    @staticmethod
+    def _metrics(pred: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        mae = (pred - target).abs().mean()
+        rmse = torch.sqrt(F.mse_loss(pred, target))
+        return mae, rmse
+
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:  # type: ignore[override]
         y_hat = self.net(batch["x_cat"], batch["x_cont"])
-        y = batch["y"]
-        w = batch.get("w", None)
-        loss = self.criterion(y_hat, y, w)
-        self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        y     = batch["y"]
+        w     = batch.get("w", None)
+        loss  = self.criterion(y_hat, y, w)
+        mae, rmse = self._metrics(y_hat, y)
+        self.log_dict({"train_loss": loss, "train_mae_bb": mae, "train_rmse_bb": rmse},
+                      prog_bar=True, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:  # type: ignore[override]
         y_hat = self.net(batch["x_cat"], batch["x_cont"])
-        y = batch["y"]
-        w = batch.get("w", None)
-        loss = self.criterion(y_hat, y, w)
-        mae = (y_hat - y).abs().mean()
-        self.log_dict({"val_loss": loss, "val_mae": mae}, prog_bar=True, on_step=False, on_epoch=True)
+        y     = batch["y"]
+        w     = batch.get("w", None)
+        loss  = self.criterion(y_hat, y, w)
+        mae, rmse = self._metrics(y_hat, y)
+        self.log_dict({"val_loss": loss, "val_mae_bb": mae, "val_rmse_bb": rmse},
+                      prog_bar=True, on_step=False, on_epoch=True)
         return loss
 
     def configure_optimizers(self):  # type: ignore[override]

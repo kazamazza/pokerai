@@ -279,17 +279,20 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     cat_cardinalities = [len(ds.id_maps[c]) for c in ds.x_cols]
     vocab = ds.action_vocab
 
-    net_cfg = EVNetConfig(
-        cat_cardinalities=cat_cardinalities,
-        cont_dim=cont_dim,
-        action_vocab=vocab,
-        hidden_dims=_get(cfg, "model.hidden_dims", [256, 256]),
-        dropout=float(_get(cfg, "model.dropout", 0.10)),
+    ev_config = {
+        "cat_cardinalities": [len(ds.id_maps[c]) for c in ds.x_cols],
+        "cont_dim": int(ds[0]["x_cont"].shape[-1]),  # robust (board_mask_52 expands to 52)
+        "action_vocab": list(ds.action_vocab),
+        "hidden_dims": _get(cfg, "model.hidden_dims", [256, 256]),
+        "dropout": float(_get(cfg, "model.dropout", 0.10)),
+        "max_emb_dim": int(_get(cfg, "model.max_emb_dim", 32)),  # if supported
+    }
+
+    lit = EVLit(
+        config=ev_config,
         lr=float(_get(cfg, "model.lr", 1e-3)),
         weight_decay=float(_get(cfg, "model.weight_decay", 1e-4)),
     )
-    net = EVNet(net_cfg)
-    lit = EVLit(net, lr=net_cfg.lr, weight_decay=net_cfg.weight_decay)
 
     # --------------- logging/callbacks ------------
     ckpt_dir = Path(_get(cfg, "train.checkpoints_dir", "checkpoints/evnet"))
@@ -327,11 +330,16 @@ def run_train(cfg: Mapping[str, Any]) -> str:
     resume = _get(cfg, "train.resume_from", None)
     trainer.fit(lit, train_dl, val_dl, ckpt_path=str(resume) if resume else None)
 
+    # -------------------- fit ---------------------
+    resume = _get(cfg, "train.resume_from", None)
+    trainer.fit(lit, train_dl, val_dl, ckpt_path=str(resume) if resume else None)
+
     # ---------------- best ckpt -------------------
     best_ckpt = None
     for cb in trainer.callbacks:
-        if getattr(cb, "best_model_path", ""):
-            best_ckpt = cb.best_model_path
+        path = getattr(cb, "best_model_path", "")
+        if path:
+            best_ckpt = path
             break
     best_ckpt = best_ckpt or getattr(ckpt_cb, "last_model_path", None) or str(ckpt_dir / "last.ckpt")
 
@@ -340,11 +348,13 @@ def run_train(cfg: Mapping[str, Any]) -> str:
         "model_name": "EVNet",
         "action_vocab": list(vocab),
         "x_cols": list(ds.x_cols),
-        "cont_cols": list(ds.cont_cols_raw),
+        "cont_cols": list(getattr(ds, "cont_cols_raw", getattr(ds, "cont_cols", []))),
         "id_maps": ds.id_maps,
-        "notes": "Auto-written by tools/train_ev.py",
+        "notes": "Auto-written by trainers/train_evnet.py",
     }
-    write_ev_sidecar(best_ckpt, meta)
+
+    write_ev_sidecar(best_ckpt, meta, filename="best_sidecar.json")
+
     return best_ckpt
 
 
@@ -414,7 +424,7 @@ def main():
     if args.sweep and isinstance(cfg.get("sweep"), dict) and cfg["sweep"]:
         run_ev_sweep(cfg)
     else:
-        run_train(cfg)
+        print("No sweep.")
 
 
 if __name__ == "__main__":

@@ -140,13 +140,16 @@ class PolicyInferFactory:
             return RuleBasedBoardClusterer(n_clusters=128)
 
     def create(self) -> PolicyInfer:
+        # Build once → reuse everywhere for consistency
+        clusterer = self._build_clusterer()
+
         deps = PolicyInferDeps(
             pop=self._build_population_infer(),
             exploit=self._build_exploit_store(),
             equity=self._build_equity_infer(),
             range_pre=self._build_preflop_policy(),
             policy_post=self._build_postflop_router(),
-            clusterer=self._build_clusterer(),
+            clusterer=clusterer,
             ev=self._build_ev_router(clusterer=clusterer),
             params={},
         )

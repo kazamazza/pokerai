@@ -4,8 +4,6 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from ml.inference.context_infer import ContextInferer
 from ml.inference.policy.types import PolicyRequest, PolicyResponse  # noqa: E402
 from ml.inference.postflop_single.facing import is_hero_ip, infer_facing_and_size
 from ml.inference.postflop_single.features import compute_cluster_id, encode_cats, encode_cont
@@ -236,25 +234,6 @@ class PostflopPolicyInferSingle:
                 except ValueError:
                     hero_is_ip = True
 
-        # ctx inference (no silent defaults)
-        ctx_raw = (getattr(req, "ctx", None) or (getattr(req, "raw", {}) or {}).get("ctx"))
-        if not ctx_raw:
-            ctx_infer, reason = ContextInferer.infer_with_reason(req)
-            if not ctx_infer:
-                raise ValueError(f"ctx inference failed: {reason}")
-            ctx = ctx_infer
-        else:
-            ctx = str(ctx_raw).upper()
-
-        print(f"ctx: {ctx}")
-
-        # sidecar compatibility
-        ctx_id_map = self.id_maps.get("ctx", {}) or {}
-        if ctx == "BLIND_VS_STEAL" and "BLIND_VS_STEAL" not in ctx_id_map:
-            ctx = "VS_OPEN"
-        if ctx not in ctx_id_map:
-            raise ValueError(f"ctx '{ctx}' not in sidecar id_maps.ctx={list(ctx_id_map.keys())}")
-
         # board canonicalization
         board_in = getattr(req, "board", None) or ""
         if isinstance(board_in, (list, tuple)):
@@ -270,7 +249,7 @@ class PostflopPolicyInferSingle:
             "hero_pos": ("IP" if hero_is_ip else "OOP"),
             "ip_pos": "IP",
             "oop_pos": "OOP",
-            "ctx": ctx,
+            "ctx": req.ctx,
             "street": "1",  # flop-only categorical
             "board": board,
             "pot_bb": pot_bb,
@@ -310,7 +289,7 @@ class PostflopPolicyInferSingle:
         is_root_model = ("CHECK" in self.action_vocab)
 
         if is_root_model:
-            mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu).view(1, -1).to(logits.device)
+            mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu,ctx=req.ctx).view(1, -1).to(logits.device)
         else:
             mask = mask_facing(self.action_vocab).view(1, -1).to(logits.device)
 
@@ -327,7 +306,7 @@ class PostflopPolicyInferSingle:
             "size_frac": float(size_frac) if size_frac is not None else None,
             "encoded_pos": row["hero_pos"],
             "raw_positions": [hpos, vpos],
-            "ctx": ctx,
+            "ctx": req.ctx,
         }
         logits_out = logits[0].tolist()
 

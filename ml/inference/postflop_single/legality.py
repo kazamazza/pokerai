@@ -58,7 +58,6 @@ def mask_root(
     A = [str(a).upper() for a in actions]
     actor_norm = (actor or "").strip().lower()
     ctx_norm = (ctx or "").strip().upper()
-    allow_ai = True if allow_allin is None else bool(allow_allin)
 
     # Legal set seeded from canonical root vocab
     legal: Set[str] = set()
