@@ -4,8 +4,8 @@ from typing import Union, Sequence, Dict, Optional, Any, List
 import torch.nn.functional as F
 import numpy as np
 import torch
-from ml.inference.deduce_context import deduce_preflop_context
 from ml.inference.policy.types import PolicyRequest
+from ml.inference.preflop_seq import infer_preflop_action_seq
 from ml.models.preflop_rangenet import RangeNetLit
 from ml.utils.sidecar import load_sidecar
 
@@ -90,11 +90,6 @@ class PreflopPolicy:
         sidecar = d / "best_sidecar.json"
         return cls.from_checkpoint(ckpt, sidecar, device=device)
 
-    # ---------- encode one row ----------
-    def _unknown_idx(self, feat: str) -> int:
-        C = int(self.cards.get(feat, 1))
-        return max(C - 1, 0)
-
     def _encode_row(self, row: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         out: Dict[str, torch.Tensor] = {}
         for feat in self.feature_order:
@@ -110,135 +105,45 @@ class PreflopPolicy:
             out[feat] = torch.tensor([int(idx)], dtype=torch.long, device=self.device)
         return out
 
-    # ---------- helpers ----------
-    @staticmethod
-    def _softmax_np(logits: np.ndarray, T: float) -> List[float]:
-        z = logits.astype("float32") / max(T, 1e-6)
-        z -= np.max(z)
-        p = np.exp(z)
-        s = float(p.sum())
-        return (p / s).tolist() if s > 0 else (np.ones_like(p) / len(p)).tolist()
 
-    def _dynamic_base_prior(self, tokens: list[str], req: PolicyRequest,
-                            evs: Optional[Dict[str, float]] = None) -> np.ndarray:
-        """
-        Generates base prior for each action based on stack size, facing, and optionally EVs.
-        """
-        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
-        facing = bool(req.facing_bet)
-        base = []
-
-        for a in tokens:
-            if a == "FOLD":
-                base.append(0.20 if facing else 0.01)
-            elif a == "CALL":
-                base.append(0.40 if facing else 0.0)
-            elif a == "CHECK":
-                base.append(0.40 if not facing else 0.0)
-            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
-                try:
-                    amt = float(a.split("_")[1])
-                    frac = amt / stack
-                    score = 1.0 - abs(frac - 0.5)  # favor mid-stacks
-                    if evs and a in evs:
-                        score *= max(evs[a], 0.0) + 1.0  # weight by EV if available
-                    base.append(score)
-                except:
-                    base.append(0.01)
-            else:
-                base.append(0.01)
-
-        base = np.array(base, dtype="float32")
-        if base.sum() > 0:
-            base /= base.sum()
-        return base
-
-    def _legal_mask(self, tokens: list[str], req: PolicyRequest) -> np.ndarray:
-        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
-        facing = bool(req.facing_bet)
-        faced_frac = float(req.faced_size_frac or 0.0)
-        legal = []
-
-        for a in tokens:
-            if a == "FOLD":
-                legal.append(1.0 if facing else 0.0)
-            elif a == "CHECK":
-                legal.append(1.0 if not facing else 0.0)
-            elif a == "CALL":
-                legal.append(1.0 if facing and faced_frac > 0 else 0.0)
-            elif a.startswith("RAISE_") or a.startswith("OPEN_"):
-                try:
-                    val = float(a.split("_")[1])
-                    legal.append(1.0 if val < stack * 2 else 0.0)  # allow if not all-in
-                except:
-                    legal.append(0.0)
-            else:
-                legal.append(0.0)
-        return np.array(legal, dtype="float32")
+    def _bucket_stack(self, val: float) -> float:
+        # snap to nearest categorical key from sidecar (e.g., 25.0, 60.0, 100.0, 150.0)
+        mp = self.id_maps.get("stack_bb", {}) or {}
+        try:
+            keys = [float(k) for k in mp.keys()]
+            return min(keys, key=lambda x: abs(x - float(val))) if keys else float(val)
+        except Exception:
+            return float(val)
 
     @torch.no_grad()
-    def predict(self, req: PolicyRequest) -> np.ndarray:
+    def predict(self, req: "PolicyRequest", *, quiet: bool = True) -> np.ndarray:
         """
-        PURE RANGENET inference.
-        Returns a 169-dim probability vector.
-        Includes full debug prints to verify:
-            - deduced context
-            - raw row values
-            - encoded categorical IDs
-            - logits
-            - softmax
+        PURE RangeNet inference (169-d). Uses sidecar’s exact feature_order:
+          ["stack_bb","hero_pos","villain_pos","action_seq_1","action_seq_2","action_seq_3"]
         """
+        stack = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
+        hero = (getattr(req, "hero_pos", "") or "").upper()
+        vill = (getattr(req, "villain_pos", "") or "").upper()
+        seq = infer_preflop_action_seq(getattr(req, "actions_hist", None) or [], hero)
 
-        print("\n================= PREFLOP RANGE DEBUG =================")
-
-        # ----- Step 1: Basic fields -----
-        stack = float(req.eff_stack_bb or req.pot_bb or 100.0)
-        print("[stack_bb]", stack)
-
-        # ----- Step 2: Deduce context -----
-        ctx_res = deduce_preflop_context(
-            hero_pos=req.hero_pos,
-            villain_pos=req.villain_pos,
-            actions_hist=req.actions_hist,
-            raw=req.raw,
-            pot_bb=req.pot_bb,
-        )
-        print("[deduce_preflop_context]", ctx_res)
-
-        # ----- Step 3: Build raw row exactly matching x_cols -----
         row_raw = {
-            "STACK_BB": stack,
-            "HERO_POS": ctx_res["hero_pos"],
-            "OPENER_POS": ctx_res["opener_pos"],
-            "OPENER_ACTION": ctx_res["opener_action"],
-            "CTX": (req.raw.get("ctx") or "SRP").upper(),
+            "stack_bb": self._bucket_stack(stack),  # will stringify inside encoder
+            "hero_pos": hero,
+            "villain_pos": vill,
+            "action_seq_1": seq["action_seq_1"],
+            "action_seq_2": seq["action_seq_2"],
+            "action_seq_3": seq["action_seq_3"],
         }
-        print("[row_raw]", row_raw)
 
-        # Normalize to UPPER-case keys (expected by id_maps/sidecar)
-        row = {k.upper(): v for k, v in {k.lower(): v for k, v in row_raw.items()}.items()}
-        print("[row_normalized]", row)
+        xb = self._encode_row(row_raw)
+        logits = self.model(xb)  # [1,169]
+        probs = torch.nn.functional.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
+        s = float(probs.sum())
+        if s <= 1e-8:
+            probs = (np.ones(169, dtype="float32") / 169.0)
+        else:
+            probs = (probs / s).astype("float32")
 
-        # ----- Step 4: Encode using sidecar id_maps -----
-        xb = self._encode_row(row)
-
-        print("[encoded_row IDs]")
-        for feat in self.feature_order:
-            tid = xb[feat].item()
-            print(f"   {feat}: {row.get(feat)}  ->  id={tid}")
-
-        # ----- Step 5: Forward through model -----
-        logits = self.model(xb)  # shape [1,169]
-        logits_np = logits.detach().cpu().numpy().squeeze()
-
-        print("[logits first 10]", np.round(logits_np[:10], 4))
-
-        # ----- Step 6: Softmax -----
-        probs = F.softmax(logits, dim=-1).squeeze(0).detach().cpu().numpy()
-        probs = probs / probs.sum() if probs.sum() > 1e-8 else np.ones(169) / 169.0
-
-        print("[probs first 10]", np.round(probs[:10], 5))
-        print("[probs sum]", probs.sum())
-        print("=======================================================\n")
-
+        if not quiet:
+            print("[PreflopPolicy] row_raw:", row_raw)
         return probs

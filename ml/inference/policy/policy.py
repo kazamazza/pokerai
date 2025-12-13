@@ -1,5 +1,7 @@
 from typing import Any, Dict, Union, List, Optional
 import numpy as np
+
+from ml.features.hands import hand169_id_from_hand_code
 from ml.inference.action_context_classifier import ActionContextClassifier
 from ml.inference.context_infer import ContextInferer
 from ml.inference.policy.deps import PolicyInferDeps
@@ -90,19 +92,28 @@ class PolicyInfer:
             req: PolicyRequest,
             eq_sig: Optional[EquitySig] = None
     ) -> PolicyResponse:
-        # ---- faced size normalization ----
+        """
+        Preflop policy:
+          1) Build a *legal* action menu (generator).
+          2) Query EV router for EVs (units: bb).
+          3) Anchor tiny-drift: FOLD=0, CHECK=0 (when free-check).
+          4) Convert EVs → logits (model-driven), optional ALLIN guard.
+          5) Optional RangeNet prior: small nudge by hero-hand rank (if wired).
+          6) PromotionGateway (if wired) → softmax to probs.
+        """
+        # ---- normalize faced size (if facing) ----
         facing_bet = bool(getattr(req, "facing_bet", False))
         if facing_bet:
             if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
                 try:
                     req.faced_size_frac = float(req.faced_size_pct) / 100.0
                 except Exception:
-                    pass
+                    req.faced_size_frac = None
             if getattr(req, "faced_size_frac", None) is None:
                 req.faced_size_frac = 0.33
         faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
 
-        # ---- menu generation ----
+        # ---- menu generation (aligns with EV training vocab) ----
         stack_bb = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
         hero_pos = (getattr(req, "hero_pos", "") or "").upper()
         free_check = (not facing_bet) and (hero_pos == "BB")
@@ -123,25 +134,70 @@ class PolicyInfer:
         if not tokens:
             tokens = ["FOLD"] + (["CHECK"] if free_check else [])
 
-        # ---- EVs aligned to tokens ----
-        if not hasattr(self, "ev_router") or self.ev_router is None:
-            raise RuntimeError("EV router not attached (self.ev_router is missing). Wire it in PolicyInferFactory.")
+        # If router exposes a vocab, clamp tokens to it (prevents drift)
+        try:
+            allowed = set(self.ev_router.vocab("preflop"))
+            tokens = [t for t in tokens if t in allowed] or tokens
+        except Exception:
+            pass
+
+        # ---- EVs from EV router (model output) ----
+        if not getattr(self, "ev_router", None):
+            raise RuntimeError("EV router not attached. Wire in PolicyInferFactory.")
         ev_out = self.ev_router.predict(req, side="preflop", tokens=tokens)
-        ev_values = np.asarray(ev_out.evs, dtype=np.float32) if (ev_out and ev_out.available) else np.zeros(len(tokens),
-                                                                                                            np.float32)
-        ev_map = {t: float(ev_values[i]) for i, t in enumerate(tokens)}
+        ev_values = np.asarray(ev_out.evs, dtype=np.float32) if (ev_out and ev_out.available) \
+            else np.zeros(len(tokens), np.float32)
 
-        # ---- soft priors → baseline logits (numpy) ----
-        base_logits = np.asarray(soft_prior_blend(tokens, req, evs=ev_map, eq_sig=eq_sig), dtype=np.float32)
+        # ---- Anchor tiny EV drift ----
+        for i, tok in enumerate(tokens):
+            if tok == "FOLD":
+                ev_values[i] = 0.0
+            elif tok == "CHECK" and free_check:
+                ev_values[i] = 0.0
 
-        # ---- PromotionGateway ----
+        # ---- EV → logits (model-driven base) ----
+        # Use a temperature derived from the EV spread; sharper when EVs separate well.
+        T = float(compute_temperature(ev_values))  # your existing helper
+        base_logits = ev_values.astype(np.float32) / max(T, 1e-6)
+
+        # Stabilize
+        if base_logits.size:
+            base_logits -= float(base_logits.max())
+
+        # ---- Deep-stack ALLIN guard (optional) ----
+        if stack_bb > 20.0 and "ALLIN" in tokens:
+            base_logits[tokens.index("ALLIN")] += -8.0  # strong penalty when deep
+
+        # ---- Optional RangeNet prior nudge (very light, skips if not wired) ----
+        range_dbg = None
+        try:
+            if getattr(self, "range_pre", None) is not None and req.hero_hand:
+                rvec = self.range_pre.predict(req, verbose=False)  # 169-d probabilities
+                hid = hand169_id_from_hand_code(req.hero_hand)
+                if hid is not None and 0 <= hid < rvec.size:
+                    # hero hand percentile in predicted range mass
+                    order = np.argsort(rvec)
+                    rank = float(np.where(order == hid)[0][0]) / max(rvec.size - 1, 1)  # 0..1
+                    # tiny nudges only (keep EV dominant)
+                    α, β, γ = 0.4, 0.2, 0.3
+                    for i, t in enumerate(tokens):
+                        if t.startswith("OPEN_") or t.startswith("RAISE_"):
+                            base_logits[i] += α * rank
+                        elif t == "CALL":
+                            base_logits[i] += β * (1.0 - abs(rank - 0.5) * 2.0)
+                        elif t == "FOLD":
+                            base_logits[i] -= γ * rank
+        except Exception as e:
+            range_dbg = {"error": str(e)}
+
+        # ---- PromotionGateway (kept as-is) ----
         promo_dbg = None
         if getattr(self, "_promoter", None) is not None:
             try:
                 new_logits, promo_dbg = self._promoter.promote_preflop(
                     base_logits=base_logits,
                     tokens=tokens,
-                    evs=ev_map,
+                    evs={t: float(ev_values[i]) for i, t in enumerate(tokens)},
                     p_win=(eq_sig.p_win if (eq_sig and eq_sig.available) else None),
                     facing_bet=facing_bet,
                     free_check=free_check,
@@ -151,12 +207,11 @@ class PolicyInfer:
             except Exception as e:
                 promo_dbg = {"error": str(e)}
 
-        # ---- temperature → softmax ----
+        # ---- Softmax → probs ----
         if base_logits.size:
-            base_logits -= float(np.max(base_logits))
-        T = float(compute_temperature(ev_values))
-        probs = np.exp(base_logits / max(T, 1e-6))
-        Z = probs.sum()
+            base_logits -= float(base_logits.max())
+        probs = np.exp(base_logits)
+        Z = float(probs.sum())
         probs = (probs / Z) if (Z > 0 and np.isfinite(Z)) else np.ones(len(tokens), np.float32) / float(len(tokens))
         best_action = tokens[int(np.argmax(probs))]
 
@@ -173,6 +228,7 @@ class PolicyInfer:
                 "stack_bb": stack_bb,
                 "equity": (eq_sig.p_win if (eq_sig and eq_sig.available) else None),
                 "promotion": promo_dbg,
+                "range_dbg": range_dbg,
                 "ctx": getattr(req, "ctx", None),
             }
 
@@ -181,7 +237,8 @@ class PolicyInfer:
             probs=probs.astype(float).tolist(),
             evs=ev_values.astype(float).tolist(),
             best_action=best_action,
-            notes=[f"preflop policy (range+EV router + promoter, T={T:.2f})"],
+            notes=[
+                f"preflop policy (EV→logits, T={T:.2f}, promoter={'on' if getattr(self, '_promoter', None) else 'off'})"],
             debug=debug,
         )
 
