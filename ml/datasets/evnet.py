@@ -201,6 +201,8 @@ class EVParquetDataset(Dataset):
         # Target columns (default from vocab order)
         self.y_cols = _ensure_list_str(y_cols) if y_cols is not None else [f"ev_{tok}" for tok in self.action_vocab]
 
+
+
         self._validate_presence()
 
         # ---- categorical encodings (freeze if provided) ----
@@ -316,6 +318,27 @@ class EVParquetDataset(Dataset):
             out["y_mask"] = m
         return out
 
+    def _validate_presence(self) -> None:
+        df = self.df
+
+        # categorical features
+        missing_x = [c for c in self.x_cols if c not in df.columns]
+        if missing_x:
+            raise KeyError(f"missing x_cols in parquet: {missing_x}")
+
+        # continuous features (allow special 'board_mask_52' to be expanded later)
+        missing_cont = [c for c in self.cont_cols_raw if (c != "board_mask_52" and c not in df.columns)]
+        if missing_cont:
+            raise KeyError(f"missing cont_cols in parquet: {missing_cont}")
+
+        # targets (must exist for every action)
+        missing_y = [c for c in self.y_cols if c not in df.columns]
+        if missing_y:
+            raise KeyError(f"missing y_cols in parquet: {missing_y}")
+
+        # optional weight column — backfill with ones if absent
+        if self.weight_col and self.weight_col not in df.columns:
+            df[self.weight_col] = 1.0
     # expose maps for splits/sidecar
     @property
     def sidecar(self) -> EVSidecar:

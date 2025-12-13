@@ -163,7 +163,10 @@ def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
 
                         bmask = make_board_mask_52(board)
                         try:
-                            cluster_id = int(clusterer.predict(board))
+                            if hasattr(clusterer, "predict_one"):
+                                cluster_id = int(clusterer.predict_one(board))
+                            else:
+                                cluster_id = int(clusterer.predict([board])[0])
                         except Exception:
                             cluster_id = 0
 
@@ -220,7 +223,6 @@ def build_ev_postflop_root(cfg: Dict[str, Any]) -> pd.DataFrame:
 
     write_outputs(df, cfg, parquet_key="paths.parquet_path")
     return df
-
 
 def main():
     import argparse

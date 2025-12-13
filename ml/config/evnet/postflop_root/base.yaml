@@ -8,11 +8,14 @@
 # POSTFLOP ROOT — CONFIG (updated)
 dataset:
   seed: 42
+  # Categorical (seat for hero_pos; role tokens for ip_pos/oop_pos)
   x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id", "hand_id"]
+  # Continuous (size_frac is fixed 0.0 at root but kept for schema parity)
   cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]
   y_cols: null
   weight_col: "weight"
   min_weight: null
+  # No size_frac here (always 0 at root)
   stratify_keys: ["ctx", "hero_pos", "board_cluster_id", "stack_bb", "stakes_id"]
 
 board_clustering:
@@ -21,9 +24,9 @@ board_clustering:
   n_clusters: 64
 
 build:
-  # If absent, builder synthesizes from scenarios + menus
-  stacks_bb: [25, 60, 100, 150]          # <- fixed
+  stacks_bb: [25, 60, 100, 150]
   contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
+  # REQUIRED: IP seat vs OOP seat pairs per context
   pairs_ip_oop:
     VS_OPEN:
       - ["UTG","BB"]
@@ -48,48 +51,36 @@ build:
       - ["BB","SB"]
   samples_per_board: 512
 
+stake:
+  token: NL10
+  stakes_id: "2"
+  ranges_parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
+
 compute:
   engine: eval7
   threads: auto
   chunk_size: 4096
   log_every_n: 20000
   seed: 42
-  mc:
-    min_samples: 256
-    max_samples: 0
+  root_samples: 8000      # MC sims per row (bb units)
   river_exact: true
 
-paths:
-  manifest_path: data/artifacts/evnet_postflop_root_manifest.parquet
-  parquet_path:  data/datasets/evnet_postflop_root.parquet
-  tmp_dir:       data/tmp/evnet_postflop_root
-
-inputs:
-  # Ranges to sample villain from (already materialized 169-d vecs)
-  preflop_ranges_parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
-  # Board clustering artifact (must match policy)
-  board_clusters_artifact: data/artifacts/board_clusters_kmeans_64.json
-
-validation:
-  strict: true
-
 model:
-  # Must match policy sidecar root action_vocab
   action_vocab_import: "ml.models.vocab_actions:ROOT_ACTION_VOCAB"
-  hidden_dims: [256, 256]
+  hidden_dims: [384, 256]
   dropout: 0.10
   lr: 0.001
   weight_decay: 0.0001
-  output_mode: "ev_vector"
+  max_emb_dim: 48
 
 train:
   seed: 42
   train_frac: 0.80
-  batch_size: 1024
+  batch_size: 4096
   num_workers: 0
   pin_memory: true
-  max_epochs: 20
-  patience: 5
+  max_epochs: 25
+  patience: 6
   monitor: val_mae_bb
   mode: min
   accelerator: auto
@@ -98,27 +89,21 @@ train:
   checkpoints_dir: checkpoints/evnet_postflop_root
   resume_from: null
 
-logging:
-  tb_log_dir: logs/tb
+paths:
+  parquet_path: data/datasets/evnet_postflop_root.parquet
 
-encoders:
-  id_maps:
-    street: {"1": 0}
-    ctx: {"LIMPED_SINGLE": 0, "VS_3BET": 1, "VS_4BET": 2, "VS_OPEN": 3}
-    hero_pos: {"IP": 0, "OOP": 1}
-    ip_pos: {"IP": 0}
-    oop_pos: {"OOP": 0}
-    stakes_id: {"2": 0}
+logging:
+  tb_log_dir: logs/tb/evnet_postflop_root
 
 sweep:
   model.hidden_dims:
     - [256, 256]
-    - [256, 128]
     - [384, 256]
-  model.dropout: [0.10, 0.15, 0.20]
+    - [512, 256]
+  model.dropout: [0.05, 0.10, 0.15]
   model.lr: [0.0010, 0.0007, 0.0005]
-  model.weight_decay: [0.0001, 0.0003]
+  model.weight_decay: [0.0001, 0.0003, 0.00001]
   model.max_emb_dim: [32, 48, 64]
-  train.batch_size: [512, 1024, 2048]
+  train.batch_size: [2048, 4096]
   seed: [42, 1337]
-  max_trials: 16
+  max_trials: 20

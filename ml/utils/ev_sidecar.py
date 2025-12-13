@@ -34,20 +34,18 @@ def write_ev_sidecar(
         "model_name": model_name,
         "action_vocab": action_vocab,
         "vocab_index": {a: i for i, a in enumerate(action_vocab)},
-
-        # canonical (old readers)
         "cat_feature_order": x_cols,
         "cont_feature_order": cont_cols,
-
-        # aliases (new readers)
         "x_cols": x_cols,
         "cont_cols": cont_cols,
-
         "id_maps": id_maps,
         "cat_cardinalities": {c: len(id_maps.get(c, {})) for c in x_cols},
         "notes": meta.get("notes", ""),
         "created_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "checkpoint_file": os.path.basename(str(ckpt_path)) if ckpt_path.suffix else None,
+        # ✅ NEW:
+        "units": str(meta.get("units", "bb")),
+        "split": meta.get("split"),  # "preflop" | "root" | "facing" | None
     }
 
     best_path = out_dir / filename

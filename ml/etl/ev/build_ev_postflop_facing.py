@@ -137,21 +137,33 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
         mask: List[int] = []
         for tok in action_tokens:
             T = tok.upper()
+
+            # CHECK is illegal when we are facing a bet
+            if T == "CHECK":
+                mask.append(1)
+                continue
+
             if T in ("FOLD", "CALL"):
                 mask.append(0)
-            elif T == "ALLIN":
+                continue
+
+            if T == "ALLIN":
                 mask.append(0 if stack_bb > 0 else 1)
-            elif T.startswith("RAISE_"):
+                continue
+
+            if T.startswith("RAISE_"):
                 try:
-                    mult = int(T.split("_", 1)[1]) / 100.0  # e.g., 150 -> 1.5x
+                    mult = int(T.split("_", 1)[1]) / 100.0  # e.g., 150 -> 1.5x (your convention)
                 except Exception:
-                    mask.append(1); continue
+                    mask.append(1)
+                    continue
                 raise_to_bb = faced_bb * mult
-                # Illegal if target "raise-to" exceeds stack; ALLIN token should cover it
                 mask.append(1 if raise_to_bb > stack_bb + 1e-9 else 0)
-            else:
-                # Any unknown token -> illegal
-                mask.append(1)
+                continue
+
+            # Unknown tokens → illegal
+            mask.append(1)
+
         return mask
 
     # ---- Progress ----
@@ -179,10 +191,12 @@ def build_ev_postflop_facing(cfg: Dict[str, Any]) -> pd.DataFrame:
                             if hand_id is None:
                                 pbar.update(1); continue
 
-                            # --- Features
                             bmask = make_board_mask_52(board)
                             try:
-                                cluster_id = int(clusterer.predict(board))
+                                if hasattr(clusterer, "predict_one"):
+                                    cluster_id = int(clusterer.predict_one(board))
+                                else:
+                                    cluster_id = int(clusterer.predict([board])[0])
                             except Exception:
                                 cluster_id = 0
 

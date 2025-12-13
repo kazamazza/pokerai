@@ -19,7 +19,7 @@ build:
   faced_fracs: [0.0]
 
   # facing-open branch uses absolute open sizes (bb), not fraction of stack
-  faced_open_bbs: [2.0, 2.5, 3.0, 3.5]
+  faced_open_bbs: [ 2.0, 2.5, 3.0, 3.5 ]   # absolute bb
 
   # ensure hero=BB appears so free-check exists in unopened
   pairs:
@@ -51,10 +51,10 @@ build:
 compute:
   engine: eval7
   threads: auto
-  chunk_size: 4096
-  log_every_n: 20000
+  chunk_size: 8192             # better GPU/CPU throughput than 4096
+  log_every_n: 40000
   seed: 42
-  preflop_samples: 5000   # MC sims per row; keep moderate and use 'weight' to reflect it
+  preflop_samples: 15000       # ↑ from 5000 → lower label noise
   river_exact: true
 
 paths:
