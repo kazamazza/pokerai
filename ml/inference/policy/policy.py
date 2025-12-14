@@ -3,6 +3,7 @@ from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.engines.postflop import PostflopBaselineProvider, PostflopMaskBuilder, \
     SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder, PostflopContextResolver
 from ml.inference.policy.engines.preflop import PreflopEngine
+from ml.inference.policy.engines.turnriver import TurnRiverHeuristics
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.projection import FCRProjector
 from ml.inference.policy.signals import SignalCollector
@@ -71,7 +72,7 @@ class PolicyInfer:
             raise TypeError(f"deps.equity lacks predict/predict_proba(). Got: {type(self.eq)!r}")
 
         # Engines & pipeline pieces
-
+        self._tr = TurnRiverHeuristics()
         self._ctx_resolver = PostflopContextResolver(self.pol_post)
         self._base = PostflopBaselineProvider(self.pol_post, self.action_vocab, self._vocab_index)
         self._masks = PostflopMaskBuilder()
@@ -81,6 +82,74 @@ class PolicyInfer:
         self._pre = PreflopEngine(self.ev_router, self.range_pre, self._promo)
         self._dist = DistributionBuilder(self.blend, self.action_vocab)
 
+    def _apply_turnriver_shaping(self, base, sig, req):
+        """
+        Softly bias logits toward a turn/river heuristic choice.
+        - Only runs when street >= 2
+        - Returns small debug dict or None
+        """
+        try:
+            import torch
+        except Exception:
+            return None
+
+        # street gate
+        try:
+            street = int(getattr(req, "street", 1) or 1)
+        except Exception:
+            street = 1
+        if street <= 1 or not getattr(self, "_tr", None):
+            return None
+
+        tokens = base.actions
+        # choose with the heuristic
+        if sig.side == "root":
+            choice = self._tr.decide_root(
+                tokens=tokens,
+                p_win=sig.p_win,
+                spr=sig.spr,
+                ip=(sig.actor == "ip"),
+                ctx=sig.ctx,
+                street=street,
+                bet_menu_pcts=sig.bet_menu_pcts,
+            )
+        else:
+            choice = self._tr.decide_facing(
+                tokens=tokens,
+                p_win=sig.p_win,
+                spr=sig.spr,
+                pot_bb=float(getattr(req, "pot_bb", 0.0) or 0.0),
+                faced_frac=(float(sig.size_frac) if sig.size_frac is not None else None),
+                street=street,
+            )
+
+        if not choice or choice not in tokens:
+            return {"applied": False, "why": "no_choice", "street": street, "side": sig.side}
+
+        # softly boost (don’t hard-peak; let PromotionGateway still override if needed)
+        idx = tokens.index(choice)
+        boost = 3.0  # ~e^3 ≈ 20× odds tilt; tweak if you want milder/stronger nudge
+        try:
+            base.logits[0, idx] = base.logits[0, idx] + boost
+        except Exception:
+            # Some Baseline containers store logits as list; fall back safely
+            import torch
+            z = torch.tensor(base.logits)
+            z[0, idx] = z[0, idx] + boost
+            base.logits = z
+
+        return {
+            "applied": True,
+            "choice": choice,
+            "idx": idx,
+            "boost": boost,
+            "street": street,
+            "side": sig.side,
+            "p_win": float(sig.p_win) if sig.p_win is not None else None,
+            "spr": float(sig.spr) if sig.spr is not None else None,
+            "bet_menu_pcts": (list(sig.bet_menu_pcts) if sig.bet_menu_pcts else None),
+        }
+
     @torch.no_grad()
     def _predict_postflop(self, req: PolicyRequest, eq_sig=None) -> PolicyResponse:
         hero_is_ip, side, ctx, ctx_dbg = self._ctx_resolver.derive(req)
@@ -89,6 +158,8 @@ class PolicyInfer:
         base = self._base.get(req, actor=actor, side=side)
         masks = self._masks.build(req, base, side=side)
         sig = self._sig.collect(req, base, side=side, actor=actor, hero_is_ip=hero_is_ip, ctx=ctx, eq_sig=eq_sig)
+
+        tr_dbg = self._apply_turnriver_shaping(base, sig, req)
 
         allow_allin = True if getattr(req, "allow_allin", None) is None else bool(req.allow_allin)
         z, promo_dbg = self._promo.postflop(base, masks, sig, allow_allin=allow_allin)
@@ -140,6 +211,7 @@ class PolicyInfer:
                 "faced_size_frac": float(getattr(req, "faced_size_frac", -1.0) or -1.0),
                 "bet_menu_pcts": bet_menu_pcts_masked,
                 "p_win": sig.p_win,
+                "turnriver": tr_dbg,  # <<< add this line so you can see what it did
                 # Selection trace
                 "selection": {
                     "best_action": best_action,
