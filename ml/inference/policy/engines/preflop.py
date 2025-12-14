@@ -74,6 +74,7 @@ class PreflopEngine:
                 tokens = list(dict.fromkeys(tokens + fallback))
 
         # ------------------ 3) EVs from router ------------------
+        # ------------------ 3) EVs from router ------------------
         if not getattr(self, "ev_router", None):
             raise RuntimeError("EV router not attached.")
         ev_out = self.ev_router.predict(req, side="preflop", tokens=tokens)
@@ -82,28 +83,31 @@ class PreflopEngine:
 
         ev_values_raw = ev_values.copy()
 
-        # ---- Cost-correction shim: convert state-values -> net EV (price to continue) ----
+        # blinds already posted (for facing math)
         posted = 1.0 if hero_pos == "BB" else (0.5 if hero_pos == "SB" else 0.0)
 
         def _total_from_token(tok: str):
             if tok.startswith(("OPEN_", "RAISE_")):
                 try:
-                    return int(tok.split("_", 1)[1]) / 100.0  # e.g., RAISE_750 → 7.5bb total
+                    return int(tok.split("_", 1)[1]) / 100.0  # e.g. RAISE_750 → 7.5bb total
                 except Exception:
                     return None
             return None
 
-        S = float(faced_frac) if facing_bet else 0.0  # size we face (bb), e.g. 2.5
+        S = float(faced_frac) if facing_bet else 0.0  # faced size in bb
 
-        for i, tok in enumerate(tokens):
-            if tok == "CALL":
-                ev_values[i] -= max(S - posted, 0.0)
-            elif tok.startswith("OPEN_") or tok.startswith("RAISE_"):
-                tot = _total_from_token(tok)
-                if tot is not None:
-                    ev_values[i] -= max(tot - posted, 0.0)
-            elif tok == "ALLIN":
-                ev_values[i] -= max(stack_bb - posted, 0.0)
+        # --------- FIX: cost correction only when FACING ---------
+        if facing_bet:
+            for i, tok in enumerate(tokens):
+                if tok == "CALL":
+                    ev_values[i] -= max(S - posted, 0.0)
+                elif tok.startswith("RAISE_"):
+                    tot = _total_from_token(tok)
+                    if tot is not None:
+                        ev_values[i] -= max(tot - posted, 0.0)
+                elif tok == "ALLIN":
+                    ev_values[i] -= max(stack_bb - posted, 0.0)
+        # ROOT (unopened): do NOT subtract open costs; model EVs are already net
 
         # anchors
         for i, tok in enumerate(tokens):
