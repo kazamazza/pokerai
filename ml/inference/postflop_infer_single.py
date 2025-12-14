@@ -192,39 +192,6 @@ class PostflopPolicyInferSingle:
         if logits.shape[-1] != self.vocab_size:
             raise ValueError(f"model head width {logits.shape[-1]} != action_vocab size {self.vocab_size}")
 
-    def infer_facing_and_size(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[float]]:
-        facing, size_frac, _dbg = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
-        return facing, size_frac
-
-    def infer_root_menu(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[List[float]]]:
-        is_facing, _, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
-        is_root = not is_facing
-        bet_menu: Optional[List[float]] = None
-
-        if is_root:
-            # 1) explicit request
-            if hasattr(req, "bet_sizes") and isinstance(req.bet_sizes, (list, tuple)) and len(req.bet_sizes) > 0:
-                try:
-                    bet_menu = list(normalize_bet_sizes(req.bet_sizes))
-                except Exception:
-                    bet_menu = None
-
-            # 2) derive from model vocab if absent
-            if bet_menu is None:
-                try:
-                    bet_menu = sorted({
-                        float(int(tok.split("_", 1)[1]))  # keep as e.g., 33., 66.
-                        for tok in self.action_vocab
-                        if tok.startswith("BET_") and tok.split("_", 1)[1].isdigit()
-                    })
-                except Exception:
-                    bet_menu = None
-
-            # 3) final default
-            if not bet_menu:
-                bet_menu = [33.0, 66.0]
-
-        return is_root, bet_menu
 
     @torch.no_grad()
     def predict(
@@ -255,7 +222,7 @@ class PostflopPolicyInferSingle:
 
         # Prefer library helper if available
         try:
-            from ml.inference.shared.pos import is_hero_ip  # optional helper in your codebase
+
             hero_is_ip = bool(is_hero_ip(hpos, vpos)) if street > 0 else bool(is_hero_ip(hpos, vpos))
         except Exception:
             if street == 0:

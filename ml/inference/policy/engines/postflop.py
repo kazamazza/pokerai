@@ -123,21 +123,89 @@ class SignalsBundler:
         self.action_vocab_ref = action_vocab_ref
         self.vocab_index_ref = vocab_index_ref
 
+    # --- helpers -------------------------------------------------------------
+    @staticmethod
+    def _coerce_pwin(x):
+        try:
+            v = float(x)
+            # tolerate percentages 0..100 by auto-scaling
+            if v > 1.0 and v <= 100.0:
+                v = v / 100.0
+            if 0.0 <= v <= 1.0:
+                return v
+        except Exception:
+            pass
+        return None
+
+    def _extract_pwin(self, eq_sig) -> tuple[float|None, str]:
+        """Try multiple shapes/field names; return (p_win, source_tag)."""
+        if eq_sig is None:
+            return None, "none"
+        # dict-like
+        if isinstance(eq_sig, dict):
+            for k in ("p_win","equity","win","p","p_hero","p_hero_win","value"):
+                if k in eq_sig:
+                    v = self._coerce_pwin(eq_sig[k])
+                    if v is not None: return v, f"eq_sig.{k}"
+            # respect 'available' if explicitly false
+            if eq_sig.get("available") is False:
+                return None, "eq_sig.unavailable"
+        # attr-like
+        for k in ("p_win","equity","win","p","p_hero","p_hero_win","value"):
+            if hasattr(eq_sig, k):
+                v = self._coerce_pwin(getattr(eq_sig, k))
+                if v is not None: return v, f"eq_sig.{k}"
+        # final: if it only has .available and it's False, say so
+        if hasattr(eq_sig, "available") and not bool(getattr(eq_sig, "available")):
+            return None, "eq_sig.unavailable"
+        return None, "eq_sig.unknown_shape"
+
+    # ------------------------------------------------------------------------
+
     def collect(self, req, base: Baseline, *, side: str, actor: str, hero_is_ip: bool, ctx: str, eq_sig) -> SignalsPack:
-        # equity / exploit
-        p_win = float(eq_sig.p_win) if (eq_sig and getattr(eq_sig, "available", False)) else None
+        # 1) equity
+        p_win, eq_src = self._extract_pwin(eq_sig)
+
+        if p_win is None:
+            # try primary equity service via SignalCollector
+            try:
+                eq_sig2 = self._signals.collect_equity(req)
+            except Exception:
+                eq_sig2 = None
+            p_win, eq_src2 = self._extract_pwin(eq_sig2)
+            if p_win is None:
+                eq_src = f"{eq_src}|collector:{eq_src2}"
+            else:
+                eq_src = f"collector:{eq_src2}"
+
+        if p_win is None and getattr(req, "hero_hand", None) and getattr(req, "board", None):
+            # optional quick fallback (MC/lookup inside SignalCollector if available)
+            try:
+                v = self._signals.quick_equity(req.hero_hand, req.board)  # returns 0..1
+                p_win = self._coerce_pwin(v)
+                if p_win is not None:
+                    eq_src = "quick_equity"
+            except Exception:
+                pass
+
+        # 2) exploit
         ex_sig = self._signals.collect_exploit(req)
         ex_probs = tuple(ex_sig.probs) if (ex_sig and getattr(ex_sig, "probs", None)) else None
 
-        # --- infer sizing/menu consistently with router ---
+        # 3) sizing/menu (mirror router)
         if side == "facing":
             facing_info = self._signals.collect_facing(req, hero_is_ip)
             size_frac = (facing_info.size_frac if facing_info else getattr(req, "faced_size_frac", None))
+            # harden size_frac if nonsense sneaks in
+            if size_frac is not None:
+                try:
+                    size_frac = float(min(max(size_frac, 0.05), 1.5))
+                except Exception:
+                    size_frac = None
             bet_menu_pcts = None
         else:
             root_info = self._signals.collect_root(req, hero_is_ip)
             size_frac = None
-            # Prefer router-provided bet menu if available, else derive from kept actions, else fallback
             if root_info and getattr(root_info, "bet_menu", None):
                 bet_menu_pcts = list(normalize_bet_sizes(root_info.bet_menu))
             else:
@@ -145,21 +213,27 @@ class SignalsBundler:
                     int(a.split("_", 1)[1]) for a in base.actions
                     if a.upper().startswith("BET_") and a.split("_", 1)[1].isdigit()
                 ]
-                bet_menu_pcts = sorted(set(kept_bets)) or (list(normalize_bet_sizes(getattr(req, "bet_sizes", None))) if getattr(req, "bet_sizes", None) else [33, 66])
+                bet_menu_pcts = (
+                    sorted(set(kept_bets))
+                    or (list(normalize_bet_sizes(getattr(req, "bet_sizes", None))) if getattr(req, "bet_sizes", None) else [33, 66])
+                )
 
-        # --- EVs (ensure ctx is on req so EV nets see the same categorical) ---
+        # 4) EVs (ensure ctx is on req so EV nets see same categorical)
         req.ctx = ctx
         ev_sig = self._signals.collect_ev(req, tokens=base.actions, side=side)
         evs = dict(ev_sig.evs) if (ev_sig and getattr(ev_sig, "available", False)) else {a: 0.0 for a in base.actions}
+        # safety: non-finite to 0; FOLD to 0
         for k, v in list(evs.items()):
             if not (v == v) or v in (float("inf"), float("-inf")):
                 evs[k] = 0.0
+        if "FOLD" in evs:
+            evs["FOLD"] = 0.0
 
         pot = float(getattr(req, "pot_bb", 0.0) or 0.0)
         eff = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
         spr = (eff / max(pot, 1e-9)) if pot > 0 else None
 
-        return SignalsPack(
+        pack = SignalsPack(
             p_win=p_win,
             ex_probs=ex_probs,
             evs=evs,
@@ -171,6 +245,12 @@ class SignalsBundler:
             actor=actor,
             hero_is_ip=hero_is_ip,
         )
+        # if your SignalsPack has a debug slot, you can annotate source:
+        try:
+            pack.debug = {"equity_src": eq_src}
+        except Exception:
+            pass
+        return pack
 
 class LogitShaper:
     def __init__(self, blend_cfg, projector: Optional[FCRProjector] = None):
@@ -200,19 +280,87 @@ class LogitShaper:
             out = out + float(self.blend.lambda_expl) * delta
         return out
 
+import torch
+
+import torch
+
 class PromotionApplier:
-    def __init__(self, promoter: PromotionGateway): self.promoter = promoter
-    def postflop(self, base: Baseline, masks: Masks, sig: SignalsPack, *, allow_allin: bool):
-        kept = [t for i, t in enumerate(base.actions) if float(masks.hero[i]) > 0.5]
+    def __init__(self, promoter, shaper=None):
+        self.promoter = promoter
+        self.shaper = shaper
+
+    def _to_tensor_1x(self, x, like: torch.Tensor | None = None):
+        if isinstance(x, torch.Tensor):
+            t = x
+        else:
+            t = torch.tensor(x, dtype=(like.dtype if like is not None else torch.float32),
+                             device=(like.device if like is not None else None))
+        if t.dim() == 1:
+            t = t.view(1, -1)
+        return t
+
+    def _to_vector(self, x, like: torch.Tensor | None = None):
+        """Ensure a 1-D vector (V,) on same device/dtype as `like`."""
+        if isinstance(x, torch.Tensor):
+            t = x
+        else:
+            t = torch.tensor(x, dtype=(like.dtype if like is not None else torch.float32),
+                             device=(like.device if like is not None else None))
+        if t.dim() == 2 and t.shape[0] == 1:
+            t = t.view(-1)
+        return t
+
+    def postflop(self, base, masks, sig, *, allow_allin: bool):
+        actions = list(base.actions)
+
+        # Build bet-menu actually legal after role mask
+        kept = [t for i, t in enumerate(actions) if float(masks.hero[i]) > 0.5]
         legal_bets = sorted({
             int(t.split("_", 1)[1]) for t in kept
             if t.startswith("BET_") and t.split("_", 1)[1].isdigit()
         }) or None
 
+        # Baseline logits [1,V]
+        z = self._to_tensor_1x(base.logits)
+
+        # ✅ Keep hero_mask as VECTOR [V] for the gateway
+        hero_mask_vec = self._to_vector(masks.hero, like=z)
+        hero_mask_1x = hero_mask_vec.view(1, -1)
+
+        big_neg = torch.finfo(z.dtype).min / 4
+        z_legal = torch.where(hero_mask_1x > 0.5, z, big_neg)
+
+        # Optional shaping
+        shaped_debug = {"applied": False}
+        if self.shaper is not None:
+            try:
+                vix = {a: i for i, a in enumerate(actions)}
+                self.shaper.bind_vocab(actions, vix)
+
+                p_pre = torch.softmax(z_legal, dim=-1)
+                z_shaped = self.shaper.apply(z_legal, sig)
+                # re-mask to ensure no illegal resurrection
+                z_shaped = torch.where(hero_mask_1x > 0.5, z_shaped, big_neg)
+                p_post = torch.softmax(z_shaped, dim=-1)
+
+                shaped_debug = {
+                    "applied": True,
+                    "pwin": (float(sig.p_win) if getattr(sig, "p_win", None) is not None else None),
+                    "exploit_on": bool(getattr(sig, "ex_probs", None) is not None),
+                    "delta_L1": float((p_post - p_pre).abs().sum().item()),
+                }
+                z_for_promo = z_shaped
+            except Exception as e:
+                shaped_debug = {"applied": False, "error": str(e)[:160]}
+                z_for_promo = z_legal
+        else:
+            z_for_promo = z_legal
+
+        # ✅ Pass the VECTOR hero_mask to the gateway (it expects [V])
         out = self.promoter.promote_postflop(
-            tokens=base.actions,
-            base_logits=base.logits,
-            hero_mask=masks.hero,
+            tokens=actions,
+            base_logits=z_for_promo,
+            hero_mask=hero_mask_vec,           # <-- vector
             side=sig.side,
             actor=sig.actor,
             p_win=sig.p_win,
@@ -224,12 +372,21 @@ class PromotionApplier:
             spr=sig.spr,
             allow_allin=allow_allin,
         )
+
         if isinstance(out, dict) and "logits" in out:
             dbg = out.get("debug") or {}
-            dbg["bet_menu_pcts_used"] = legal_bets  # ✅ echo masked sizes actually used
+            dbg["bet_menu_pcts_used"] = legal_bets
+            dbg["shaping"] = shaped_debug
+            try:
+                eq_src = getattr(sig, "debug", {}).get("equity_src")
+                if eq_src:
+                    dbg.setdefault("signals", {})["equity_src"] = eq_src
+            except Exception:
+                pass
             out["debug"] = dbg
             return out["logits"], out["debug"]
-        return base.logits, None
+
+        return z_for_promo, {"shaping": shaped_debug, "bet_menu_pcts_used": legal_bets}
 
     def preflop(self, **kw):
         return self.promoter.promote_preflop(**kw)

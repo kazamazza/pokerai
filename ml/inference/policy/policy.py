@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union, List, Optional, Tuple
+from typing import Any, Dict, Union
 from ml.inference.policy.deps import PolicyInferDeps
 from ml.inference.policy.engines.postflop import PostflopBaselineProvider, PostflopMaskBuilder, \
     SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder, PostflopContextResolver
@@ -77,7 +77,7 @@ class PolicyInfer:
         self._masks = PostflopMaskBuilder()
         self._sig = SignalsBundler(self._signals, self.action_vocab, self._vocab_index)
         self._shape = LogitShaper(self.blend, self._proj); self._shape.bind_vocab(self.action_vocab, self._vocab_index)
-        self._promo = PromotionApplier(self._promoter)
+        self._promo = PromotionApplier(promoter=self._promoter, shaper=self._shape)
         self._pre = PreflopEngine(self.ev_router, self.range_pre, self._promo)
         self._dist = DistributionBuilder(self.blend, self.action_vocab)
 

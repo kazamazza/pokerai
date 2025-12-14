@@ -46,8 +46,7 @@ class PolicyRequest:
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
 
-    facing_bet: bool = False
-    faced_size_pct: Optional[float] = None
+    facing_bet: Optional[bool] = None  # ← was bool=False
     faced_size_frac: Optional[float] = None
 
     # ✅ Postflop defaults: fractions of pot

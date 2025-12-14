@@ -166,6 +166,8 @@ class PromotionGateway:
             return self._out(z, dbg)
 
         # EV gap & best aggressive by EV
+        if "FOLD" in evs:
+            evs["FOLD"] = 0.0
         passive_ev = float(evs.get(passive_tok, evs.get(passive_tok.capitalize(), 0.0)))
         best_i, best_ev = None, None
         for i in aggr_idx:
