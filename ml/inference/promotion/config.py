@@ -20,6 +20,8 @@ class PromotionConfig:
     fold_cap_when_strong: float = 0.005
     ev_is_centi_bb: bool = False
     min_score_for_promo: float = 0.05
+    facing_ev_gap_override_bb: float = 1.0  # promo if best_raise - call ≥ this
+    facing_override_share: float = 0.22  # fixed share when override trips
 
     @staticmethod
     def default() -> "PromotionConfig":

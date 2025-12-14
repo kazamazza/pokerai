@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from ml.inference.policy.helpers import normalize_bet_sizes
 from ml.inference.policy.types import PolicyRequest, PolicyResponse  # noqa: E402
 from ml.inference.postflop_single.facing import is_hero_ip, infer_facing_and_size
 from ml.inference.postflop_single.features import compute_cluster_id, encode_cats, encode_cont
@@ -197,12 +199,31 @@ class PostflopPolicyInferSingle:
     def infer_root_menu(self, req: "PolicyRequest", *, hero_is_ip: bool) -> tuple[bool, Optional[List[float]]]:
         is_facing, _, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
         is_root = not is_facing
-        bet_menu = None
-        if is_root and hasattr(req, "bet_sizes") and isinstance(req.bet_sizes, (list, tuple)):
-            try:
-                bet_menu = [float(x) for x in req.bet_sizes]
-            except Exception:
-                pass
+        bet_menu: Optional[List[float]] = None
+
+        if is_root:
+            # 1) explicit request
+            if hasattr(req, "bet_sizes") and isinstance(req.bet_sizes, (list, tuple)) and len(req.bet_sizes) > 0:
+                try:
+                    bet_menu = list(normalize_bet_sizes(req.bet_sizes))
+                except Exception:
+                    bet_menu = None
+
+            # 2) derive from model vocab if absent
+            if bet_menu is None:
+                try:
+                    bet_menu = sorted({
+                        float(int(tok.split("_", 1)[1]))  # keep as e.g., 33., 66.
+                        for tok in self.action_vocab
+                        if tok.startswith("BET_") and tok.split("_", 1)[1].isdigit()
+                    })
+                except Exception:
+                    bet_menu = None
+
+            # 3) final default
+            if not bet_menu:
+                bet_menu = [33.0, 66.0]
+
         return is_root, bet_menu
 
     @torch.no_grad()
@@ -213,6 +234,10 @@ class PostflopPolicyInferSingle:
             actor: str = "ip",
             temperature: float = 1.0,
     ) -> "PolicyResponse":
+        import torch
+        import torch.nn.functional as F
+
+        # ---------- 1) Positions / street / who is IP ----------
         hpos = (getattr(req, "hero_pos", "") or "").upper()
         vpos = (getattr(req, "villain_pos", "") or "").upper()
         try:
@@ -220,21 +245,30 @@ class PostflopPolicyInferSingle:
         except Exception:
             street = 1
 
-        if street == 0:
-            hero_is_ip = is_hero_ip(hpos, vpos)
-        else:
-            if hpos == "BTN" and vpos in ("SB", "BB"):
-                hero_is_ip = True
-            elif hpos in ("SB", "BB") and vpos in ("SB", "BB"):
-                hero_is_ip = (hpos == "BB")
-            else:
-                POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
-                try:
-                    hero_is_ip = POST.index(hpos) > POST.index(vpos)
-                except ValueError:
-                    hero_is_ip = True
+        def _is_hero_ip_pf(h: str, v: str) -> bool:
+            # Preflop ordering for IP/OOP resolution
+            order = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
+            try:
+                return order.index(h) > order.index(v)
+            except ValueError:
+                return True  # safe default
 
-        # board canonicalization
+        # Prefer library helper if available
+        try:
+            from ml.inference.shared.pos import is_hero_ip  # optional helper in your codebase
+            hero_is_ip = bool(is_hero_ip(hpos, vpos)) if street > 0 else bool(is_hero_ip(hpos, vpos))
+        except Exception:
+            if street == 0:
+                hero_is_ip = _is_hero_ip_pf(hpos, vpos)
+            else:
+                if hpos == "BTN" and vpos in ("SB", "BB"):
+                    hero_is_ip = True
+                elif hpos in ("SB", "BB") and vpos in ("SB", "BB"):
+                    hero_is_ip = (hpos == "BB")
+                else:
+                    hero_is_ip = _is_hero_ip_pf(hpos, vpos)
+
+        # ---------- 2) Board / pot / stacks / cluster ----------
         board_in = getattr(req, "board", None) or ""
         if isinstance(board_in, (list, tuple)):
             board = "".join(board_in)
@@ -243,22 +277,31 @@ class PostflopPolicyInferSingle:
 
         pot_bb = float(getattr(req, "pot_bb", 0.0) or 0.0)
         eff_stack_bb = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
-        cluster_id = compute_cluster_id(board, self.clusterer, self.id_maps, self.board_cluster_feat)
 
+        def _compute_cluster_id():
+            if not self.board_cluster_feat:
+                return None
+            if self.clusterer is not None:
+                try:
+                    return int(self.clusterer.predict(board))
+                except Exception:
+                    pass
+            return 0
+
+        cluster_id = _compute_cluster_id()
+
+        # Categorical row (sidecar-driven; keys must match self.feature_order/id_maps)
         row: Dict[str, Any] = {
             "hero_pos": ("IP" if hero_is_ip else "OOP"),
             "ip_pos": "IP",
             "oop_pos": "OOP",
-            "ctx": req.ctx,
-            "street": "1",  # flop-only categorical
+            "ctx": getattr(req, "ctx", None),
+            "street": "1",  # flop-only categorical for postflop sidecars
             "board": board,
-            "pot_bb": pot_bb,
-            "eff_stack_bb": eff_stack_bb
+            # cont added via cont_features below
         }
-
         if self.board_cluster_feat:
-            safe_cluster = int(cluster_id) if cluster_id is not None else 0
-            row[self.board_cluster_feat] = safe_cluster
+            row[self.board_cluster_feat] = int(cluster_id)
 
         if "stakes_id" in self.feature_order:
             sid_map = self.id_maps.get("stakes_id", {})
@@ -268,53 +311,103 @@ class PostflopPolicyInferSingle:
                 key = next(iter(sid_map.keys()))
             row["stakes_id"] = key
 
-        bet_menu = None
+        # ---------- 3) Root bet menu & Facing raise buckets ----------
+        # Root: prefer req.bet_sizes; else derive from vocab; finally default [33, 66]
+        bet_menu: Optional[List[float]] = None
         if isinstance(getattr(req, "bet_sizes", None), (list, tuple)):
             try:
                 bet_menu = [float(x) for x in getattr(req, "bet_sizes")]
             except Exception:
                 bet_menu = None
+        if bet_menu is None and "CHECK" in self.action_vocab:
+            try:
+                bet_menu = sorted({
+                    float(int(tok.split("_", 1)[1]))
+                    for tok in self.action_vocab
+                    if tok.startswith("BET_") and tok.split("_", 1)[1].isdigit()
+                }) or [33.0, 66.0]
+            except Exception:
+                bet_menu = [33.0, 66.0]
+        # Write back so downstream (bundler/promo) sees the same menu
+        try:
+            if bet_menu is not None:
+                req.bet_sizes = list(bet_menu)
+        except Exception:
+            pass
 
-        facing, size_frac, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+        # Facing: ensure req.raise_buckets present for mask_facing
+        if "CALL" in self.action_vocab:
+            if not hasattr(req, "raise_buckets") or not getattr(req, "raise_buckets"):
+                try:
+                    req.raise_buckets = sorted({
+                        int(tok.split("_", 1)[1])
+                        for tok in self.action_vocab
+                        if tok.startswith("RAISE_") and tok.split("_", 1)[1].isdigit()
+                    }) or [150, 200, 300, 400, 500]
+                except Exception:
+                    req.raise_buckets = [150, 200, 300, 400, 500]
 
-        if "stack_bb" in self.cont_features and "stack_bb" not in row:
-            row["stack_bb"] = eff_stack_bb
+        # ---------- 4) Facing flag & size_frac ----------
+        try:
+            # Use your central helper if available in the codebase
+            from ml.inference.postflop_single.facing import infer_facing_and_size
+            facing_flag, size_frac, _ = infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+            facing = bool(facing_flag)
+        except Exception:
+            facing = bool(getattr(req, "facing_bet", False))
+            size_frac = getattr(req, "faced_size_frac", None)
+
+        # Continuous features (ONLY those declared in sidecar)
+        cont: Dict[str, float] = {}
+        if "pot_bb" in self.cont_features:
+            cont["pot_bb"] = float(pot_bb)
+        if "stack_bb" in self.cont_features:
+            cont["stack_bb"] = float(eff_stack_bb)
+        if "eff_stack_bb" in self.cont_features:
+            cont["eff_stack_bb"] = float(eff_stack_bb)
         if "size_frac" in self.cont_features:
-            row["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
+            cont["size_frac"] = float(size_frac) if (facing and size_frac is not None) else 0.0
 
+        # ---------- 5) Encode & forward ----------
         x_cat = encode_cats(self.feature_order, self.cards, self.id_maps, [row], self.device)
-        x_cont = encode_cont(self.cont_features, [row], self.device)
-
+        x_cont = encode_cont(self.cont_features, [cont], self.device)
         logits = self.model(x_cat, x_cont)
+
+        # ---------- 6) Mask & softmax ----------
         is_root_model = ("CHECK" in self.action_vocab)
-
         if is_root_model:
-            mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu,ctx=req.ctx).view(1, -1).to(logits.device)
+            mask = mask_root(self.action_vocab, actor=actor, bet_menu=bet_menu, ctx=getattr(req, "ctx", None))
         else:
-            mask = mask_facing(self.action_vocab, raise_buckets=req.raise_buckets).view(1, -1).to(logits.device)
+            mask = mask_facing(self.action_vocab, raise_buckets=getattr(req, "raise_buckets", None))
+        mask = mask.view(1, -1).to(logits.device)
 
-        big_neg = torch.finfo(logits.dtype).min / 4
-        masked = torch.where(mask > 0.5, logits / max(float(temperature), 1e-6), big_neg)
+        temp = max(float(temperature), 1e-6)
+        big_neg = torch.tensor(-1e9, dtype=logits.dtype, device=logits.device)
+        masked = torch.where(mask > 0.5, logits / temp, big_neg)
         probs = F.softmax(masked, dim=-1)[0].tolist()
 
+        # ---------- 7) Debug ----------
         dbg = {
             "mask_nz": int(mask.sum().item()),
             "hero_is_ip": hero_is_ip,
             "cluster_feat": self.board_cluster_feat,
             "board_cluster_id": int(row.get(self.board_cluster_feat)) if self.board_cluster_feat else None,
             "facing": facing,
-            "size_frac": float(size_frac) if size_frac is not None else None,
+            "size_frac": (float(size_frac) if size_frac is not None else None),
             "encoded_pos": row["hero_pos"],
             "raw_positions": [hpos, vpos],
-            "ctx": req.ctx,
+            "ctx": getattr(req, "ctx", None),
+            "bet_menu_used": (list(bet_menu) if is_root_model else None),
+            "raise_buckets_used": (list(getattr(req, "raise_buckets", [])) if not is_root_model else None),
         }
         logits_out = logits[0].tolist()
 
+        # ---------- 8) Response ----------
         return PolicyResponse(
             actions=self.action_vocab,
             probs=[float(p) for p in probs],
-            evs=[0.0] * len(self.action_vocab),
+            evs=[0.0] * len(self.action_vocab),  # EVs are supplied by the EV router, not this policy head
             notes=[f"postflop single; root={is_root_model}; temp={float(temperature):.3f}"],
             debug=dbg,
-            logits=logits_out
+            logits=logits_out,
         )

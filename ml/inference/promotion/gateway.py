@@ -214,7 +214,7 @@ class PromotionGateway:
             if expl_ok: share = min(max(share, 0.22) + 0.05, 0.50)
 
         if share <= 0.0:
-            dbg["why"] = "gate_not_met";
+            dbg["why"] = "gate_not_met"
             return self._out(z, dbg)
 
         # ---------- ABSOLUTE OVERRIDE ----------

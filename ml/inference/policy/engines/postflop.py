@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 import torch
 
+from ml.inference.context_infer import ContextInferer
 from ml.inference.policy.engines.types import Baseline, Masks, SignalsPack
 from ml.inference.policy.helpers import update_vocab_cache, normalize_bet_sizes, equity_delta_vector, masked_softmax, \
     cap_allins
@@ -12,30 +13,48 @@ from ml.inference.policy.utils import mix_ties_if_close, epsilon_explore
 from ml.inference.postflop_legal_action_generator import PostflopLegalActionGenerator
 from ml.inference.promotion.gateway import PromotionGateway
 
+class PostflopContextResolver:
+    """Derives (hero_is_ip, side, ctx) with the same logic your models expect."""
+    def __init__(self, pol_router):  # PostflopPolicyRouter
+        self.router = pol_router
 
-@dataclass
-class ActorContextDeriver:
-    pol_post: Any
     @staticmethod
-    def postflop_is_hero_ip(req) -> bool:
-        # Expect your real util; fallback: IP if hero_pos in {BTN, CO}
-        ip_pos = {"BTN","CO","HJ","IP"}
-        return str(getattr(req, "hero_pos", "")).upper() in ip_pos
-    def derive(self, req) -> Tuple[bool, str, str]:
-        hero_is_ip = self.postflop_is_hero_ip(req)
-        # Expect your real derive_side + ContextInferer; fallback heuristics
-        side = "root" if not getattr(req, "facing_bet", False) else "facing"
-        ctx = getattr(req, "ctx", None) or ("VS_OPEN" if getattr(req, "preflop_ctx", "") == "BLIND_VS_STEAL" else "GEN")
-        req.ctx = ctx
-        return hero_is_ip, side, ctx
-    @staticmethod
-    def normalize_faced_size_if_needed(req, side: str) -> None:
-        if side != "facing": return
-        if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
-            try: req.faced_size_frac = float(req.faced_size_pct) / 100.0
-            except Exception: ...
-        if getattr(req, "faced_size_frac", None) is None:
-            req.faced_size_frac = 0.33
+    def _hero_is_ip(hpos: str, vpos: str, street: int) -> bool:
+        h = (hpos or "").upper(); v = (vpos or "").upper()
+        if street == 0:  # preflop
+            return False
+        if h == "BTN" and v in ("SB", "BB"): return True
+        if {h, v} == {"SB", "BB"}: return h == "BB"
+        order = ["SB","BB","UTG","HJ","CO","BTN"]
+        try: return order.index(h) > order.index(v)
+        except ValueError: return True
+
+    def derive(self, req):
+        street = int(getattr(req, "street", 1) or 1)
+        hero_is_ip = self._hero_is_ip(getattr(req, "hero_pos",""), getattr(req,"villain_pos",""), street)
+
+        # side: prefer explicit flag, else infer via facing helper from the router
+        if bool(getattr(req, "facing_bet", False)):
+            side = "facing"
+            size_frac = getattr(req, "faced_size_frac", None)
+            if size_frac is None and getattr(req, "faced_size_pct", None) is not None:
+                try: size_frac = float(req.faced_size_pct)/100.0
+                except Exception: size_frac = None
+            # default 1/3 if totally missing
+            if size_frac is None: size_frac = 0.33
+            req.faced_size_frac = size_frac
+        else:
+            # ask the trained helper; falls back to history if flag is missing
+            facing_flag, size_frac = self.router.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
+            side = "facing" if facing_flag else "root"
+            if side == "facing" and size_frac is not None:
+                req.faced_size_frac = float(size_frac)
+
+        # ctx: use your ContextInferer (action_seq / actions_hist / explicit / default)
+        ctx, ctx_dbg = ContextInferer.infer_with_reason(req)
+        req.ctx = ctx  # make it available to baseline & EV nets
+
+        return hero_is_ip, side, ctx, ctx_dbg
 
 class PostflopBaselineProvider:
     def __init__(self, pol_post: Any, action_vocab_ref: List[str], vocab_index_ref: Dict[str,int]):
@@ -103,11 +122,14 @@ class SignalsBundler:
         self._signals = signals
         self.action_vocab_ref = action_vocab_ref
         self.vocab_index_ref = vocab_index_ref
+
     def collect(self, req, base: Baseline, *, side: str, actor: str, hero_is_ip: bool, ctx: str, eq_sig) -> SignalsPack:
+        # equity / exploit
         p_win = float(eq_sig.p_win) if (eq_sig and getattr(eq_sig, "available", False)) else None
         ex_sig = self._signals.collect_exploit(req)
         ex_probs = tuple(ex_sig.probs) if (ex_sig and getattr(ex_sig, "probs", None)) else None
 
+        # --- infer sizing/menu consistently with router ---
         if side == "facing":
             facing_info = self._signals.collect_facing(req, hero_is_ip)
             size_frac = (facing_info.size_frac if facing_info else getattr(req, "faced_size_frac", None))
@@ -115,14 +137,18 @@ class SignalsBundler:
         else:
             root_info = self._signals.collect_root(req, hero_is_ip)
             size_frac = None
-            kept_bets = [
-                int(a.split("_", 1)[1])
-                for a in base.actions
-                if a.upper().startswith("BET_") and "_" in a and a.split("_", 1)[1].isdigit()
-            ]
-            bet_menu_pcts = sorted(set(kept_bets)) or (
-                list(normalize_bet_sizes(req.bet_sizes)) if req.bet_sizes else [33, 66])
+            # Prefer router-provided bet menu if available, else derive from kept actions, else fallback
+            if root_info and getattr(root_info, "bet_menu", None):
+                bet_menu_pcts = list(normalize_bet_sizes(root_info.bet_menu))
+            else:
+                kept_bets = [
+                    int(a.split("_", 1)[1]) for a in base.actions
+                    if a.upper().startswith("BET_") and a.split("_", 1)[1].isdigit()
+                ]
+                bet_menu_pcts = sorted(set(kept_bets)) or (list(normalize_bet_sizes(getattr(req, "bet_sizes", None))) if getattr(req, "bet_sizes", None) else [33, 66])
 
+        # --- EVs (ensure ctx is on req so EV nets see the same categorical) ---
+        req.ctx = ctx
         ev_sig = self._signals.collect_ev(req, tokens=base.actions, side=side)
         evs = dict(ev_sig.evs) if (ev_sig and getattr(ev_sig, "available", False)) else {a: 0.0 for a in base.actions}
         for k, v in list(evs.items()):

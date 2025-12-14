@@ -92,64 +92,12 @@ class PostflopPolicyRouter:
         # tolerate accidental values like 'ip'/'oop'/'hero' etc.
         return None
 
-    @staticmethod
-    def _street_name(street: int) -> str:
-        return {0: "pre", 1: "flop", 2: "turn", 3: "river"}.get(int(street), "flop")
+    def infer_facing_and_size(self, req, *, hero_is_ip: bool):
+        # delegate to the model-side helper used in training
+        return self.facing.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
 
-    @classmethod
-    def _derive_side(cls, req) -> Tuple[str, Dict[str, Any]]:
-        """
-        Decide root/facing from request. Returns (side, debug).
-        Precedence:
-          1) explicit facing_bet
-          2) explicit faced_size_* present
-          3) parse actions_hist on current street
-          4) default root
-        """
-        dbg: Dict[str, Any] = {}
-
-        # 1) explicit flag
-        fb = getattr(req, "facing_bet", None)
-        if isinstance(fb, bool):
-            dbg["source"] = "explicit_flag"
-            return ("facing" if fb else "root", dbg)
-
-        # 2) explicit faced size
-        fsf = getattr(req, "faced_size_frac", None)
-        fsp = getattr(req, "faced_size_pct", None)
-        if fsf is not None or fsp is not None:
-            dbg["source"] = "faced_size_present"
-            return ("facing", dbg)
-
-        # 3) parse history (coarse but robust)
-        actions: List[str] = getattr(req, "actions_hist", None) or []
-        street = int(getattr(req, "street", 1) or 1)
-        vpos = str(getattr(req, "villain_pos", "") or "").upper()
-        sname = cls._street_name(street)
-        bet_like = re.compile(r"\b(bet|raise|donk)\b", re.I)
-        pass_like = re.compile(r"\b(check|call|fold)\b", re.I)
-
-        for line in reversed(actions):
-            t = str(line or "")
-            if not t.lower().startswith(sname + ":"):
-                continue
-            is_villain = (vpos.lower() in t.lower())
-            if is_villain and bet_like.search(t):
-                dbg["source"] = "history"
-                dbg["line"] = t
-                return ("facing", dbg)
-            if is_villain and pass_like.search(t):
-                dbg["source"] = "history"
-                dbg["line"] = t
-                return ("root", dbg)
-            if (not is_villain) and bet_like.search(t):
-                dbg["source"] = "history"
-                dbg["line"] = t
-                return ("root", dbg)
-
-        # 4) default
-        dbg["source"] = "default_root"
-        return ("root", dbg)
+    def infer_root_menu(self, req, *, hero_is_ip: bool):
+        return self.root.infer_root_menu(req, hero_is_ip=hero_is_ip)
 
     @torch.no_grad()
     def predict(

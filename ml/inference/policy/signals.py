@@ -80,12 +80,11 @@ def _label_to_169_id(label: str) -> int | None:
 
 
 class SignalCollector:
-    def __init__(self, eq_model, expl_store, pop_model, router=None, router_facing=None, ev_router=None):
+    def __init__(self, eq_model, expl_store, pop_model, router=None, ev_router=None):
         self.eq = eq_model
         self.expl = expl_store
         self.pop = pop_model
         self.router = router
-        self.router_facing = router_facing or (getattr(router, "facing", None) if router is not None else None)
         self.ev_router = ev_router
 
     def _coerce_row3(self, out) -> tuple[float, float, float]:
@@ -168,7 +167,7 @@ class SignalCollector:
 
     def collect_facing(self, req, hero_is_ip: bool) -> FacingInfo:
         try:
-            rf = self.router_facing
+            rf = self.router
             if rf is not None and hasattr(rf, "infer_facing_and_size"):
                 facing_flag, size_frac = rf.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
                 return FacingInfo(bool(facing_flag), size_frac)

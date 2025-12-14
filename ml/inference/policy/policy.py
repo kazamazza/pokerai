@@ -1,7 +1,7 @@
 from typing import Any, Dict, Union, List, Optional, Tuple
 from ml.inference.policy.deps import PolicyInferDeps
-from ml.inference.policy.engines.postflop import ActorContextDeriver, PostflopBaselineProvider, PostflopMaskBuilder, \
-    SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder
+from ml.inference.policy.engines.postflop import PostflopBaselineProvider, PostflopMaskBuilder, \
+    SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder, PostflopContextResolver
 from ml.inference.policy.engines.preflop import PreflopEngine
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.projection import FCRProjector
@@ -13,7 +13,7 @@ from ml.inference.promotion.gateway import PromotionGateway
 
 
 class PolicyInfer:
-    def __init__(self, deps: "PolicyInferDeps", blend_cfg: PolicyBlendConfig | None = None):
+    def __init__(self, deps: PolicyInferDeps, blend_cfg: PolicyBlendConfig | None = None):
         self.p: Dict[str, Any] = deps.params or {}
         self.blend = blend_cfg or PolicyBlendConfig.default()
 
@@ -38,10 +38,6 @@ class PolicyInfer:
             except Exception:
                 pass
 
-        self.action_vocab: List[str] = []
-        self._vocab_index: Dict[str, int] = {}
-        self._P_fcr = None  # lazy
-
         self._signals = SignalCollector(
             eq_model=deps.equity,
             expl_store=deps.exploit,
@@ -59,10 +55,9 @@ class PolicyInfer:
             respect_fold_when_facing=True,
             min_temp=0.6, max_temp=1.2,
         ))
-        self._tuner = None  # backward compatibility
 
         try:
-            from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX  # type: ignore
+            from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX
             self.action_vocab = list(_VOC)
             self._vocab_index = dict(_VIX)
         except Exception:
@@ -76,20 +71,20 @@ class PolicyInfer:
             raise TypeError(f"deps.equity lacks predict/predict_proba(). Got: {type(self.eq)!r}")
 
         # Engines & pipeline pieces
-        self._ctx = ActorContextDeriver(self.pol_post)
+
+        self._ctx_resolver = PostflopContextResolver(self.pol_post)
         self._base = PostflopBaselineProvider(self.pol_post, self.action_vocab, self._vocab_index)
         self._masks = PostflopMaskBuilder()
         self._sig = SignalsBundler(self._signals, self.action_vocab, self._vocab_index)
         self._shape = LogitShaper(self.blend, self._proj); self._shape.bind_vocab(self.action_vocab, self._vocab_index)
         self._promo = PromotionApplier(self._promoter)
-        self._pre = PreflopEngine(self.ev_router, self.range_pre, self._promo)  # ← change to applier
+        self._pre = PreflopEngine(self.ev_router, self.range_pre, self._promo)
         self._dist = DistributionBuilder(self.blend, self.action_vocab)
 
     @torch.no_grad()
     def _predict_postflop(self, req: PolicyRequest, eq_sig=None) -> PolicyResponse:
-        hero_is_ip, side, ctx = self._ctx.derive(req)
+        hero_is_ip, side, ctx, ctx_dbg = self._ctx_resolver.derive(req)
         actor = "ip" if hero_is_ip else "oop"
-        self._ctx.normalize_faced_size_if_needed(req, side)
 
         base = self._base.get(req, actor=actor, side=side)
         masks = self._masks.build(req, base, side=side)
