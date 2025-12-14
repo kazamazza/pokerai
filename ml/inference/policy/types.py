@@ -29,8 +29,8 @@ _POSITION_ORDER_POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
 class ActionHistoryEntry:
     player_id: str
     action: Literal["FOLD", "CALL", "CHECK", "RAISE", "BET"]
-    street: Optional[int] = None  # Optional: for more precise street segmentation
-    weight: Optional[float] = 1.0  # Optional: override if needed
+    street: Optional[int] = None
+    weight: Optional[float] = None   # was 1.0
 
 
 @dataclass

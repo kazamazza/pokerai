@@ -255,6 +255,7 @@ class EVInferSingle:
 
         # ---- per-mode stuff ----
         if self.mode == "preflop":
+            # ---- preflop sized-facing features ----
             facing = bool(getattr(req, "facing_bet", False))
             frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
             free_check = (not facing) and (str(getattr(req, "hero_pos", "")).upper() == "BB")

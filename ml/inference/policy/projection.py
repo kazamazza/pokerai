@@ -1,6 +1,4 @@
-# policy/projection.py
 import torch
-from typing import List
 
 class FCRProjector:
     def __init__(self):

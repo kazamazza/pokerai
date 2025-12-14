@@ -1,31 +1,22 @@
-from typing import Any, Dict, Union, List, Optional
-import numpy as np
-
-from ml.features.hands import hand169_id_from_hand_code
-from ml.inference.action_context_classifier import ActionContextClassifier
-from ml.inference.context_infer import ContextInferer
+from typing import Any, Dict, Union, List, Optional, Tuple
 from ml.inference.policy.deps import PolicyInferDeps
-from ml.inference.policy.helpers import cap_allins, masked_softmax, equity_delta_vector, normalize_bet_sizes, \
-    normalize_raise_buckets, update_vocab_cache, derive_side, soft_prior_blend, compute_temperature
+from ml.inference.policy.engines.postflop import ActorContextDeriver, PostflopBaselineProvider, PostflopMaskBuilder, \
+    SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder
+from ml.inference.policy.engines.preflop import PreflopEngine
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.projection import FCRProjector
-from ml.inference.policy.signals import SignalCollector, EquitySig
+from ml.inference.policy.signals import SignalCollector
 from ml.inference.policy.types import PolicyRequest, PolicyResponse
 import torch
-from ml.inference.policy.utils import postflop_is_hero_ip, mix_ties_if_close, \
-    epsilon_explore
-from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
 from ml.inference.promotion.config import PromotionConfig
 from ml.inference.promotion.gateway import PromotionGateway
 
 
 class PolicyInfer:
-
     def __init__(self, deps: "PolicyInferDeps", blend_cfg: PolicyBlendConfig | None = None):
         self.p: Dict[str, Any] = deps.params or {}
         self.blend = blend_cfg or PolicyBlendConfig.default()
 
-        # Required deps
         if deps.equity is None:
             raise ValueError("equity infer is required")
         if deps.range_pre is None:
@@ -37,21 +28,20 @@ class PolicyInfer:
         self.pop = deps.pop
         self.expl = deps.exploit
         self.eq = deps.equity
-        self.rng_pre = deps.range_pre
+        self.range_pre = deps.range_pre
         self.clusterer = deps.clusterer
         self.ev_router = deps.ev
 
-        # Optional wiring to router
         if self.clusterer is not None and hasattr(self.pol_post, "set_clusterer"):
             try:
                 self.pol_post.set_clusterer(self.clusterer)
             except Exception:
                 pass
 
-        # Vocab cache
         self.action_vocab: List[str] = []
         self._vocab_index: Dict[str, int] = {}
-        self._P_fcr: Optional[torch.Tensor] = None  # [3,V], lazy
+        self._P_fcr = None  # lazy
+
         self._signals = SignalCollector(
             eq_model=deps.equity,
             expl_store=deps.exploit,
@@ -59,9 +49,8 @@ class PolicyInfer:
             router=self.pol_post,
             ev_router=self.ev_router
         )
-        self._proj = FCRProjector()
 
-        # ⬇️ swap out the old tuner for the PromotionGateway
+        self._proj = FCRProjector()
         self._promoter = PromotionGateway(PromotionConfig(
             w_ev=0.60, w_eq=0.30, w_expl=0.10,
             eq_gate=0.55, expl_gate=0.05, ev_cap_bb=3.0,
@@ -70,7 +59,7 @@ class PolicyInfer:
             respect_fold_when_facing=True,
             min_temp=0.6, max_temp=1.2,
         ))
-        self._tuner = None  # keep attribute for backward compatibility
+        self._tuner = None  # backward compatibility
 
         try:
             from ml.models.policy_consts import ACTION_VOCAB as _VOC, VOCAB_INDEX as _VIX  # type: ignore
@@ -81,401 +70,103 @@ class PolicyInfer:
 
         if not hasattr(self.pol_post, "predict"):
             raise TypeError(f"deps.policy_post lacks predict(). Got: {type(self.pol_post)!r}")
-        if not hasattr(self.rng_pre, "predict"):
-            raise TypeError(f"deps.range_pre lacks predict(). Got: {type(self.rng_pre)!r}")
+        if not hasattr(self.range_pre, "predict"):  # bugfix: was self.rng_pre
+            raise TypeError(f"deps.range_pre lacks predict(). Got: {type(self.range_pre)!r}")
         if self.eq is not None and not (hasattr(self.eq, "predict_proba") or hasattr(self.eq, "predict")):
             raise TypeError(f"deps.equity lacks predict/predict_proba(). Got: {type(self.eq)!r}")
 
-    @torch.no_grad()
-    def _predict_preflop(
-            self,
-            req: PolicyRequest,
-            eq_sig: Optional[EquitySig] = None
-    ) -> PolicyResponse:
-        """
-        Preflop policy:
-          1) Build a *legal* action menu (generator).
-          2) Query EV router for EVs (units: bb).
-          3) Anchor tiny-drift: FOLD=0, CHECK=0 (when free-check).
-          4) Convert EVs → logits (model-driven), optional ALLIN guard.
-          5) Optional RangeNet prior: small nudge by hero-hand rank (if wired).
-          6) PromotionGateway (if wired) → softmax to probs.
-        """
-        # ---- normalize faced size (if facing) ----
-        facing_bet = bool(getattr(req, "facing_bet", False))
-        if facing_bet:
-            if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
-                try:
-                    req.faced_size_frac = float(req.faced_size_pct) / 100.0
-                except Exception:
-                    req.faced_size_frac = None
-            if getattr(req, "faced_size_frac", None) is None:
-                req.faced_size_frac = 0.33
-        faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
-
-        # ---- menu generation (aligns with EV training vocab) ----
-        stack_bb = float(getattr(req, "eff_stack_bb", None) or getattr(req, "pot_bb", None) or 100.0)
-        hero_pos = (getattr(req, "hero_pos", "") or "").upper()
-        free_check = (not facing_bet) and (hero_pos == "BB")
-        allow_allin = bool(getattr(req, "allow_allin", False))
-
-        gen = PreflopLegalActionGenerator(
-            open_sizes_cbb=(200, 250, 300),
-            raise_totals_cbb=(600, 750, 900, 1200),
-            allow_allin=allow_allin,
-            max_open_cbb=None,
-        )
-        tokens = gen.generate(
-            stack_bb=stack_bb,
-            facing_bet=facing_bet,
-            faced_frac=faced_frac,
-            free_check=free_check,
-        )
-        if not tokens:
-            tokens = ["FOLD"] + (["CHECK"] if free_check else [])
-
-        # If router exposes a vocab, clamp tokens to it (prevents drift)
-        try:
-            allowed = set(self.ev_router.vocab("preflop"))
-            tokens = [t for t in tokens if t in allowed] or tokens
-        except Exception:
-            pass
-
-        # ---- EVs from EV router (model output) ----
-        if not getattr(self, "ev_router", None):
-            raise RuntimeError("EV router not attached. Wire in PolicyInferFactory.")
-        ev_out = self.ev_router.predict(req, side="preflop", tokens=tokens)
-        ev_values = np.asarray(ev_out.evs, dtype=np.float32) if (ev_out and ev_out.available) \
-            else np.zeros(len(tokens), np.float32)
-
-        # ---- Anchor tiny EV drift ----
-        for i, tok in enumerate(tokens):
-            if tok == "FOLD":
-                ev_values[i] = 0.0
-            elif tok == "CHECK" and free_check:
-                ev_values[i] = 0.0
-
-        # ---- EV → logits (model-driven base) ----
-        # Use a temperature derived from the EV spread; sharper when EVs separate well.
-        T = float(compute_temperature(ev_values))  # your existing helper
-        base_logits = ev_values.astype(np.float32) / max(T, 1e-6)
-
-        # Stabilize
-        if base_logits.size:
-            base_logits -= float(base_logits.max())
-
-        # ---- Deep-stack ALLIN guard (optional) ----
-        if stack_bb > 20.0 and "ALLIN" in tokens:
-            base_logits[tokens.index("ALLIN")] += -8.0  # strong penalty when deep
-
-        # ---- Optional RangeNet prior nudge (very light, skips if not wired) ----
-        range_dbg = None
-        try:
-            if getattr(self, "range_pre", None) is not None and req.hero_hand:
-                rvec = self.range_pre.predict(req, verbose=False)  # 169-d probabilities
-                hid = hand169_id_from_hand_code(req.hero_hand)
-                if hid is not None and 0 <= hid < rvec.size:
-                    # hero hand percentile in predicted range mass
-                    order = np.argsort(rvec)
-                    rank = float(np.where(order == hid)[0][0]) / max(rvec.size - 1, 1)  # 0..1
-                    # tiny nudges only (keep EV dominant)
-                    α, β, γ = 0.4, 0.2, 0.3
-                    for i, t in enumerate(tokens):
-                        if t.startswith("OPEN_") or t.startswith("RAISE_"):
-                            base_logits[i] += α * rank
-                        elif t == "CALL":
-                            base_logits[i] += β * (1.0 - abs(rank - 0.5) * 2.0)
-                        elif t == "FOLD":
-                            base_logits[i] -= γ * rank
-        except Exception as e:
-            range_dbg = {"error": str(e)}
-
-        # ---- PromotionGateway (kept as-is) ----
-        promo_dbg = None
-        if getattr(self, "_promoter", None) is not None:
-            try:
-                new_logits, promo_dbg = self._promoter.promote_preflop(
-                    base_logits=base_logits,
-                    tokens=tokens,
-                    evs={t: float(ev_values[i]) for i, t in enumerate(tokens)},
-                    p_win=(eq_sig.p_win if (eq_sig and eq_sig.available) else None),
-                    facing_bet=facing_bet,
-                    free_check=free_check,
-                    allow_allin=allow_allin,
-                )
-                base_logits = new_logits.astype(np.float32)
-            except Exception as e:
-                promo_dbg = {"error": str(e)}
-
-        # ---- Softmax → probs ----
-        if base_logits.size:
-            base_logits -= float(base_logits.max())
-        probs = np.exp(base_logits)
-        Z = float(probs.sum())
-        probs = (probs / Z) if (Z > 0 and np.isfinite(Z)) else np.ones(len(tokens), np.float32) / float(len(tokens))
-        best_action = tokens[int(np.argmax(probs))]
-
-        debug = None
-        if getattr(req, "debug", False):
-            debug = {
-                "tokens": list(tokens),
-                "ev_values": ev_values.astype(float).tolist(),
-                "temp": T,
-                "facing_bet": facing_bet,
-                "faced_frac": faced_frac,
-                "free_check": free_check,
-                "allow_allin": allow_allin,
-                "stack_bb": stack_bb,
-                "equity": (eq_sig.p_win if (eq_sig and eq_sig.available) else None),
-                "promotion": promo_dbg,
-                "range_dbg": range_dbg,
-                "ctx": getattr(req, "ctx", None),
-            }
-
-        return PolicyResponse(
-            actions=list(tokens),
-            probs=probs.astype(float).tolist(),
-            evs=ev_values.astype(float).tolist(),
-            best_action=best_action,
-            notes=[
-                f"preflop policy (EV→logits, T={T:.2f}, promoter={'on' if getattr(self, '_promoter', None) else 'off'})"],
-            debug=debug,
-        )
+        # Engines & pipeline pieces
+        self._ctx = ActorContextDeriver(self.pol_post)
+        self._base = PostflopBaselineProvider(self.pol_post, self.action_vocab, self._vocab_index)
+        self._masks = PostflopMaskBuilder()
+        self._sig = SignalsBundler(self._signals, self.action_vocab, self._vocab_index)
+        self._shape = LogitShaper(self.blend, self._proj); self._shape.bind_vocab(self.action_vocab, self._vocab_index)
+        self._promo = PromotionApplier(self._promoter)
+        self._pre = PreflopEngine(self.ev_router, self.range_pre, self._promo)  # ← change to applier
+        self._dist = DistributionBuilder(self.blend, self.action_vocab)
 
     @torch.no_grad()
-    def _predict_postflop(self, req: PolicyRequest, eq_sig: Optional[EquitySig] = None) -> PolicyResponse:
-        hero_is_ip = postflop_is_hero_ip(req)
+    def _predict_postflop(self, req: PolicyRequest, eq_sig=None) -> PolicyResponse:
+        hero_is_ip, side, ctx = self._ctx.derive(req)
         actor = "ip" if hero_is_ip else "oop"
-        side = derive_side(req, hero_is_ip=hero_is_ip, pol_post=self.pol_post)
+        self._ctx.normalize_faced_size_if_needed(req, side)
 
-        ctx, ctx_reason = ContextInferer.infer_with_reason(req)
-        if ctx == "BLIND_VS_STEAL":
-            ctx = "VS_OPEN"
-        req.ctx = ctx
-
-        if side == "facing":
-            if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
-                try:
-                    req.faced_size_frac = float(req.faced_size_pct) / 100.0
-                except Exception:
-                    pass
-            if getattr(req, "faced_size_frac", None) is None:
-                req.faced_size_frac = 0.33
-
-        router_resp = self.pol_post.predict(req, actor=actor, temperature=1.0, side=side)
-        actions = list(getattr(router_resp, "actions", []) or [])
-        if not actions:
-            raise RuntimeError("Router returned empty actions")
-
-        self.action_vocab, self._vocab_index, self._P_fcr = update_vocab_cache(self.action_vocab, actions, self._P_fcr)
-        V = len(actions)
-
-        if getattr(router_resp, "logits", None) is not None:
-            z = torch.tensor(router_resp.logits, dtype=torch.float32).view(1, V)
-        else:
-            p_r = torch.tensor(router_resp.probs, dtype=torch.float32).view(1, V)
-            z = torch.log(p_r.clamp_min(1e-8))
-
-        # masks
-        mask_router = getattr(router_resp, "mask", None)
-        hero_mask_router = (torch.tensor(mask_router, dtype=torch.float32).view(1, V)[0]
-                            if mask_router is not None else torch.ones(V, dtype=torch.float32))
-
-        role_mask = torch.ones(V, dtype=torch.float32)
-        if side == "root":
-            for i, t in enumerate(actions):
-                if t.startswith("DONK_") and actor == "ip":
-                    role_mask[i] = 0.0
-        else:
-            for i, t in enumerate(actions):
-                Ttok = t.upper()
-                if not (Ttok in ("FOLD", "CALL") or Ttok.startswith("RAISE_") or Ttok == "ALLIN"):
-                    role_mask[i] = 0.0
+        base = self._base.get(req, actor=actor, side=side)
+        masks = self._masks.build(req, base, side=side)
+        sig = self._sig.collect(req, base, side=side, actor=actor, hero_is_ip=hero_is_ip, ctx=ctx, eq_sig=eq_sig)
 
         allow_allin = True if getattr(req, "allow_allin", None) is None else bool(req.allow_allin)
-        size_mask = torch.ones(V, dtype=torch.float32)
+        z, promo_dbg = self._promo.postflop(base, masks, sig, allow_allin=allow_allin)
+        promo_applied = bool(promo_dbg and promo_dbg.get("applied"))
 
-        if side == "facing":
-            if req.raise_buckets is not None:
-                rb = normalize_raise_buckets(req.raise_buckets)
-                for i, t in enumerate(actions):
-                    if t.startswith("RAISE_"):
-                        try:
-                            suf = int(t.split("_", 1)[1])
-                            if suf not in rb:
-                                size_mask[i] = 0.0
-                        except Exception:
-                            size_mask[i] = 0.0
-            for i, t in enumerate(actions):
-                if t == "ALLIN" and not allow_allin:
-                    size_mask[i] = 0.0
-        else:
-            if req.bet_sizes is not None:
-                bs = normalize_bet_sizes(req.bet_sizes)
-                for i, t in enumerate(actions):
-                    if t.startswith("BET_"):
-                        try:
-                            pct = int(t.split("_", 1)[1])
-                            if pct not in bs:
-                                size_mask[i] = 0.0
-                        except Exception:
-                            size_mask[i] = 0.0
-            for i, t in enumerate(actions):
-                if t == "ALLIN" and not allow_allin:
-                    size_mask[i] = 0.0
+        probs, best_idx_dist = self._dist.build(z, masks, req, promo_applied=promo_applied)
 
-        if side == "facing" and req.raise_buckets is None and req.bet_sizes is None:
-            size_mask = torch.ones_like(size_mask)
+        # --- best action policy: promotion-first ---
+        best_action_source = "distribution"
+        best_action_dist = base.actions[best_idx_dist]
+        best_action = best_action_dist
+        promo_best = None
 
-        hero_mask = (hero_mask_router > 0.5).float() * (role_mask > 0.5).float() * (size_mask > 0.5).float()
-        if hero_mask.sum() <= 0:
-            hero_mask = (hero_mask_router > 0.5).float()
+        if promo_applied:
+            promo_best = promo_dbg.get("best_bucket")
+            if isinstance(promo_best, str) and promo_best in base.actions:
+                best_action = promo_best
+                best_action_source = "promotion"
 
-        # signals
-        ex_sig = self._signals.collect_exploit(req)
-        if side == "facing":
-            facing_info = self._signals.collect_facing(req, hero_is_ip)
-            root_info = None
-        else:
-            root_info = self._signals.collect_root(req, hero_is_ip)
-            facing_info = None
+        # Debug
+        debug = None
+        if getattr(req, "debug", False):
+            def _kept(tokens, m): return [t for i, t in enumerate(tokens) if bool(m[i] > 0.5)]
 
-        # optional shaping (unchanged)
-        z = z.clone()
-        if self.blend.lambda_eq > 0.0 and eq_sig and eq_sig.available:
-            eq_margin = float(eq_sig.p_win) - 0.5
-            d = equity_delta_vector(
-                eq_margin=eq_margin,
-                hero_is_ip=hero_is_ip,
-                facing_bet=(side == "facing"),
-                action_vocab=self.action_vocab,
-                vocab_index=self._vocab_index,
-            ).to(dtype=z.dtype, device=z.device)
-            d = torch.clamp(d, -float(self.blend.eq_max_logit_delta), float(self.blend.eq_max_logit_delta))
-            z = z + float(self.blend.lambda_eq) * d
+            kept_final = _kept(base.actions, masks.hero)
+            bet_menu_pcts_masked = sorted({
+                int(t.split("_", 1)[1]) for t in kept_final
+                if t.startswith("BET_") and t.split("_", 1)[1].isdigit()
+            }) if side == "root" else None
 
-        if ex_sig.available and self.blend.lambda_expl > 0.0 and ex_sig.raw is not None:
-            delta = self._proj.lift(ex_sig.raw, self.action_vocab, z.dtype, z.device)
-            z = z + float(self.blend.lambda_expl) * delta
-
-        ev_sig = self._signals.collect_ev(req, tokens=actions, side=side)
-        evs = dict(ev_sig.evs) if (ev_sig and ev_sig.available) else {a: 0.0 for a in actions}
-        for k, v in list(evs.items()):
-            if not (v == v) or v in (float("inf"), float("-inf")):
-                evs[k] = 0.0
-
-        action_ctx = ActionContextClassifier.from_request(req, side)
-
-        root_bet_menu_pcts = None
-        if root_info is not None:
-            menu = getattr(root_info, "bet_menu", None)
-            if menu:
-                root_bet_menu_pcts = []
-                for item in menu:
-                    if isinstance(item, (int, float)):
-                        root_bet_menu_pcts.append(int(round(item)))
-                    elif isinstance(item, str) and item.upper().startswith("BET_"):
-                        try:
-                            root_bet_menu_pcts.append(int(item.split("_", 1)[1]))
-                        except Exception:
-                            pass
-                if not root_bet_menu_pcts:
-                    root_bet_menu_pcts = None
-
-        # ---- PromotionGateway (patched signature) ----
-        promo_dbg = None
-        if getattr(self, "_promoter", None) is not None:
-            try:
-                spr = None
-                pot = float(getattr(req, "pot_bb", 0.0) or 0.0)
-                eff = float(getattr(req, "eff_stack_bb", 0.0) or 0.0)
-                if pot > 0:
-                    spr = eff / max(pot, 1e-9)
-
-                out = self._promoter.promote_postflop(
-                    tokens=actions,
-                    base_logits=z,
-                    hero_mask=hero_mask,
-                    side=side,
-                    actor=actor,
-                    p_win=(eq_sig.p_win if (eq_sig and eq_sig.available) else None),
-                    ex_probs=(list(ex_sig.probs) if ex_sig and ex_sig.probs else None),
-                    evs=evs,
-                    size_frac=(facing_info.size_frac if facing_info else getattr(req, "faced_size_frac",
-                                                                                 None)) if side == "facing" else None,
-                    bet_menu_pcts=root_bet_menu_pcts,
-                    ctx=ctx,
-                    spr=spr,
-                    allow_allin=allow_allin,
-                    action_ctx=action_ctx,
-                )
-                if isinstance(out, dict) and "logits" in out:
-                    z = out["logits"]
-                    promo_dbg = out.get("debug")
-            except Exception as e:
-                promo_dbg = {"error": str(e)}
-
-        # ---- final distribution (unchanged) ----
-        p = masked_softmax(
-            z, hero_mask.view(1, -1),
-            T=float(self.blend.temperature),
-            eps=float(self.blend.min_legal_prob),
-        )
-        p = mix_ties_if_close(p, float(self.blend.tie_mix_threshold))
-        p = epsilon_explore(p, float(self.blend.epsilon_explore), hero_mask.view(1, -1))
-        p = cap_allins(
-            p,
-            eff_stack_bb=float(getattr(req, "eff_stack_bb", 0.0) or 0.0),
-            action_vocab=self.action_vocab,
-            max_allin_freq=float(self.blend.max_allin_freq),
-            risk_floor_stack_bb=float(self.blend.risk_floor_stack_bb),
-        )
-        probs = p[0].tolist()
-        best_idx = int(torch.argmax(p[0]))
-        best_action = actions[best_idx]
-
-        if req.debug:
-            def _where(tokens, pred):
-                return [t for i, t in enumerate(tokens) if bool(pred[i])]
-
-            is_raise = torch.tensor([1.0 if t.startswith("RAISE_") else 0.0 for t in actions])
-            is_bet = torch.tensor([1.0 if t.startswith("BET_") else 0.0 for t in actions])
-
-            inv = {
-                "side": side,
-                "ctx": ctx,
-                "ctx_reason": ctx_reason,
-                "had_raises": bool((is_raise.sum().item()) > 0),
-                "kept_raises_router": _where(actions, (is_raise > 0) * (hero_mask_router > 0.5)),
-                "kept_raises_role": _where(actions, (is_raise > 0) * (role_mask > 0.5)),
-                "kept_raises_size": _where(actions, (is_raise > 0) * (size_mask > 0.5)),
-                "final_kept_raises": _where(actions, (is_raise > 0) * (hero_mask > 0.5)),
-                "had_bets": bool((is_bet.sum().item()) > 0),
-                "final_kept_bets": _where(actions, (is_bet > 0) * (hero_mask > 0.5)),
-                "allow_allin": allow_allin,
-                "menu_mask_sum": float(hero_mask.sum().item()),
-                "router_mask_sum": float((hero_mask_router > 0.5).sum().item()),
-                "role_mask_sum": float((role_mask > 0.5).sum().item()),
-                "size_mask_sum": float((size_mask > 0.5).sum().item()),
-            }
             debug = {
                 "router_side": side,
-                "invariants": inv,
+                "invariants": {
+                    "side": side, "ctx": ctx, "actor": actor,
+                    "router_mask_sum": float(masks.router.sum().item()),
+                    "role_mask_sum": float(masks.role.sum().item()),
+                    "size_mask_sum": float(masks.size.sum().item()),
+                    "final_mask_sum": float(masks.hero.sum().item()),
+                    "kept_by_router": _kept(base.actions, masks.router),
+                    "kept_by_role": _kept(base.actions, masks.role),
+                    "kept_by_size": _kept(base.actions, masks.size),
+                    "kept_final": kept_final,
+                    "allow_allin": allow_allin,
+                },
                 "promotion": promo_dbg,
+                "final_T": float(getattr(req, "_final_T", 1.0)),
+                "final_eps": float(getattr(req, "_final_eps", 0.0)),
                 "pot_bb": float(getattr(req, "pot_bb", 0.0) or 0.0),
                 "faced_size_frac": float(getattr(req, "faced_size_frac", -1.0) or -1.0),
+                "bet_menu_pcts": bet_menu_pcts_masked,
+                "p_win": sig.p_win,
+                # Selection trace
+                "selection": {
+                    "best_action": best_action,
+                    "best_action_source": best_action_source,
+                    "best_action_distribution": best_action_dist,
+                    "promotion_best_bucket": promo_best,
+                },
             }
-        else:
-            debug = None
 
         return PolicyResponse(
-            actions=actions,
+            actions=base.actions,
             probs=probs,
-            evs=[evs.get(a, 0.0) for a in actions],
-            notes=[f"Postflop policy (GTO baseline + PromotionGateway); hero_is_ip={hero_is_ip}"],
+            evs=[sig.evs.get(a, 0.0) for a in base.actions],
+            notes=[
+                f"Postflop policy (router → generator legality → shaping → PromotionGateway[override]); hero_is_ip={hero_is_ip}"],
             debug=debug,
             best_action=best_action,
         )
+
+    @torch.no_grad()
+    def _predict_preflop(self, req: PolicyRequest, eq_sig=None) -> PolicyResponse:
+        return self._pre.run(req, eq_sig)
 
     def predict(self, req_input: Union[Dict[str, Any], "PolicyRequest"]) -> "PolicyResponse":
         # -------- Parse input --------
@@ -487,13 +178,11 @@ class PolicyInfer:
             raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
 
         req.legalize()
-
-        _s = getattr(req, "street", None)
-        street = 1 if _s is None else int(_s)
+        street = 1 if getattr(req, "street", None) is None else int(getattr(req, "street"))
 
         eq_sig = self._signals.collect_equity(req)
 
-        # -------- Route to street-specific policy --------
+        # -------- Route --------
         if street == 0:
             return self._predict_preflop(req, eq_sig=eq_sig)
         else:

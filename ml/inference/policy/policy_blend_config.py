@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict, fields
 from typing import Any, Dict
-from .tuner import TunerKnobs
 
 @dataclass
 class PolicyBlendConfig:
@@ -149,25 +148,3 @@ class PolicyBlendConfig:
         self.bet_max_logit_boost = float(max(self.bet_max_logit_boost, 0.0))
 
         return self
-
-def tuner_knobs_from_blend(blend) -> 'TunerKnob':
-    return TunerKnobs(
-                enable=bool(getattr(blend, "enable_tuner", getattr(blend, "tuner_enable", True))),
-                debug=bool(getattr(blend, "tuner_debug", True)),
-                step=float(getattr(blend, "tuner_step", 0.6)),
-                tau_floor=float(getattr(blend, "tau_floor", 0.0)),
-                tau_ceil=float(getattr(blend, "tau_ceil", 0.6)),
-                eq_tau_gate=float(getattr(blend, "eq_tau_gate", 0.56)),
-                eq_tau_scale=float(getattr(blend, "eq_tau_scale", 0.8)),
-                eq_tau_max=float(getattr(blend, "eq_tau_max", 0.18)),
-                expl_fold_gate=float(getattr(blend, "expl_fold_gate", 0.10)),
-                expl_fold_scale=float(getattr(blend, "expl_fold_scale", 0.5)),
-                expl_fold_max=float(getattr(blend, "expl_fold_max", 0.20)),
-                expl_aggr_gate=float(getattr(blend, "expl_aggr_gate", 0.10)),
-                expl_aggr_scale=float(getattr(blend, "expl_aggr_scale", 0.25)),
-                expl_aggr_max=float(getattr(blend, "expl_aggr_max", 0.08)),
-                raise_block_if_allin_legal=bool(getattr(blend, "raise_block_if_allin_legal", True)),
-                raise_when_faced_min_size=float(getattr(blend, "raise_when_faced_min_size", 0.30)),
-                raise_when_faced_max_size=float(getattr(blend, "raise_when_faced_max_size", 1.00)),
-                raise_max_logit_boost=float(getattr(blend, "raise_max_logit_boost", 8.0)),
-    )
