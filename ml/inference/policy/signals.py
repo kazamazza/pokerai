@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Dict, Sequence
 import numpy as np
+import torch
+
 from ml.features.hands import hand_to_169_label, hand169_id_from_hand_code
 from ml.inference.policy.types import PolicyRequest
 
@@ -139,28 +141,40 @@ class SignalCollector:
         except Exception as e:
             return EquitySig(False, err=f"eq_error:{e}")
 
-    def collect_exploit(self, req: PolicyRequest) -> ExploitSig:
+    def collect_exploit(self, req: "PolicyRequest") -> "ExploitSig":
+        """
+        Builds an exploit signal for the current villain by delegating to the
+        PlayerExploitStore, which now infers actions from req.stack_stream.
+        Returns:
+          ExploitSig(
+            available: bool,
+            deltas: np.ndarray | None,       # logit deltas over [FOLD, CALL, RAISE]
+            probs: tuple[float,float,float] | None,  # softmax of deltas
+            total: float,                    # total weighted obs used
+            prior: tuple[float,float,float] | None,  # population prior used
+            err: str | None
+          )
+        """
         try:
-            # Ensure components exist
-            if not self.expl or not self.pop or not getattr(req, "villain_id", None):
+            # Guard rails: need exploit store, population model, and a villain id.
+            if not getattr(self, "expl", None) or not getattr(self, "pop", None) or not getattr(req, "villain_id",
+                                                                                                None):
                 return ExploitSig(False, err="missing_model_or_vid")
 
-            pid = str(req.villain_id)
-            # Get signal (observes, computes prior, and returns signal + metadata)
-            result = self.expl.get_signal_from_request(pid, req, self.pop)
-
+            # Let the store do: infer → observe → prior → signal
+            result = self.expl.get_signal_from_request(str(req.villain_id), req, self.pop)
             if result is None:
+                # Not enough data yet or no recognizable actions this street
                 return ExploitSig(False, None, None, 0.0, None, None)
 
-            sig3, prior, total = result
+            deltas, prior, total = result  # deltas is np.ndarray length 3
 
-            # Convert logit deltas to softmax probabilities
-            import torch
-            t = torch.tensor(sig3, dtype=torch.float32).view(1, 3)
+            # Convert logit deltas → a simple 3-way distribution (FOLD, CALL, RAISE)
+            t = torch.tensor(deltas, dtype=torch.float32).view(1, -1)
             pr = torch.softmax(t, dim=-1)[0]
             probs = (float(pr[0]), float(pr[1]), float(pr[2]))
 
-            return ExploitSig(True, sig3, probs, total, prior, None)
+            return ExploitSig(True, deltas, probs, float(total), prior, None)
 
         except Exception as e:
             return ExploitSig(False, err=f"expl_error:{e}")

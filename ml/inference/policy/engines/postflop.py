@@ -178,16 +178,6 @@ class SignalsBundler:
             else:
                 eq_src = f"collector:{eq_src2}"
 
-        if p_win is None and getattr(req, "hero_hand", None) and getattr(req, "board", None):
-            # optional quick fallback (MC/lookup inside SignalCollector if available)
-            try:
-                v = self._signals.quick_equity(req.hero_hand, req.board)  # returns 0..1
-                p_win = self._coerce_pwin(v)
-                if p_win is not None:
-                    eq_src = "quick_equity"
-            except Exception:
-                pass
-
         # 2) exploit
         ex_sig = self._signals.collect_exploit(req)
         ex_probs = tuple(ex_sig.probs) if (ex_sig and getattr(ex_sig, "probs", None)) else None

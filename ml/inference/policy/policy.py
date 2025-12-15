@@ -9,6 +9,8 @@ from ml.inference.policy.projection import FCRProjector
 from ml.inference.policy.signals import SignalCollector
 from ml.inference.policy.types import PolicyRequest, PolicyResponse
 import torch
+
+from ml.inference.policy.villain_resolver import VillainResolver
 from ml.inference.promotion.config import PromotionConfig
 from ml.inference.promotion.gateway import PromotionGateway
 
@@ -32,6 +34,7 @@ class PolicyInfer:
         self.range_pre = deps.range_pre
         self.clusterer = deps.clusterer
         self.ev_router = deps.ev
+        self._villain_resolver = VillainResolver()
 
         if self.clusterer is not None and hasattr(self.pol_post, "set_clusterer"):
             try:
@@ -246,6 +249,25 @@ class PolicyInfer:
 
         req.legalize()
         street = 1 if getattr(req, "street", None) is None else int(getattr(req, "street"))
+        # -------- Villain auto-resolve (only if not provided) --------
+        if not getattr(req, "villain_id", None):
+            # Heuristic: resolve on postflop always; preflop only when facing or HU-ish
+            preflop_facing = (street == 0) and bool(getattr(req, "facing_bet", False))
+            do_resolve = (street > 0) or preflop_facing
+            if do_resolve:
+                pick = self._villain_resolver.resolve(req)
+                if pick.villain_id:
+                    req.villain_id = pick.villain_id
+                    # stash provenance for downstream debug
+                    try:
+                        req.raw.setdefault("villain_pick", {
+                            "villain_id": pick.villain_id,
+                            "reason": pick.reason,
+                            "confidence": float(pick.confidence),
+                            "candidates": pick.candidates,
+                        })
+                    except Exception:
+                        pass
 
         eq_sig = self._signals.collect_equity(req)
 

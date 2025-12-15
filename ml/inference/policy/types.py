@@ -1,22 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal, Union
-
-ActionKind = Literal["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALLIN"]
-
-@dataclass(frozen=True)
-class Action:
-    """
-    Normalized action. Only one of size_* should be used at a time.
-      - size_bb:   absolute bet/raise-to size in big blinds (preflop this is common)
-      - size_pct:  percent of pot (postflop common)
-      - size_mult: multiplier of the previous bet (e.g., 3.0 = 3x)
-    """
-    kind: ActionKind
-    size_bb: Optional[float] = None
-    size_pct: Optional[float] = None
-    size_mult: Optional[float] = None
-
+from typing import Literal
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import re
@@ -25,12 +8,40 @@ Position = str
 _POSITION_ORDER_PRE  = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
 _POSITION_ORDER_POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
 
+Street = Literal[0, 1, 2, 3]  # 0=pre, 1=flop, 2=turn, 3=river
+
 @dataclass
-class ActionHistoryEntry:
-    player_id: str
-    action: Literal["FOLD", "CALL", "CHECK", "RAISE", "BET"]
-    street: Optional[int] = None
-    weight: Optional[float] = None   # was 1.0
+class StackChangeEvent:
+    """Raw stack delta captured by the orchestrator (no semantics)."""
+    tick: int                         # monotonic per hand (0,1,2,...)
+    when_ms: Optional[int]            # wall clock (optional)
+    street: Street
+    player_id: str                    # stable id you already use
+    seat_label: str                   # e.g. "BTN","SB","BB","UTG","HJ","CO"
+    stack_before_bb: float
+    stack_after_bb: float
+    delta_bb: float                   # after - before (typically negative when they put chips in)
+    source: Literal["vision","derived"]
+    conf: Optional[float] = None      # confidence from vision, if available
+
+@dataclass
+class PotChangeEvent:
+    """Optional but very handy for inference sanity checks."""
+    tick: int
+    when_ms: Optional[int]
+    street: Street
+    pot_before_bb: float
+    pot_after_bb: float
+    delta_bb: float
+    source: Literal["vision","derived"]
+
+@dataclass
+class StreetTransition:
+    """Marks when we saw the street advance (e.g., new board card)."""
+    to_street: Street                 # 1,2,3 when entering flop/turn/river
+    tick: int
+    when_ms: Optional[int]
+    reason: Literal["card_seen","timer","inferred"] = "card_seen"
 
 
 @dataclass
@@ -38,6 +49,7 @@ class PolicyRequest:
     stakes: str = "NL10"
     street: int = 1
     ctx: Optional[str] = None
+    hero_id: Optional[str] = None
     hero_pos: Optional[Position] = None
     villain_pos: Optional[Position] = None
     hero_hand: Optional[str] = None  # e.g., "AhKh"
@@ -57,7 +69,11 @@ class PolicyRequest:
 
     allow_allin: Optional[bool] = False
     villain_id: Optional[str] = None
-    actions_hist: Optional[List[ActionHistoryEntry]] = None
+    stack_stream: List[StackChangeEvent] = field(default_factory=list)
+    pot_stream: List[PotChangeEvent] = field(default_factory=list)
+    street_transitions: List[StreetTransition] = field(default_factory=list)
+
+    hand_id: Optional[str] = None
 
     raw: Dict[str, Any] = field(default_factory=dict)
     debug: bool = False
