@@ -3,9 +3,6 @@ from typing import List, Optional, Set, Dict, Any
 
 from ml.inference.exploit.infer_actions import ActionInferrer, ActionRecord
 
-# Reuse your ActionRecord from ActionInferrer
-# action in {"BET","RAISE","CALL","CHECK","FOLD"}
-
 Aggressive = {"BET", "RAISE"}
 
 @dataclass
