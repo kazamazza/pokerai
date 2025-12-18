@@ -169,12 +169,12 @@ class PostflopPolicyRouter:
         if side_norm == "root":
             # normalize request for root
             req.facing_bet = False
-            req.faced_size_frac = None
+            req.faced_size = None
             return self.root.predict(req, actor=actor, temperature=temperature)
         if side_norm == "facing":
             # ensure size present (default 0.33 if missing)
             req.facing_bet = True
-            req.faced_size_frac = float(req.faced_size_frac) if req.faced_size_frac is not None else 0.33
+            req.faced_size = float(req.faced_size) if req.faced_size is not None else 0.33
             return self.facing.predict(req, actor=actor, temperature=temperature)
 
         # AUTO
@@ -190,9 +190,9 @@ class PostflopPolicyRouter:
         # Normalize req for downstream
         req.facing_bet = bool(fb)
         if fb:
-            req.faced_size_frac = float(sz) if sz is not None else 0.33
+            req.faced_size = float(sz) if sz is not None else 0.33
         else:
-            req.faced_size_frac = None
+            req.faced_size = None
 
         engine = self.facing if fb else self.root
         return engine.predict(req, actor=actor, temperature=temperature)

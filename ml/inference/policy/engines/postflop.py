@@ -42,13 +42,13 @@ class PostflopContextResolver:
                 except Exception: size_frac = None
             # default 1/3 if totally missing
             if size_frac is None: size_frac = 0.33
-            req.faced_size_frac = size_frac
+            req.faced_size = size_frac
         else:
             # ask the trained helper; falls back to history if flag is missing
             facing_flag, size_frac = self.router.infer_facing_and_size(req, hero_is_ip=hero_is_ip)
             side = "facing" if facing_flag else "root"
             if side == "facing" and size_frac is not None:
-                req.faced_size_frac = float(size_frac)
+                req.faced_size = float(size_frac)
 
         # ctx: use your ContextInferer (action_seq / actions_hist / explicit / default)
         ctx, ctx_dbg = ContextInferer.infer_with_reason(req)

@@ -26,11 +26,11 @@ class PreflopEngine:
         if facing_bet:
             if getattr(req, "faced_size_frac", None) is None and getattr(req, "faced_size_pct", None) is not None:
                 try:
-                    req.faced_size_frac = float(req.faced_size_pct) / 100.0
+                    req.faced_size = float(req.faced_size_pct) / 100.0
                 except Exception:
-                    req.faced_size_frac = None
+                    req.faced_size = None
             if getattr(req, "faced_size_frac", None) is None:
-                req.faced_size_frac = 0.33
+                req.faced_size = 0.33
         faced_frac = float(getattr(req, "faced_size_frac", 0.0) or 0.0)
 
         # ------------------ 2) Menu generation ------------------

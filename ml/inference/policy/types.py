@@ -59,7 +59,7 @@ class PolicyRequest:
     eff_stack_bb: float = 100.0
 
     facing_bet: Optional[bool] = None  # ← was bool=False
-    faced_size_frac: Optional[float] = None
+    faced_size: Optional[float] = None
 
     # ✅ Postflop defaults: fractions of pot
     bet_sizes: Optional[List[float]] = field(default_factory=lambda: [0.33, 0.66])
@@ -163,22 +163,3 @@ class PolicyResponse:
     # (optional) which branch produced this, e.g. "root" or "facing"
     side: Optional[str] = None
     best_action: Optional[str] = None
-
-    def top_action(self) -> str:
-        if not self.actions or not self.probs:
-            return "NONE"
-        from math import fsum
-        # tiny guard: ensure sum finite (why: UI stability)
-        _ = fsum(self.probs)
-        import numpy as np
-        return self.actions[int(np.argmax(self.probs))]
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "actions": self.actions,
-            "probs": self.probs,
-            "evs": self.evs,
-            "notes": self.notes,
-            "debug": self.debug,
-            "top_action": self.top_action(),
-        }

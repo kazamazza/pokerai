@@ -18,7 +18,7 @@ def test_predict_preflop_basic(infer):
         eff_stack_bb=25,
         pot_bb=2.5,
         facing_bet=True,
-        faced_size_frac=0.1,
+        faced_size=0.1,
     )
     res = infer._predict_preflop(req)
 
@@ -58,7 +58,7 @@ def test_predict_preflop_short_stack(infer):
         eff_stack_bb=5,
         pot_bb=1.0,
         facing_bet=True,
-        faced_size_frac=0.4,
+        faced_size=0.4,
     )
     res = infer._predict_preflop(req)
 
@@ -75,7 +75,7 @@ def test_predict_preflop_deep_stack(infer):
         eff_stack_bb=300,
         pot_bb=4.5,
         facing_bet=True,
-        faced_size_frac=0.15,
+        faced_size=0.15,
     )
     res = infer._predict_preflop(req)
 
@@ -92,7 +92,7 @@ def test_predict_preflop_limped_pot(infer):
         eff_stack_bb=100,
         pot_bb=1.5,
         facing_bet=True,
-        faced_size_frac=0.02,  # Limp-sized
+        faced_size=0.02,  # Limp-sized
     )
     res = infer._predict_preflop(req)
 

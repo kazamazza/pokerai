@@ -8,16 +8,12 @@ Aggressive = {"BET", "RAISE"}
 @dataclass
 class VillainPick:
     villain_id: Optional[str]
+    villain_pos: Optional[str]          # ← add
     reason: str
     confidence: float
     candidates: List[str]
 
 class VillainResolver:
-    """
-    Picks the 'villain' (primary opponent) for the current decision,
-    using only request + inferred action stream.
-    """
-
     def __init__(self) -> None:
         self._inferrer = ActionInferrer()
 
@@ -26,56 +22,56 @@ class VillainResolver:
         street  = int(getattr(req, "street", 0) or 0)
         facing  = bool(getattr(req, "facing_bet", False))
 
-        # 1) Infer normalized actions from the raw stack/pot streams.
         events: List[ActionRecord] = self._inferrer.infer(
             req, exclude_hero=True, target_player_id=None
         )
 
-        # 2) Partition helpers
-        by_street: Dict[int, List[ActionRecord]] = {}
+        # map last-known seat_label per player_id for this hand
+        last_seat: dict[str, str] = {}
+        by_street: dict[int, list[ActionRecord]] = {}
         for e in events:
             by_street.setdefault(int(e.street or 0), []).append(e)
+            if getattr(e, "seat_label", None):
+                last_seat[e.player_id] = e.seat_label
 
-        current: List[ActionRecord] = sorted(by_street.get(street, []), key=lambda x: (x.tick, x.when_ms or 0))
+        current = sorted(by_street.get(street, []), key=lambda x: (x.tick, x.when_ms or 0))
 
-        # Active players = anyone not folded on/before current street
-        folded: Set[str] = set()
+        folded: set[str] = set()
         for s, evs in by_street.items():
-            if s > street:  # ignore future noise
+            if s > street:
                 continue
             for e in evs:
                 if e.action == "FOLD":
                     folded.add(e.player_id)
 
-        # Candidates are non-hero, not folded
-        candidates: Set[str] = set(e.player_id for e in events if e.player_id != hero_id) - folded
+        candidates = {e.player_id for e in events if e.player_id != hero_id} - folded
 
-        # 3) Decision rules (ordered)
-        # A) If we face a bet/raise now → bettor/raiser is the villain
+        def _pick(vid: Optional[str], reason: str, conf: float) -> VillainPick:
+            return VillainPick(
+                villain_id=vid,
+                villain_pos=(last_seat.get(vid) if vid else None),
+                reason=reason,
+                confidence=conf,
+                candidates=sorted(candidates),
+            )
+
         if facing:
             for e in reversed(current):
-                if e.action in Aggressive:
-                    vid = e.player_id
-                    if vid in candidates:
-                        return VillainPick(vid, "facing_bet_last_aggressor", 1.0, sorted(candidates))
+                if e.action in Aggressive and e.player_id in candidates:
+                    return _pick(e.player_id, "facing_bet_last_aggressor", 1.0)
 
-        # B) If exactly one opponent is still active → that opponent
         if len(candidates) == 1:
             vid = next(iter(candidates))
-            return VillainPick(vid, "heads_up_only_opponent", 0.85, [vid])
+            return _pick(vid, "heads_up_only_opponent", 0.85)
 
-        # C) Last street aggressor (walk back from current → flop/pre) who is still active
         for s in range(street, -1, -1):
-            evs = sorted(by_street.get(s, []), key=lambda x: (x.tick, x.when_ms or 0))
-            for e in reversed(evs):
+            for e in reversed(sorted(by_street.get(s, []), key=lambda x: (x.tick, x.when_ms or 0))):
                 if e.action in Aggressive and e.player_id in candidates:
-                    return VillainPick(e.player_id, "last_street_aggressor", 0.7, sorted(candidates))
+                    return _pick(e.player_id, "last_street_aggressor", 0.7)
 
-        # D) Fallback: most recent non-hero actor on current street
         if current:
             for e in reversed(current):
                 if e.player_id in candidates:
-                    return VillainPick(e.player_id, "recent_actor_current_street", 0.55, sorted(candidates))
+                    return _pick(e.player_id, "recent_actor_current_street", 0.55)
 
-        # E) Total fallback: unknown
-        return VillainPick(None, "no_candidate", 0.0, sorted(candidates))
+        return _pick(None, "no_candidate", 0.0)

@@ -4,6 +4,7 @@ from ml.inference.policy.engines.postflop import PostflopBaselineProvider, Postf
     SignalsBundler, LogitShaper, PromotionApplier, DistributionBuilder, PostflopContextResolver
 from ml.inference.policy.engines.preflop import PreflopEngine
 from ml.inference.policy.engines.turnriver import TurnRiverHeuristics
+from ml.inference.policy.facing_resolver import FacingBetResolver
 from ml.inference.policy.policy_blend_config import PolicyBlendConfig
 from ml.inference.policy.projection import FCRProjector
 from ml.inference.policy.signals import SignalCollector
@@ -157,6 +158,30 @@ class PolicyInfer:
     def _predict_postflop(self, req: PolicyRequest, eq_sig=None) -> PolicyResponse:
         hero_is_ip, side, ctx, ctx_dbg = self._ctx_resolver.derive(req)
         actor = "ip" if hero_is_ip else "oop"
+        try:
+            fb = FacingBetResolver().resolve(req, hero_is_ip=hero_is_ip)
+            if getattr(req, "facing_bet", None) is None:
+                req.facing_bet = fb.facing_bet
+            # absolute (new)
+            if not hasattr(req, "faced_size"):
+                req.faced_size = None
+            if req.faced_size is None:
+                req.faced_size = fb.faced_size_bb
+            # fraction (back-compat)
+            if getattr(req, "faced_size_frac", None) is None:
+                req.faced_size_frac = fb.size_frac
+            # (optional) stash for debug
+            if getattr(req, "debug", False):
+                if not hasattr(req, "_facing_resolve_dbg"):
+                    req._facing_resolve_dbg = {}
+                req._facing_resolve_dbg = {
+                    "reason": fb.reason, "conf": fb.confidence,
+                    "aggressor_id": fb.aggressor_id, "aggressor_seat": fb.aggressor_seat,
+                    "size_bb": fb.faced_size_bb, "size_frac": fb.size_frac,
+                    **fb.debug
+                }
+        except Exception:
+            pass
 
         base = self._base.get(req, actor=actor, side=side)
         masks = self._masks.build(req, base, side=side)
