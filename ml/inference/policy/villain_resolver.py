@@ -3,7 +3,7 @@ from typing import List, Optional, Set, Dict, Any
 
 from ml.inference.exploit.infer_actions import ActionInferrer, ActionRecord
 
-Aggressive = {"BET", "RAISE"}
+Aggressive = {"BET", "RAISE", "ALLIN"}
 
 @dataclass
 class VillainPick:
