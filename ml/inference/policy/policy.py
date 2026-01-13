@@ -36,6 +36,7 @@ class PolicyInfer:
         self.clusterer = deps.clusterer
         self.ev_router = deps.ev
         self._villain_resolver = VillainResolver()
+        self._facing_resolver = FacingBetResolver()
 
         if self.clusterer is not None and hasattr(self.pol_post, "set_clusterer"):
             try:
@@ -272,32 +273,64 @@ class PolicyInfer:
         else:
             raise TypeError(f"PolicyInfer.predict expected dict or PolicyRequest, got {type(req_input)}")
 
-        req.legalize()
-        street = 1 if getattr(req, "street", None) is None else int(getattr(req, "street"))
-        # -------- Villain auto-resolve (only if not provided) --------
+        street = 0 if getattr(req, "street", None) is None else int(getattr(req, "street"))
+
+        # -------- (A) Early soft normalize (no crash if villain missing) --------
+        # See tweak to PolicyRequest.legalize below (allow_missing_villain=True)
+        req.legalize(allow_missing_villain=True)
+
+        # -------- (B) Villain auto-resolve (only if not provided) --------
+        pick = None
         if not getattr(req, "villain_id", None):
-            # Heuristic: resolve on postflop always; preflop only when facing or HU-ish
             preflop_facing = (street == 0) and bool(getattr(req, "facing_bet", False))
             do_resolve = (street > 0) or preflop_facing
             if do_resolve:
                 pick = self._villain_resolver.resolve(req)
-                if pick.villain_id:
+                if pick and pick.villain_id:
                     req.villain_id = pick.villain_id
-                    # stash provenance for downstream debug
-                    try:
+                # fill villain_pos if resolver found a seat and caller didn't provide one
+                try:
+                    if (not getattr(req, "villain_pos", None)) and getattr(pick, "villain_pos", None):
+                        req.villain_pos = str(pick.villain_pos).upper()
+                        req.raw.setdefault("villain_pos_src", "resolver")
+                    if pick:
                         req.raw.setdefault("villain_pick", {
-                            "villain_id": pick.villain_id,
-                            "reason": pick.reason,
-                            "confidence": float(pick.confidence),
-                            "candidates": pick.candidates,
+                            "villain_id": getattr(pick, "villain_id", None),
+                            "reason": getattr(pick, "reason", None),
+                            "confidence": float(getattr(pick, "confidence", 0.0) or 0.0),
+                            "candidates": getattr(pick, "candidates", []),
                         })
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
 
+        # -------- (C) Facing flags inference (independent of villain) --------
+        if getattr(req, "facing_bet", None) is None or getattr(req, "faced_size", None) is None:
+            fr = self._facing_resolver.resolve(req)
+            try:
+                fb = bool(getattr(fr, "facing_bet", False))
+                fs = getattr(fr, "faced_size", None)  # canonical name
+
+                if getattr(req, "facing_bet", None) is None:
+                    req.facing_bet = fb
+                if getattr(req, "faced_size", None) is None:
+                    req.faced_size = float(fs) if fs is not None else 0.0
+
+                req.raw.setdefault("facing_src", "resolver")
+                # (optional) tiny debug crumb
+                req.raw.setdefault("facing_debug", {
+                    "aggressor_id": getattr(fr, "aggressor_id", None),
+                    "aggressor_seat": getattr(fr, "aggressor_seat", None),
+                    "tick": getattr(fr, "tick", None),
+                    "size_frac": getattr(fr, "size_frac", None),
+                })
+            except Exception:
+                # stay permissive; downstream tolerates None/0.0
+                pass
+
+        # -------- (D) Final strict normalize (ok to skip villain if still unknown preflop) --------
+        # If you want strictness only when villain_pos is present, keep allow_missing_villain=True.
+        req.legalize(allow_missing_villain=True)
+
+        # -------- (E) Equity then route --------
         eq_sig = self._signals.collect_equity(req)
-
-        # -------- Route --------
-        if street == 0:
-            return self._predict_preflop(req, eq_sig=eq_sig)
-        else:
-            return self._predict_postflop(req, eq_sig=eq_sig)
+        return self._predict_preflop(req, eq_sig=eq_sig) if street == 0 else self._predict_postflop(req, eq_sig=eq_sig)

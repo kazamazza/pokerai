@@ -288,11 +288,10 @@ class EVInferSingle:
         put("ctx", getattr(req, "ctx", None))
         put("stakes_id", str(getattr(req, "stakes", "2")))
         # hand id if needed
-        if "hand_id" in self.x_cols:
-            hid = getattr(req, "hand_id", None)
-            if hid is None and getattr(req, "hero_hand", None):
-                hid = _hand169_id_from_code(getattr(req, "hero_hand"))
-            row_cat["hand_id"] = int(hid or 0)
+        if "hand169_id" in self.x_cols:
+            row_cat["hand169_id"] = (
+                _hand169_id_from_code(req.hero_hand) if getattr(req, "hero_hand", None) else 0
+            )
 
         # 2) encode & run
         x_cat = _encode_cats_one(self.x_cols, self.id_maps, row_cat, self.device)

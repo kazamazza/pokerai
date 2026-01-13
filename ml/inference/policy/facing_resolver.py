@@ -16,7 +16,7 @@ AGGRO: Set[str] = {"BET", "RAISE", "ALLIN"}
 @dataclass
 class FacingPick:
     facing_bet: bool
-    faced_size_bb: Optional[float]
+    faced_size: Optional[float]      # ← rename to canonical
     size_frac: Optional[float]
     aggressor_id: Optional[str]
     aggressor_seat: Optional[str]
@@ -24,6 +24,11 @@ class FacingPick:
     reason: str
     confidence: float
     debug: Dict[str, object]
+
+    # Backward-compat read-only alias (optional)
+    @property
+    def faced_size_bb(self) -> Optional[float]:
+        return self.faced_size
 
 
 class FacingBetResolver:
@@ -131,39 +136,59 @@ class FacingBetResolver:
                 return True
         return False
 
-    # ---------- public ----------
+    @staticmethod
+    def _first_contrib_bb_on_street(events: list, street: int, player_id: Optional[str]) -> float:
+        if not player_id:
+            return 0.0
+        for e in events:
+            if int(getattr(e, "street", 0) or 0) != int(street):
+                continue
+            if getattr(e, "player_id", None) != player_id:
+                continue
+            c = getattr(e, "contrib_bb", None)
+            if c is not None and c > 0:
+                return float(c)
+        return 0.0
+
+    @staticmethod
+    def _new_max_after_aggressor(last_agg: Any) -> float:
+        # With your ActionInferrer, a real raise/bet puts contrib_bb to the new top.
+        contrib = float(getattr(last_agg, "contrib_bb", 0.0) or 0.0)
+        prior = float(getattr(last_agg, "prior_bet_bb", 0.0) or 0.0)
+        return max(contrib, prior)
 
     def resolve(self, req: Any, *, hero_is_ip: Optional[bool] = None) -> FacingPick:
         hero_id = getattr(req, "hero_id", None)
         street = int(getattr(req, "street", 0) or 0)
 
+        # 1) Infer normalized actions for this request
         events: List[Any] = self._inferrer.infer(req, exclude_hero=False, target_player_id=None)
         by_street = self._group_by_street(events)
         cur: List[Any] = by_street.get(street, [])
 
-        # active candidates (not folded up to current street)
+        # 2) Track who has folded up to this street
         folded: Set[str] = set()
         for s, evs in by_street.items():
             if int(s) > street:
                 continue
             for e in evs:
                 if getattr(e, "action", None) == "FOLD":
-                    folded.add(getattr(e, "player_id", None))
+                    pid = getattr(e, "player_id", None)
+                    if pid:
+                        folded.add(pid)
 
-        # last non-hero aggressor on current street
+        # 3) Last non-hero aggressor (BET/RAISE/ALLIN) still active
         last_agg: Optional[Any] = None
         for e in reversed(cur):
             pid = getattr(e, "player_id", None)
-            if pid == hero_id:
-                continue
-            if getattr(e, "action", None) in AGGRO and pid not in folded:
+            if pid and pid != hero_id and getattr(e, "action", None) in AGGRO and pid not in folded:
                 last_agg = e
                 break
 
         if last_agg is None:
             return FacingPick(
                 facing_bet=False,
-                faced_size_bb=None,
+                faced_size=None,
                 size_frac=None,
                 aggressor_id=None,
                 aggressor_seat=None,
@@ -176,11 +201,11 @@ class FacingBetResolver:
         agt_tick = int(getattr(last_agg, "tick", 0))
         agt_ms = int(getattr(last_agg, "when_ms", 0) or 0)
 
-        # hero already acted after aggressor → not facing
+        # 4) If hero already acted after aggressor → not facing
         if self._hero_acted_after(cur, hero_id, agt_tick, agt_ms):
             return FacingPick(
                 facing_bet=False,
-                faced_size_bb=None,
+                faced_size=None,
                 size_frac=None,
                 aggressor_id=None,
                 aggressor_seat=None,
@@ -190,31 +215,74 @@ class FacingBetResolver:
                 debug={"street": street, "aggressor": getattr(last_agg, "player_id", None)},
             )
 
-        amt_bb = self._amount_from_event(req, last_agg)
-        pot_before = self._pot_before_at_tick(req, street, agt_tick)
-        size_frac = (float(amt_bb) / float(pot_before)) if (amt_bb is not None and pot_before > 1e-9) else None
+        # 5) Compute outstanding to call at the aggressor tick
+        #    new_max = max first-action contribution seen up to and including the aggressor tick
+        #    hero_put = hero's first contribution on this street strictly before aggressor tick
+        def _first_contrib_before_tick(pid: str, tick_cut: int) -> float:
+            best_tick = None
+            best_val = 0.0
+            for ev in cur:
+                if getattr(ev, "player_id", None) != pid:
+                    continue
+                t = int(getattr(ev, "tick", 0))
+                if t >= tick_cut:
+                    continue
+                v = float(getattr(ev, "contrib_bb", 0.0) or 0.0)
+                if best_tick is None or t < best_tick:
+                    best_tick = t
+                    best_val = v
+            return best_val
 
+        def _max_contrib_up_to_tick(tick_cut: int) -> float:
+            m = 0.0
+            for ev in cur:
+                t = int(getattr(ev, "tick", 0))
+                if t > tick_cut:
+                    continue
+                v = float(getattr(ev, "contrib_bb", 0.0) or 0.0)
+                if v > m:
+                    m = v
+            return m
+
+        new_max = _max_contrib_up_to_tick(agt_tick)
+        hero_put = _first_contrib_before_tick(hero_id, agt_tick) if hero_id else 0.0
+        faced_bb = max(0.0, new_max - hero_put)
+
+        # 6) Pot snapshot & fraction at aggressor tick
+        pot_before = self._pot_before_at_tick(req, street, agt_tick)
+        size_frac = (faced_bb / pot_before) if (pot_before > 1e-9 and faced_bb > 0) else None
+
+        # 7) Aggressor seat (from action or stack stream fallback)
         seat = getattr(last_agg, "seat_label", None) or self._seat_from_stacks(
             req, getattr(last_agg, "player_id", None), street=street, up_to_tick=agt_tick
         )
 
-        return FacingPick(
+        # 8) Build pick; fill both faced_size (canonical) and faced_size_bb (compat)
+        pick = FacingPick(
             facing_bet=True,
-            faced_size_bb=(float(amt_bb) if amt_bb is not None else None),
+            faced_size=faced_bb,
             size_frac=(float(size_frac) if size_frac is not None else None),
             aggressor_id=getattr(last_agg, "player_id", None),
             aggressor_seat=seat,
             tick=agt_tick,
             reason="last_non_hero_aggressor_pending_hero_response",
-            confidence=1.0 if amt_bb is not None else 0.85,
+            confidence=1.0 if faced_bb > 0 else 0.85,
             debug={
                 "street": street,
                 "pot_before_bb": pot_before,
                 "event": {
                     "action": getattr(last_agg, "action", None),
-                    "amount_bb": getattr(last_agg, "amount_bb", None),
+                    "contrib_bb": getattr(last_agg, "contrib_bb", None),
                     "prior_bet_bb": getattr(last_agg, "prior_bet_bb", None),
                     "tick": agt_tick,
                 },
+                "hero_put_bb": hero_put,
+                "new_max_bb": new_max,
             },
         )
+        # alias for newer callers
+        try:
+            setattr(pick, "faced_size", faced_bb)
+        except Exception:
+            pass
+        return pick

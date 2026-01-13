@@ -43,7 +43,6 @@ class StreetTransition:
     when_ms: Optional[int]
     reason: Literal["card_seen","timer","inferred"] = "card_seen"
 
-
 @dataclass
 class PolicyRequest:
     stakes: str = "NL10"
@@ -51,101 +50,164 @@ class PolicyRequest:
     ctx: Optional[str] = None
     hero_id: Optional[str] = None
     hero_pos: Optional[Position] = None
-    villain_pos: Optional[Position] = None
-    hero_hand: Optional[str] = None  # e.g., "AhKh"
-    board: Optional[str] = None  # e.g., "Ts5cKd" or None
+    villain_pos: Optional[Position] = None   # CHANGED: allow None
+    hero_hand: Optional[str] = None
+    board: Optional[str] = None
 
     pot_bb: float = 0.0
     eff_stack_bb: float = 100.0
 
-    facing_bet: Optional[bool] = None  # ← was bool=False
-    faced_size: Optional[float] = None
+    facing_bet: Optional[bool] = None
+    faced_size: Optional[float] = None       # CHANGED: renamed field (formerly faced_size_frac)
 
-    # ✅ Postflop defaults: fractions of pot
+    # Postflop defaults: pot fractions
     bet_sizes: Optional[List[float]] = field(default_factory=lambda: [0.33, 0.66])
-
-    # ✅ Preflop defaults: raise multipliers
+    # Preflop defaults: raise multipliers
     raise_buckets: Optional[List[float]] = field(default_factory=lambda: [1.5, 2.0, 3.0])
 
     allow_allin: Optional[bool] = False
     villain_id: Optional[str] = None
-    stack_stream: List[StackChangeEvent] = field(default_factory=list)
-    pot_stream: List[PotChangeEvent] = field(default_factory=list)
-    street_transitions: List[StreetTransition] = field(default_factory=list)
+    stack_stream: List["StackChangeEvent"] = field(default_factory=list)
+    pot_stream: List["PotChangeEvent"] = field(default_factory=list)
+    street_transitions: List["StreetTransition"] = field(default_factory=list)
 
     hand_id: Optional[str] = None
 
     raw: Dict[str, Any] = field(default_factory=dict)
     debug: bool = False
 
+    # --- helpers -------------------------------------------------------------
+
     @staticmethod
-    def is_hero_ip(hero_pos: str, villain_pos: str, street: int = 0) -> bool:
+    def is_hero_ip(hero_pos: Optional[str], villain_pos: Optional[str], street: int = 0) -> bool:
         """
         True if hero acts later than villain for the given street.
-        Preflop: UTG ... BTN SB BB (open-first order).
-        Postflop: SB BB UTG HJ CO BTN (button acts last).
+        Safe defaults if positions missing.
         """
-        order = _POSITION_ORDER_POST if int(street) > 0 else _POSITION_ORDER_PRE
+        order = PolicyRequest._order_for_street(street)
         try:
             h_i = order.index((hero_pos or "").upper())
             v_i = order.index((villain_pos or "").upper())
             return h_i > v_i
         except ValueError:
-            return True  # safe default
-
-    def _norm_pos(self, p: Optional[str]) -> Optional[str]:
-        return str(p).strip().upper() if p else None
-
-    def _count_board_cards(self, s: Optional[str]) -> int:
-        return len(re.findall(r"[AKQJT98765432][shdc]", s or ""))
+            return True  # safe default when unknown
 
     @staticmethod
-    def _order_for_street(street: int) -> list[str]:
-        """Preflop vs postflop position order."""
+    def _order_for_street(street: int) -> List[str]:
         try:
             s = int(street)
         except Exception:
             s = 0
         return _POSITION_ORDER_POST if s > 0 else _POSITION_ORDER_PRE
 
+    @staticmethod
+    def _norm_pos(p: Optional[str]) -> Optional[str]:
+        if p is None:
+            return None
+        s = str(p).strip().upper()
+        if s in {"", "NONE", "NULL"}:
+            return None
+        return s
 
-    def legalize(self) -> "PolicyRequest":
-        """Normalize + validate fields; derive ip/oop using street-aware order."""
-        # Normalize positions
+    @staticmethod
+    def _count_board_cards(s: Optional[str]) -> int:
+        return len(re.findall(r"[AKQJT98765432][shdc]", s or ""))
+
+    # --- main normalizer -----------------------------------------------------
+
+    def legalize(
+            self,
+            *,
+            allow_missing_villain: bool = False,  # ← NEW: allow villain_pos to be None/invalid without raising
+    ) -> "PolicyRequest":
+        """Normalize + validate fields; derive ip/oop only when possible.
+
+        If allow_missing_villain=True, we won't raise for missing/invalid villain_pos.
+        """
+
+        # ---- Street ----
+        try:
+            self.street = int(self.street)
+        except Exception:
+            self.street = 0
+        if self.street < 0 or self.street > 3:
+            raise ValueError(f"Illegal street '{self.street}'")
+
+        order = self._order_for_street(self.street)
+
+        # ---- Positions ----
         self.hero_pos = self._norm_pos(self.hero_pos)
         self.villain_pos = self._norm_pos(self.villain_pos)
-        order = self._order_for_street(int(self.street or 0))
 
-        if self.hero_pos not in order:
+        if self.hero_pos and self.hero_pos not in order:
             raise ValueError(f"Illegal hero_pos '{self.hero_pos}'")
-        if self.villain_pos not in order:
-            raise ValueError(f"Illegal villain_pos '{self.villain_pos}'")
 
-        # Street-aware IP/OOP
-        h_i = order.index(self.hero_pos)
-        v_i = order.index(self.villain_pos)
-        if h_i < v_i:
-            self.oop_pos, self.ip_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
+        if self.villain_pos and self.villain_pos not in order:
+            # invalid provided villain seat
+            if allow_missing_villain:
+                self.villain_pos = None
+            else:
+                raise ValueError(f"Illegal villain_pos '{self.villain_pos}'")
+
+        if not self.villain_pos and not allow_missing_villain:
+            # villain required in strict mode
+            raise ValueError("villain_pos is required")
+
+        # ---- IP/OOP (only when both seats known) ----
+        if self.hero_pos in order and self.villain_pos in order:
+            h_i = order.index(self.hero_pos)
+            v_i = order.index(self.villain_pos)
+            if h_i < v_i:
+                setattr(self, "oop_pos", self.hero_pos)
+                setattr(self, "ip_pos", self.villain_pos)
+            else:
+                setattr(self, "ip_pos", self.hero_pos)
+                setattr(self, "oop_pos", self.villain_pos)
         else:
-            self.ip_pos, self.oop_pos = self.hero_pos, self.villain_pos  # type: ignore[attr-defined]
+            setattr(self, "ip_pos", None)
+            setattr(self, "oop_pos", None)
 
-        # Board vs street consistency
-        expected = {0: 0, 1: 3, 2: 4, 3: 5}.get(int(self.street), 0)
+        # ---- Board vs street (relaxed when board omitted) ----
         n_cards = self._count_board_cards(self.board)
-        if self.street == 0 and n_cards != 0:
-            raise ValueError("Preflop (street=0) cannot have a board")
-        if self.street > 0 and n_cards != expected:
-            raise ValueError(f"Street {self.street} expects {expected} board cards, got {n_cards}")
+        if self.street == 0:
+            if n_cards != 0:
+                raise ValueError("Preflop (street=0) cannot have a board")
+        else:
+            if self.board:
+                expected = {1: 3, 2: 4, 3: 5}.get(self.street, 0)
+                if n_cards != expected:
+                    raise ValueError(f"Street {self.street} expects {expected} board cards, got {n_cards}")
 
-        # Basic numeric sanity
-        if self.pot_bb <= 0 or self.eff_stack_bb <= 0:
-            raise ValueError(f"Invalid pot_bb={self.pot_bb} or eff_stack_bb={self.eff_stack_bb}")
+        # ---- Numerics (soft defaults) ----
+        try:
+            self.pot_bb = float(self.pot_bb or 0.0)
+        except Exception:
+            self.pot_bb = 0.0
+        try:
+            self.eff_stack_bb = float(self.eff_stack_bb or 0.0)
+        except Exception:
+            self.eff_stack_bb = 0.0
+        if self.eff_stack_bb <= 0.0:
+            self.eff_stack_bb = 100.0
 
-        # Raw passthrough hints for downstream
+        # ---- Menus to floats ----
+        if self.bet_sizes is not None:
+            self.bet_sizes = [float(x) for x in self.bet_sizes]
+        if self.raise_buckets is not None:
+            self.raise_buckets = [float(x) for x in self.raise_buckets]
+
+        # ---- Hero id placeholders → None ----
+        if isinstance(self.hero_id, str) and self.hero_id.strip().upper() in {"", "SELECT", "UNKNOWN", "NONE", "NULL"}:
+            self.hero_id = None
+
+        # ---- Raw passthrough hints ----
         self.raw = dict(self.raw or {})
         self.raw.setdefault("ctx", self.ctx or "VS_OPEN")
-        self.raw.setdefault("ip_pos", getattr(self, "ip_pos", None))
-        self.raw.setdefault("oop_pos", getattr(self, "oop_pos", None))
+        if getattr(self, "ip_pos", None) is not None:
+            self.raw.setdefault("ip_pos", getattr(self, "ip_pos"))
+        if getattr(self, "oop_pos", None) is not None:
+            self.raw.setdefault("oop_pos", getattr(self, "oop_pos"))
+
         return self
 
 @dataclass
