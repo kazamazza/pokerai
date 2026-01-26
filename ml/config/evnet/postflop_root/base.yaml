@@ -1,31 +1,71 @@
-# ml/config/evnet/postflop_root/base.yaml
+# ml/config/evnet/postflop_root/v1_final.yaml
 # ==========================================================
 # EVNet — POSTFLOP ROOT (no bet faced)
-# Predict EV per root token (CHECK/BET_xx/DONK_33).
-# Aligned to policy sidecar (64 clusters, NL10 stakes_id=2).
+# Predict EV per ROOT_ACTION_VOCAB tokens.
+# Canonical sizing:
+#   size_frac := incremental bet / pot_pre   (root uses size_frac=0.0 as input parity only)
+# Board clustering is street-aware (NL10): flop=64, turn=128, river=128
 # ==========================================================
 
-# POSTFLOP ROOT — CONFIG (updated)
 dataset:
   seed: 42
-  # Categorical (seat for hero_pos; role tokens for ip_pos/oop_pos)
-  x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id", "hand_id"]
-  # Continuous (size_frac is fixed 0.0 at root but kept for schema parity)
-  cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]
+
+  # ✅ add topology/role/bet_sizing_id so EV doesn't average incompatible nodes
+  x_cols:
+    - hero_pos
+    - ip_pos
+    - oop_pos
+    - ctx
+    - topology
+    - role
+    - street
+    - board_cluster_id
+    - bet_sizing_id
+    - stakes_id
+    - hand_id
+
+  # Continuous (root has size_frac=0.0 but keep schema parity)
+  cont_cols:
+    - board_mask_52
+    - pot_bb
+    - stack_bb
+    - size_frac
+
   y_cols: null
-  weight_col: "weight"
+  weight_col: weight
   min_weight: null
-  # No size_frac here (always 0 at root)
-  stratify_keys: ["ctx", "hero_pos", "board_cluster_id", "stack_bb", "stakes_id"]
+
+  stratify_keys:
+    - stakes_id
+    - ctx
+    - topology
+    - role
+    - street
+    - bet_sizing_id
+    - hero_pos
+    - board_cluster_id
+    - stack_bb
 
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_64.json
-  n_clusters: 64
+  artifacts:
+    flop:  data/artifacts/board_clusters_kmeans_flop_64.json
+    turn:  data/artifacts/board_clusters_kmeans_turn_128.json
+    river: data/artifacts/board_clusters_kmeans_river_128.json
+  n_clusters:
+    flop: 64
+    turn: 128
+    river: 128
 
 build:
   stacks_bb: [25, 60, 100, 150]
-  contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
+
+  # ✅ include the same contexts you intend to play/train in v1
+  contexts: ["VS_OPEN", "BLIND_VS_STEAL", "VS_3BET", "VS_4BET", "LIMPED_SINGLE", "LIMPED_MULTI"]
+
+  # streets covered by root EV (root nodes exist on flop/turn/river)
+  streets: ["flop", "turn", "river"]
+
   # REQUIRED: IP seat vs OOP seat pairs per context
   pairs_ip_oop:
     VS_OPEN:
@@ -37,18 +77,37 @@ build:
       - ["CO","SB"]
       - ["BTN","BB"]
       - ["BTN","SB"]
+
+    BLIND_VS_STEAL:
+      - ["BTN","BB"]
+      - ["BTN","SB"]
+      - ["CO","BB"]
+      - ["CO","SB"]
+
     VS_3BET:
       - ["BTN","BB"]
       - ["BTN","SB"]
       - ["CO","BB"]
       - ["CO","SB"]
+
     VS_4BET:
       - ["BTN","BB"]
       - ["BTN","SB"]
       - ["CO","BB"]
       - ["CO","SB"]
+
     LIMPED_SINGLE:
       - ["BB","SB"]
+
+    LIMPED_MULTI:
+      - ["BB","SB"]
+
+  # how many concrete boards to sample per cluster per street
+  boards_per_cluster:
+    flop: 2
+    turn: 2
+    river: 2
+
   samples_per_board: 512
 
 stake:
@@ -62,10 +121,11 @@ compute:
   chunk_size: 4096
   log_every_n: 20000
   seed: 42
-  root_samples: 8000      # MC sims per row (bb units)
+  root_samples: 8000
   river_exact: true
 
 model:
+  # ✅ MUST match your updated ROOT_ACTION_VOCAB (CHECK, BET_25/33/50/66/75/125)
   action_vocab_import: "ml.models.vocab_actions:ROOT_ACTION_VOCAB"
   hidden_dims: [384, 256]
   dropout: 0.10
@@ -96,10 +156,7 @@ logging:
   tb_log_dir: logs/tb/evnet_postflop_root
 
 sweep:
-  model.hidden_dims:
-    - [256, 256]
-    - [384, 256]
-    - [512, 256]
+  model.hidden_dims: [[256,256], [384,256], [512,256]]
   model.dropout: [0.05, 0.10, 0.15]
   model.lr: [0.0010, 0.0007, 0.0005]
   model.weight_decay: [0.0001, 0.0003, 0.00001]

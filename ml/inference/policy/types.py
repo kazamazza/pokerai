@@ -5,8 +5,8 @@ from typing import Any, Dict, List, Optional
 import re
 
 Position = str
-_POSITION_ORDER_PRE  = ["UTG", "HJ", "CO", "BTN", "SB", "BB"]
-_POSITION_ORDER_POST = ["SB", "BB", "UTG", "HJ", "CO", "BTN"]
+_POSITION_ORDER_PRE  = ["UTG", "MP", "CO", "BTN", "SB", "BB"]
+_POSITION_ORDER_POST = ["SB", "BB", "UTG", "MP", "CO", "BTN"]
 
 Street = Literal[0, 1, 2, 3]  # 0=pre, 1=flop, 2=turn, 3=river
 

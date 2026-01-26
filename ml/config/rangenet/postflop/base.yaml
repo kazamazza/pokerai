@@ -1,10 +1,14 @@
+# ========= Postflop Policy (V1 FINAL) =========
+# Canonical sizing:
+#   size_frac := incremental bet / pot_pre
+#   raise_to_frac := raise-to total / pot_pre
+#   faced_frac := faced bet / pot_pre (of villain bet)
+
 inputs:
-  # used by the *builder*; trainer reads the parts produced by the builder
   monker_manifest: data/artifacts/monker_manifest.parquet
   sph_manifest:    data/artifacts/sph_manifest.parquet
   vendor_s3_prefix: data/vendor
-  manifest: data/artifacts/rangenet_postflop_flop_manifest.parquet
-  # for the TRAINER: point to the policy parts (directory or explicit part parquet)
+  manifest: data/artifacts/rangenet_postflop_manifest.parquet
   root_parquet: data/datasets/postflop_policy_root.parquet
   facing_parquet: data/datasets/postflop_policy_facing.parquet
 
@@ -15,22 +19,32 @@ builder:
 dataset:
   parquet: data/datasets/postflop_policy.parquet
 
+  # ---- categorical features
+  # Add role/menu/topology so we don't mix incompatible nodes.
   cat_features:
     - hero_pos
     - ip_pos
     - oop_pos
     - ctx
+    - topology           # ✅ ADD (SRP / 3BP / 4BP / LIMP / BVS etc.)
+    - role               # ✅ ADD (AGGRESSOR / CALLER or PFR / DEFENDER)
     - street
-    - board_cluster_id      # ✅ added
+    - board_cluster_id
+    - bet_sizing_id      # ✅ ADD (menu id / sizing grid id)
     - stakes_id
 
+  # ---- continuous features
   cont_features:
     - pot_bb
     - stack_bb
     - size_frac
     - board_mask_52
 
-  # use soft labels (one column per action)
+  # ---- soft labels (MUST match action vocab + executable menus)
+  # Root actions:
+  #   CHECK, BET_{25,33,50,66,75,125}
+  # Facing actions:
+  #   FOLD, CALL, RAISE_TO_{200,300,450}, ALLIN
   soft_y_cols:
     - FOLD
     - CHECK
@@ -40,20 +54,23 @@ dataset:
     - BET_50
     - BET_66
     - BET_75
-    - BET_100
-    - DONK_33
-    - RAISE_150
-    - RAISE_200
-    - RAISE_300
-    - RAISE_400
-    - RAISE_500
+    - BET_125
+    - RAISE_TO_200
+    - RAISE_TO_300
+    - RAISE_TO_450
     - ALLIN
 
   weight_col: weight
-  strict_canon: false
+  strict_canon: true        # ✅ set true for v1 to catch mapping bugs early
 
+  # ---- stratification (critical for stability)
   stratify_keys:
+    - stakes_id
     - ctx
+    - topology
+    - role
+    - street
+    - bet_sizing_id
     - ip_pos
     - oop_pos
     - board_cluster_id
@@ -61,148 +78,165 @@ dataset:
   train_frac: 0.80
 
 outputs:
-  # for the builder stage if you still emit a merged parquet; otherwise you can drop these
-  s3_key:  datasets/rangenet_postflop.parquet
-
+  s3_key: datasets/rangenet_postflop.parquet
 
 multiway:
-  enable: false            # ← stays false for NL10/NL25/NL50
-  max_players: 3           # future-proof; clamp to 3-way if you enable it later
-  default_menu_id: "limped_multi.Any"   # fallback bet menu for multiway
-  default_flop_pot_bb: 3.0 # safe default if you don’t compute exact preflop path
-  allow_in_scenarios: true # scenario-level override allowed
+  enable: false
+  max_players: 3
+  default_menu_id: "limped_multi.Any"
+  default_flop_pot_bb: 3.0
+  allow_in_scenarios: true
 
+# Street-aware clustering (matches NL10 stake cfg)
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_64.json
-  n_clusters: 64
+  artifacts:
+    flop:  data/artifacts/board_clusters_kmeans_flop_64.json
+    turn:  data/artifacts/board_clusters_kmeans_turn_128.json
+    river: data/artifacts/board_clusters_kmeans_river_128.json
+  n_clusters:
+    flop: 64
+    turn: 128
+    river: 128
 
 manifest_build:
   include_missing: false
   allow_pair_subs: true
   lookup_max_stack_delta: 200
 
-  board_clusters_limit: 64
-  boards_per_cluster: 2
   sample_pool: 50000
   seed: 42
+
+  # IMPORTANT: street-aware sampling should be handled by the builder.
+  boards_per_cluster:
+    flop: 2
+    turn: 2
+    river: 2
 
   dedup_keys:
     - street
     - ctx
     - topology
-    - ip_actor_flop
-    - oop_actor_flop
+    - role
+    - ip_actor
+    - oop_actor
     - effective_stack_bb
     - pot_bb
     - bet_sizing_id
     - board
     - board_cluster_id
-    - range_ip
-    - range_oop
-    - stake        # ← include stake to avoid cross-stake collisions
+    - stake
 
-  # tools/rangenet/config/scenarios.yml
-  # IP must be first in each pair; OOP second. This avoids role ambiguity across services.
-
+  # Role-explicit scenarios (min v1: name + role + ctx + pairs + menus)
   scenarios:
-    # --- Single-raised pots (open → defend) ---
-    - name: SRP_IP
+    # --- SRP: PFR vs defender ---
+    - name: SRP_PFR_IP
       ctx: VS_OPEN
+      topology: SRP
+      role: AGGRESSOR
       position_pairs:
-        # Opener IP vs Blinds OOP
-        - [ "UTG", "BB" ]
-        - [ "UTG", "SB" ]
-        - [ "HJ",  "BB" ]
-        - [ "HJ",  "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-      bet_menus: [ "srp_ip" ]     # Why: maps to IP postflop menus in SPH/rangenet
+        - ["UTG","BB"]
+        - ["UTG","SB"]
+        - ["HJ","BB"]
+        - ["HJ","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+      bet_menus: ["srp_hu.PFR_IP"]
 
-    - name: SRP_OOP
+    - name: SRP_CALLER_OOP
       ctx: VS_OPEN
+      topology: SRP
+      role: CALLER
       position_pairs:
-        # Same topology, different menu for OOP trees (caller OOP postflop)
-        - [ "UTG", "BB" ]
-        - [ "UTG", "SB" ]
-        - [ "HJ",  "BB" ]
-        - [ "HJ",  "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-      bet_menus: [ "srp_oop" ]    # Why: OOP-specific tree (sizes/branches)
+        - ["UTG","BB"]
+        - ["UTG","SB"]
+        - ["HJ","BB"]
+        - ["HJ","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+      bet_menus: ["srp_hu.Caller_OOP"]
 
-    # --- Blind vs Steal (CO/BTN open; SB/BB defend) ---
-    - name: BLIND_VS_STEAL
+    # --- Blind vs steal ---
+    - name: BVS_ANY
       ctx: BLIND_VS_STEAL
+      topology: BVS
+      role: ANY
       position_pairs:
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-      bet_menus: [ "bvs" ]        # Why: lean sizes specialized for steal nodes
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+      bet_menus: ["bvs.Any"]
 
-    # --- 3-bet pots (caller perspective covered by menus) ---
-    - name: VS_3BET_IP
+    # --- 3bet pots: aggressor only (v1) ---
+    - name: 3BP_AGG_IP
       ctx: VS_3BET
+      topology: 3BP
+      role: AGGRESSOR
       position_pairs:
-        # IP caller vs OOP 3-bettor (postflop IP = BTN/CO)
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-      bet_menus: [ "3bet_ip" ]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+      bet_menus: ["3bet_hu.Aggressor_IP"]
 
-    - name: VS_3BET_OOP
+    - name: 3BP_AGG_OOP
       ctx: VS_3BET
+      topology: 3BP
+      role: AGGRESSOR
       position_pairs:
-        # OOP caller vs IP 3-bettor share same pairs; menu builds OOP trees
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-      bet_menus: [ "3bet_oop" ]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+      bet_menus: ["3bet_hu.Aggressor_OOP"]
 
-    # --- 4-bet pots (split to avoid role mixing) ---
-    - name: VS_4BET_IP
+    # --- 4bet pots: aggressor only (v1) ---
+    - name: 4BP_AGG_IP
       ctx: VS_4BET
+      topology: 4BP
+      role: AGGRESSOR
       position_pairs:
-        # IP postflop = BTN/CO; OOP = blinds
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-      bet_menus: [ "4bet_ip" ]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+      bet_menus: ["4bet_hu.Aggressor_IP"]
 
-    - name: VS_4BET_OOP
+    - name: 4BP_AGG_OOP
       ctx: VS_4BET
+      topology: 4BP
+      role: AGGRESSOR
       position_pairs:
-        # OOP postflop = blinds; IP = BTN/CO (pairs remain IP→OOP)
-        - [ "BTN", "BB" ]
-        - [ "BTN", "SB" ]
-        - [ "CO",  "BB" ]
-        - [ "CO",  "SB" ]
-      bet_menus: [ "4bet_oop" ]
+        - ["BTN","BB"]
+        - ["BTN","SB"]
+        - ["CO","BB"]
+        - ["CO","SB"]
+      bet_menus: ["4bet_hu.Aggressor_OOP"]
 
-      # --- Limped pots ---
-    - name: LIMPED_SINGLE
+    # --- Limped single ---
+    - name: LIMP_BB_IP
       ctx: LIMPED_SINGLE
+      topology: LIMP
+      role: ANY
       position_pairs:
-        - [ "BB", "SB" ]     # ✅ BB is IP on flop; SB is OOP
-      bet_menus: [ "limp" ]
+        - ["BB","SB"]
+      bet_menus: ["limped_single.BB_IP"]
 
 solver:
-  # Quality-friendly defaults (adjust if you need more throughput)
   accuracy: 0.01
   max_iterations: 15000
   threads: 1
   allin_threshold: 0.67
   s3_prefix: solver/outputs/v1
   local_cache_dir: data/solver_cache
-  raise_mult: [1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+
+  # Match NL10 stake config raise grid
+  raise_mult: [2.0, 3.0, 4.5]
 
 train:
   seed: 42
@@ -218,23 +252,19 @@ train:
   pin_memory: true
 
 model:
-  hidden_dims: [512, 512, 256]   # deeper/wider, postflop is richer
-  dropout: 0.15                  # a touch more regularization
-  lr: 5e-4                     # slightly lower than preflop
+  hidden_dims: [512, 512, 256]
+  dropout: 0.15
+  lr: 5e-4
   weight_decay: 1e-4
-  label_smoothing: 0.05          # softens overfitting
+  label_smoothing: 0.05
   use_board_cluster: true
 
 sweep:
-  model.hidden_dims:
-    - [128, 128]
-    - [256, 256]
+  model.hidden_dims: [[128,128],[256,256]]
   model.dropout: [0.10, 0.20]
   model.lr: [0.001, 0.0005]
-  model.weight_decay: [0.0001, 0.00005]   # NEW
+  model.weight_decay: [0.0001, 0.00005]
   model.label_smoothing: [0.0, 0.02]
-  model.board_hidden: [64, 96]
-  model.use_board_cluster: [true, false]
   train.batch_size: [1024, 2048]
   seed: [42, 1337]
   max_trials: 12

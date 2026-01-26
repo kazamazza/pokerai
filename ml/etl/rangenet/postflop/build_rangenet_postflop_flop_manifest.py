@@ -50,13 +50,6 @@ def build_manifest(cfg: dict, *, stake: Stakes = Stakes.NL10) -> pd.DataFrame:
 
     stake_cfg       = STAKE_CFG[stake]
     board_clusters  = stake_cfg.get("board_clusters", 64)
-
-    multiway_enabled = bool(mw_cfg.get("enable", False))
-    multiway_max_players = int(mw_cfg.get("max_players", 3))
-    multiway_menu_id = str(mw_cfg.get("default_menu_id", "limped_multi.Any"))
-    multiway_default_pot = float(mw_cfg.get("default_flop_pot_bb", 3.0))
-    multiway_allow_scen = bool(mw_cfg.get("allow_in_scenarios", True))
-
     scenarios = mb.get("scenarios") or [{
         "name": "SRP",
         "ctx": "SRP",

@@ -1,27 +1,38 @@
+# ========= EVNet Preflop — V1 FINAL (NL10-aligned) =========
+# Canonical sizing:
+#  - faced_frac := faced_open_bb / pot_bb_pre  (pot_bb_pre = pre_pot_bb, usually 1.5bb in 6max)
+#  - unopened branch forces faced_frac = 0.0
+#  - action tokens MUST match PREFLOP_ACTION_VOCAB / generator tokens
+
 dataset:
   seed: 42
-  # keep these in sync with what the builder writes
-  x_cols: ["hero_pos", "villain_pos", "stakes_id", "facing_flag", "free_check", "hand_id"]
+
+  # categorical
+  x_cols: ["hero_pos", "villain_pos", "stakes_id", "facing_flag", "free_check", "hand_id", "faced_bucket"]
+
+  # continuous
   cont_cols: ["stack_bb", "pot_bb", "faced_frac"]
+
   y_cols: null
   weight_col: "weight"
   min_weight: null
-  # add faced_frac so 2.0/2.5/3.0/3.5 coverage stays balanced across stacks
-  stratify_keys: ["stakes_id", "facing_flag", "free_check", "faced_frac"]
+
+  # ✅ stratify on discrete bucket, not raw float faced_frac
+  stratify_keys: ["stakes_id", "facing_flag", "free_check", "faced_bucket", "hero_pos", "villain_pos"]
 
 build:
   include_facing: true
   include_unopened: true
 
-  stacks_bb: [25, 40, 60, 80, 100, 150]
+  # ✅ align to NL10 abstraction bins
+  stacks_bb: [25, 60, 100, 150]
 
   # unopened branch only (we force faced_frac=0.0 there)
   faced_fracs: [0.0]
 
-  # facing-open branch uses absolute open sizes (bb), not fraction of stack
-  faced_open_bbs: [ 2.0, 2.5, 3.0, 3.5 ]   # absolute bb
+  # ✅ align to NL10 open sizes (2.5x pool default + SB 3.0)
+  faced_open_bbs: [2.5, 3.0]
 
-  # ensure hero=BB appears so free-check exists in unopened
   pairs:
     - ["UTG","HJ"]
     - ["UTG","CO"]
@@ -45,16 +56,16 @@ build:
 
   pre_pot_bb: 1.5
 
-  # Crank this up for production volume (row count scales linearly)
+  # volume
   samples_per_combination: 512
 
 compute:
   engine: eval7
   threads: auto
-  chunk_size: 8192             # better GPU/CPU throughput than 4096
+  chunk_size: 8192
   log_every_n: 40000
   seed: 42
-  preflop_samples: 15000       # ↑ from 5000 → lower label noise
+  preflop_samples: 15000
   river_exact: true
 
 paths:
@@ -69,7 +80,6 @@ validation:
   strict: true
 
 model:
-  # MUST match your generator’s centi-bb tokens
   action_vocab_import: "ml.models.vocab_actions:PREFLOP_ACTION_VOCAB"
   hidden_dims: [256, 256]
   dropout: 0.10
@@ -93,9 +103,8 @@ train:
   checkpoints_dir: checkpoints/evnet_preflop
   resume_from: null
 
-
 logging:
-  tb_log_dir: logs/tb
+  tb_log_dir: logs/tb/evnet_preflop
 
 encoders:
   id_maps:
@@ -103,8 +112,12 @@ encoders:
       "2": 0  # NL10 -> 0
 
 preflop_generator:
-  open_sizes_cbb: [200, 250, 300]
+  # ✅ align to v1 open sizes
+  open_sizes_cbb: [250, 300]
+
+  # keep your existing raise totals unless you also want to trim them
   raise_totals_cbb: [600, 750, 900, 1200]
+
   allow_allin: true
   max_open_cbb: null
 

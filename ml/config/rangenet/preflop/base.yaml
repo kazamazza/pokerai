@@ -1,14 +1,23 @@
-# ========= RangeNet Preflop — BASE =========
+# ========= RangeNet Preflop — V1 FINAL =========
 
-# ---- Inputs
 inputs:
-  # This is the parquet you just built via build_preflop_from_flop_manifest.py
   parquet: data/datasets/rangenet_preflop_from_flop_NL10.parquet
 
-# ---- Dataset schema
 dataset:
-  x_cols: [ "stack_bb", "hero_pos", "villain_pos", "action_seq_1", "action_seq_2", "action_seq_3" ]
-  # 169 probabilities, AA..32o in your canonical order
+  # NOTE: action_seq_* alone is often too implicit.
+  # Add a coarse derived feature from action_seq_* called "line_id"
+  # (unopened / vs_open / vs_3bet / vs_4bet / limp_iso etc.)
+  # If you can’t add this immediately, keep it as a TODO and at least stratify by positions.
+  x_cols:
+    - stack_bb
+    - hero_pos
+    - villain_pos
+    - action_seq_1
+    - action_seq_2
+    - action_seq_3
+    - line_id              # ✅ ADD THIS (small but high ROI)
+
+  # 169 probs in canonical order
   y_cols: [
     "y_0","y_1","y_2","y_3","y_4","y_5","y_6","y_7","y_8","y_9",
     "y_10","y_11","y_12","y_13","y_14","y_15","y_16","y_17","y_18","y_19",
@@ -28,39 +37,44 @@ dataset:
     "y_150","y_151","y_152","y_153","y_154","y_155","y_156","y_157","y_158","y_159",
     "y_160","y_161","y_162","y_163","y_164","y_165","y_166","y_167","y_168"
   ]
-  weight_col: "weight"
+
+  weight_col: weight
   min_weight: 1
-  stratify_keys: []
+
+  # ✅ KEY CHANGE: stratify so train/val have similar distributions.
+  # If line_id is unavailable, remove it but KEEP hero_pos/villain_pos.
+  stratify_keys:
+    - hero_pos
+    - villain_pos
+    - line_id
+    - stack_bb_bin         # ✅ ADD (derived bin from stack_bb using stack_bins)
+
   stack_bins: [25, 60, 100, 150]
 
-# ---- Model
 model:
-  hidden_dims: [256, 256]   # plenty for 169-way softmax; bump from 128s
+  hidden_dims: [256, 256]
   dropout: 0.10
   lr: 0.001
   weight_decay: 0.0001
-  # label_smoothing is read by the trainer when constructing RangeNetLit
   label_smoothing: 0.02
 
-# ---- Train
 train:
   batch_size: 2048
-  max_epochs: 15
-  patience: 4
-  num_workers: 8           # if your box can handle it; else 0 is fine
+  max_epochs: 20            # small bump; early stop will cut it anyway
+  patience: 5               # slightly more stable
+  num_workers: 8
   pin_memory: true
   accelerator: auto
   devices: auto
   precision: "16-mixed"
   seed: 42
-  train_frac: 0.8
+  train_frac: 0.80
   checkpoints_dir: checkpoints/range_pre
-  # The trainer monitors "val_kl"
   monitor: val_kl
   mode: min
-  min_delta: 1.0e-4            # NEW: EarlyStopping tolerance
-  gradient_clip_val: 1.0       # NEW: gradient clipping
-  accumulate_grad_batches: 1    # optional; set >1 if memory bound
+  min_delta: 1.0e-4
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
 
   lr_scheduler:
     name: reduce_on_plateau
@@ -70,30 +84,23 @@ train:
     patience: 2
     min_lr: 1.0e-5
 
-# ---- Logging
 logging:
   logger: tensorboard
   tb_log_dir: logs/tb/range_pre
 
 sweep:
-  # capacity
   model.hidden_dims:
-    - [ 256, 256 ]
-    - [ 384, 384 ]
-    - [ 512, 512 ]     # ⬅️ added higher capacity option
-    - [ 256, 128 ]
+    - [256, 256]
+    - [384, 384]
+    - [512, 512]
+    - [256, 128]
 
-  # optimization
   model.lr: [0.001, 0.0005]
   train.batch_size: [1024, 2048]
   model.weight_decay: [0.0001, 0.0003]
 
-  # regularization
-  model.dropout: [0.00, 0.10]   # include a no-dropout baseline
+  model.dropout: [0.00, 0.10]
   model.label_smoothing: [0.00, 0.02, 0.05]
 
-  # reproducibility / variance
   seed: [42, 1337]
-
-  # optional limits
   max_trials: 16

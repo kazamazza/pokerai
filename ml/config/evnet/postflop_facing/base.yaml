@@ -1,35 +1,78 @@
-# ml/config/evnet/postflop_facing/base.yaml
+# ml/config/evnet/postflop_facing/v1_final.yaml
 # ==========================================================
 # EVNet — POSTFLOP FACING (respond to a bet)
-# Predict EV per facing token (FOLD/CALL/RAISE_xxx/ALLIN).
-# Aligned to policy sidecar (64 clusters, NL10 stakes_id=2).
+# Predict EV per FACING_ACTION_VOCAB tokens.
+# Canonical sizing:
+#   size_frac := faced bet (incremental) / pot_pre  (pot before villain bet)
+#   raise_to_frac := raise-to total / pot_pre       (used by action tokens)
+# Street-aware clustering (NL10): flop=64, turn=128, river=128
 # ==========================================================
 
-
-# =========================
-# POSTFLOP FACING — CONFIG
-# =========================
 dataset:
   seed: 42
-  # Categorical (IP is the actor; hero_pos is the IP seat)
-  x_cols: ["hero_pos", "ip_pos", "oop_pos", "ctx", "street", "board_cluster_id", "stakes_id", "hand_id"]
-  # Continuous (size_frac ∈ (0,1] = faced bet as fraction of pot)
-  cont_cols: ["board_mask_52", "pot_bb", "stack_bb", "size_frac"]
+
+  # ✅ include topology/role/bet_sizing_id to avoid averaging incompatible nodes
+  x_cols:
+    - hero_pos
+    - ip_pos
+    - oop_pos
+    - ctx
+    - topology
+    - role
+    - street
+    - board_cluster_id
+    - bet_sizing_id
+    - stakes_id
+    - hand_id
+
+  # Continuous: size_frac is the FACED bet fraction
+  cont_cols:
+    - board_mask_52
+    - pot_bb
+    - stack_bb
+    - size_frac
+
   y_cols: null
-  weight_col: "weight"
+  weight_col: weight
   min_weight: null
-  # Include size_frac here to balance 33/66 (and any others you add)
-  stratify_keys: ["ctx", "hero_pos", "board_cluster_id", "stack_bb", "stakes_id", "size_frac"]
+
+  # ✅ stratify includes size_frac so faced-size coverage stays balanced
+  stratify_keys:
+    - stakes_id
+    - ctx
+    - topology
+    - role
+    - street
+    - bet_sizing_id
+    - hero_pos
+    - board_cluster_id
+    - stack_bb
+    - size_frac_bucket     # ✅ recommended: bucketed size_frac (0.25/0.33/0.50/0.66/0.75/1.25)
 
 board_clustering:
   type: kmeans
-  artifact: data/artifacts/board_clusters_kmeans_64.json
-  n_clusters: 64
+  artifacts:
+    flop:  data/artifacts/board_clusters_kmeans_flop_64.json
+    turn:  data/artifacts/board_clusters_kmeans_turn_128.json
+    river: data/artifacts/board_clusters_kmeans_river_128.json
+  n_clusters:
+    flop: 64
+    turn: 128
+    river: 128
 
 build:
   stacks_bb: [25, 60, 100, 150]
-  contexts: ["VS_OPEN", "VS_3BET", "VS_4BET", "LIMPED_SINGLE"]
-  size_fracs: [0.33, 0.66]   # faced bet as fraction of pot
+
+  # ✅ align with v1 contexts you intend to support
+  contexts: ["VS_OPEN", "BLIND_VS_STEAL", "VS_3BET", "VS_4BET", "LIMPED_SINGLE", "LIMPED_MULTI"]
+
+  # streets covered by facing EV
+  streets: ["flop", "turn", "river"]
+
+  # ✅ faced bet sizes aligned to your NL10 menus (and overbet support)
+  # (If you don't allow facing overbets on some streets, builder can filter by menu_id.)
+  size_fracs: [0.25, 0.33, 0.50, 0.66, 0.75, 1.25]
+
   # REQUIRED: IP seat vs OOP seat pairs per context
   pairs_ip_oop:
     VS_OPEN:
@@ -41,18 +84,31 @@ build:
       - ["CO","SB"]
       - ["BTN","BB"]
       - ["BTN","SB"]
+
+    BLIND_VS_STEAL:
+      - ["BTN","BB"]
+      - ["BTN","SB"]
+      - ["CO","BB"]
+      - ["CO","SB"]
+
     VS_3BET:
       - ["BTN","BB"]
       - ["BTN","SB"]
       - ["CO","BB"]
       - ["CO","SB"]
+
     VS_4BET:
       - ["BTN","BB"]
       - ["BTN","SB"]
       - ["CO","BB"]
       - ["CO","SB"]
+
     LIMPED_SINGLE:
       - ["BB","SB"]
+
+    LIMPED_MULTI:
+      - ["BB","SB"]
+
   samples_per_board: 512
 
 stake:
@@ -66,10 +122,12 @@ compute:
   chunk_size: 4096
   log_every_n: 20000
   seed: 42
-  facing_samples: 8000    # MC sims per row (bb units)
+  facing_samples: 8000
   river_exact: true
 
 model:
+  # ✅ MUST match your finalized FACING_ACTION_VOCAB:
+  #   FOLD, CALL, RAISE_TO_200, RAISE_TO_300, RAISE_TO_450, ALLIN
   action_vocab_import: "ml.models.vocab_actions:FACING_ACTION_VOCAB"
   hidden_dims: [384, 256]
   dropout: 0.10
@@ -100,10 +158,7 @@ logging:
   tb_log_dir: logs/tb/evnet_postflop_facing
 
 sweep:
-  model.hidden_dims:
-    - [256, 256]
-    - [384, 256]
-    - [512, 256]
+  model.hidden_dims: [[256,256], [384,256], [512,256]]
   model.dropout: [0.05, 0.10, 0.15]
   model.lr: [0.0010, 0.0007, 0.0005]
   model.weight_decay: [0.0001, 0.0003, 0.00001]
