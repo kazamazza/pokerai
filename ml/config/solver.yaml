@@ -125,3 +125,24 @@ Stakes.NL10:
     VS_4BET:        [60, 100, 150]
     LIMPED_SINGLE:  [25, 60, 100]
     LIMPED_MULTI:   [25, 60, 100]
+
+
+  solver_profiles:
+    default:
+      accuracy: 0.02
+      max_iter: 4000
+      allin_threshold: 0.67
+
+    srp_hu.PFR_IP: { accuracy: 0.020, max_iter: 4000, allin_threshold: 0.67 }
+    srp_hu.Caller_OOP: { accuracy: 0.020, max_iter: 3800, allin_threshold: 0.67 }
+
+    bvs.Any: { accuracy: 0.020, max_iter: 4000, allin_threshold: 0.67 }  # ✅ add
+
+    3bet_hu.Aggressor_IP: { accuracy: 0.025, max_iter: 3500, allin_threshold: 0.67 }
+    3bet_hu.Aggressor_OOP: { accuracy: 0.025, max_iter: 3500, allin_threshold: 0.67 }
+
+    4bet_hu.Aggressor_IP: { accuracy: 0.030, max_iter: 2500, allin_threshold: 0.67 }
+    4bet_hu.Aggressor_OOP: { accuracy: 0.030, max_iter: 2500, allin_threshold: 0.67 }
+
+    limped_single.BB_IP: { accuracy: 0.020, max_iter: 3000, allin_threshold: 0.67 }
+    limped_multi.Any: { accuracy: 0.020, max_iter: 3000, allin_threshold: 0.67 }

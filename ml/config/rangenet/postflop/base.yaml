@@ -189,3 +189,14 @@ sweep:
   train.batch_size: [1024, 2048]
   seed: [42, 1337]
   max_trials: 12
+
+board_clustering:
+  type: kmeans
+  artifacts:
+    flop:  data/artifacts/board_clusters_kmeans_flop_64.json
+    turn:  data/artifacts/board_clusters_kmeans_turn_128.json
+    river: data/artifacts/board_clusters_kmeans_river_128.json
+  n_clusters:
+    flop: 64
+    turn: 128
+    river: 128
