@@ -1,31 +1,40 @@
+from __future__ import annotations
 import sys
 from pathlib import Path
-from decimal import Decimal, ROUND_HALF_UP
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.utils.config import load_model_config
+import json
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Dict, Iterable, List
+import pandas as pd
+import boto3
 
-def parse_bet_sizes_cell(cell) -> list[int]:
+
+# =========================
+# Parsing helpers (local)
+# =========================
+
+def parse_bet_sizes(cell) -> List[int]:
     """
-    Robustly parse bet_sizes:
-      - None
-      - [0.33, 0.66] or [33, 66]
-      - [{"element": 0.33}, ...] (pyarrow-struct style)
-      - pyarrow List/Scalar, numpy arrays
-    Returns **ordered unique** integer percents using ROUND_HALF_UP, e.g. [33, 67].
+    Parse manifest bet_sizes into ordered unique integer percents.
+    Accepts:
+      - [0.33, 0.66]
+      - [33, 66]
+      - pyarrow list structs: [{"element": 0.33}, ...]
     """
     if cell is None:
         return []
 
-    # Unwrap pyarrow / numpy containers if present
+    # unwrap pyarrow / numpy
     try:
-        import pyarrow as pa  # optional
-        if isinstance(cell, (pa.ListScalar, pa.ListValue, pa.ChunkedArray)):
+        import pyarrow as pa
+        if hasattr(cell, "as_py"):
             cell = cell.as_py()
     except Exception:
         pass
+
     try:
         import numpy as np
         if isinstance(cell, np.ndarray):
@@ -34,7 +43,7 @@ def parse_bet_sizes_cell(cell) -> list[int]:
         pass
 
     seq = cell if isinstance(cell, list) else [cell]
-    out: list[int] = []
+    out: List[int] = []
     seen = set()
 
     for it in seq:
@@ -46,202 +55,172 @@ def parse_bet_sizes_cell(cell) -> list[int]:
         except Exception:
             continue
 
-        # If ≤3.0 treat as fraction (0.33→33), else already percent (33→33)
         if f <= 3.0:
-            pct = int(Decimal(str(f * 100.0)).quantize(0, rounding=ROUND_HALF_UP))
+            pct = int(Decimal(str(f * 100)).quantize(0, ROUND_HALF_UP))
         else:
-            pct = int(Decimal(str(f)).quantize(0, rounding=ROUND_HALF_UP))
+            pct = int(Decimal(str(f)).quantize(0, ROUND_HALF_UP))
 
         if 1 <= pct <= 200 and pct not in seen:
-            out.append(pct); seen.add(pct)
+            out.append(pct)
+            seen.add(pct)
 
     return out
 
 
-def inject_size_into_s3_key(s3_key: str, size_pct: int) -> str:
-    """
-    Appends a size-specific suffix for the given size, storing compressed results (.json.gz).
-    Example:
-      base: solver/outputs/v1/street=1/.../Ah9hAs
-      → solver/outputs/v1/street=1/.../Ah9hAs/size=50p/output_result.json.gz
-    """
-    base = str(s3_key).rstrip("/")
+def inject_size_into_s3_key(base_key: str, size_pct: int) -> str:
+    base = base_key.rstrip("/")
     return f"{base}/size={int(size_pct)}p/output_result.json.gz"
 
-def main():
-    import argparse, time, json, os
-    import pandas as pd
-    import boto3, botocore
 
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--manifest", default="data/artifacts/rangenet_postflop_flop_manifest.parquet")
-    ap.add_argument("--queue_url", required=True)
-    ap.add_argument("--batch", type=int, default=10, help="SQS batch size (≤10)")
-    ap.add_argument("--limit", type=int, default=None, help="Only send first N jobs")
-    ap.add_argument("--dry-run", action="store_true", help="Don’t send, just show counts")
-    ap.add_argument("--config", default=None, help="Optional YAML to fill *missing* non-critical fields")
-    args = ap.parse_args()
+# =========================
+# Submitter
+# =========================
 
-    solver_cfg = {}
-    if args.config:
-        try:
-            cfg = load_model_config(args.config) or {}
-            solver_cfg = (cfg.get("solver") or cfg.get("worker") or {}) or {}
-        except Exception:
-            solver_cfg = {}
+REQUIRED_COLUMNS = {
+    "sha1",
+    "s3_key",
+    "street",
+    "pot_bb",
+    "effective_stack_bb",
+    "ip_pos",
+    "oop_pos",
+    "board",
+    "board_cluster_id",
+    "bet_sizing_id",
+    "bet_sizes",
+    "range_ip",
+    "range_oop",
+    "accuracy",
+    "max_iter",
+    "allin_threshold",
+    "solver_version",
+    "node_key",
+}
 
-    if not (1 <= args.batch <= 10):
-        raise SystemExit("--batch must be between 1 and 10 (SQS limit)")
 
-    df = pd.read_parquet(args.manifest)
-    if args.limit is not None:
-        df = df.head(int(args.limit))
+PARAM_FIELDS = [
+    "street",
+    "pot_bb",
+    "effective_stack_bb",
+    "ip_pos",
+    "oop_pos",
+    "board",
+    "board_cluster_id",
+    "bet_sizing_id",
+    "range_ip",
+    "range_oop",
+    "accuracy",
+    "max_iter",
+    "allin_threshold",
+    "solver_version",
+    "node_key",
+]
 
-    ENVELOPE_KEYS = ["sha1", "s3_key"]
-    missing_env = [k for k in ENVELOPE_KEYS if k not in df.columns]
-    if missing_env:
-        raise SystemExit(f"Manifest missing required columns: {missing_env}")
 
-    # Safe defaults for missing lightweight fields
-    if "street" not in df.columns:
-        df = df.assign(street=1)
-    if "node_key" not in df.columns:
-        df = df.assign(node_key="root")
-    if "solver_version" not in df.columns:
-        df = df.assign(solver_version=solver_cfg.get("version", "v1"))
-    # If threads is desired and not present in manifest, attach as column
-    if "threads" not in df.columns and "threads" in solver_cfg:
-        df = df.assign(threads=int(solver_cfg["threads"]))
+def build_messages(row) -> List[Dict[str, Any]]:
+    sizes = parse_bet_sizes(row.bet_sizes)
+    if not sizes:
+        raise ValueError(f"Manifest row sha1={row.sha1} has no bet_sizes")
 
-    # Only copy what the worker understands; do NOT override manifest values
-    PARAM_WHITELIST = [
-        "street", "pot_bb", "effective_stack_bb", "positions", "bet_sizing_id",
-        "range_ip", "range_oop",
-        "accuracy", "max_iter", "allin_threshold",
-        "node_key", "solver_version", "threads",
-        "board", "board_cluster_id",
-        "parent_sha1", "parent_node_key", "line_key",
-        "street_root_state", "turn_card", "river_card",
-    ]
+    messages = []
 
-    def _coerce_param(k, v):
-        if v is None: return None
-        if k in ("street", "max_iter", "board_cluster_id"):
-            try: return int(v)
-            except: return None
-        if k in ("pot_bb", "effective_stack_bb", "accuracy", "allin_threshold"):
-            try: return float(v)
-            except: return None
-        # keep simple scalars/strings
-        return v if isinstance(v, (int, float, str)) else str(v)
+    for size_pct in sizes:
+        params = {k: getattr(row, k) for k in PARAM_FIELDS}
+        params["size_pct"] = int(size_pct)
 
-    def to_msgs(row):
-        """
-        Expand ONE manifest row into MULTIPLE SQS entries, one per bet size.
-        Falls back to a single entry with size=33 if bet_sizes is empty.
-        """
-        # 1) parse bet sizes
-        sizes_pct = parse_bet_sizes_cell(row.get("bet_sizes"))
-        if not sizes_pct:
-            sizes_pct = [33]
-        if not sizes_pct:
-            sizes_pct = [33]  # safe default; your worker can still legalize at runtime
+        msg = {
+            "sha1": row.sha1,
+            "s3_key": inject_size_into_s3_key(row.s3_key, size_pct),
+            "params": params,
+        }
 
-        entries = []
+        messages.append(msg)
 
-        for size_pct in sizes_pct:
-            # 2) build params subset
-            params = {}
-            for k in PARAM_WHITELIST:
-                if k in row and pd.notna(row[k]):
-                    v = _coerce_param(k, row[k])
-                    if v is not None:
-                        params[k] = v
-            # stamp concrete size for this job
-            params["size_pct"] = int(size_pct)
+    return messages
 
-            # 3) size-aware s3_key
-            s3_key = inject_size_into_s3_key(str(row["s3_key"]), int(size_pct))
 
-            # 4) unique Id per (sha1,size)
-            msg = {
-                "sha1": str(row["sha1"]),
-                "s3_key": s3_key,
-                "params": params,
-            }
-            entries.append({
-                "Id": f"{str(row['sha1'])[:68]}_{int(size_pct):03d}",  # keep ≤80 chars, stable width
-                "MessageBody": json.dumps(msg),
-            })
-
-        return entries
-
-    if args.dry_run:
-        print("🧪 dry-run: not sending to SQS")
-        sample_rows = df.head(min(2, len(df)))
-        for _, r in sample_rows.iterrows():
-            em = to_msgs(r)
-            print(f"row sha1={r['sha1']} → {len(em)} msgs")
-            for e in em[:min(3, len(em))]:
-                body = json.loads(e["MessageBody"])
-                print(" ", e["Id"], body["s3_key"], "size_pct=", body["params"].get("size_pct"))
-        return
-
-    sqs = boto3.client(
-        "sqs",
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        region_name=os.getenv("AWS_REGION"),
-    )
-
+def submit_batches(
+    *,
+    sqs,
+    queue_url: str,
+    messages: Iterable[Dict[str, Any]],
+    batch_size: int,
+) -> int:
     sent = 0
-    retries = 0
-    entries_buf = []
+    batch: List[Dict[str, Any]] = []
 
-    def _send_batch(entries):
-        nonlocal sent, retries
+    def flush(entries):
+        nonlocal sent
         if not entries:
             return
-        try:
-            resp = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=entries)
-            failed = resp.get("Failed", []) or []
-            succ = len(resp.get("Successful", []))
+        resp = sqs.send_message_batch(
+            QueueUrl=queue_url,
+            Entries=entries,
+        )
+        failed = resp.get("Failed", []) or []
+        if failed:
+            raise RuntimeError(f"SQS batch failed: {failed}")
+        sent += len(resp.get("Successful", []))
 
-            if failed:
-                fail_ids = {f["Id"] for f in failed}
-                retry_entries = [e for e in entries if e["Id"] in fail_ids]
-                if retry_entries:
-                    time.sleep(0.5)
-                    retries += 1
-                    resp2 = sqs.send_message_batch(QueueUrl=args.queue_url, Entries=retry_entries)
-                    succ += len(resp2.get("Successful", []))
-                    failed2 = resp2.get("Failed", []) or []
-                    if failed2:
-                        print(f"⚠️  retry still failed for {len(failed2)} entries "
-                              f"(e.g. {failed2[0] if failed2 else ''})")
+    for i, msg in enumerate(messages):
+        entry = {
+            "Id": f"{msg['sha1']}_{msg['params']['size_pct']}_{i}",
+            "MessageBody": json.dumps(msg),
+        }
+        batch.append(entry)
+        if len(batch) == batch_size:
+            flush(batch)
+            batch.clear()
 
-            sent += succ
+    if batch:
+        flush(batch)
 
-        except botocore.exceptions.BotoCoreError as e:
-            print(f"⚠️  SQS error: {e}")
-        except Exception as e:
-            print(f"⚠️  Unexpected error: {e}")
+    return sent
 
-    # Expand each manifest row into one-or-more messages and send in batches of ≤10
-    for _, row in df.iterrows():
-        entries_buf.extend(to_msgs(row))
-        while len(entries_buf) >= args.batch:
-            batch = entries_buf[:args.batch]
-            entries_buf = entries_buf[args.batch:]
-            _send_batch(batch)
-            if sent and (sent % (args.batch * 20) == 0):
-                print(f"… progress: sent≈{sent}")
 
-    # Flush any remainder
-    if entries_buf:
-        _send_batch(entries_buf)
+def main():
+    import argparse
 
-    print(f"✅ submitted ~{sent} messages to SQS  (retries: {retries})")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--manifest", required=True)
+    ap.add_argument("--queue-url", required=True)
+    ap.add_argument("--batch-size", type=int, default=10)
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    if not (1 <= args.batch_size <= 10):
+        raise SystemExit("batch-size must be 1..10")
+
+    df = pd.read_parquet(args.manifest)
+    missing = REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise SystemExit(f"Manifest missing columns: {sorted(missing)}")
+
+    if args.limit:
+        df = df.head(args.limit)
+
+    rows = list(df.itertuples(index=False))
+
+    all_messages: List[Dict[str, Any]] = []
+    for row in rows:
+        all_messages.extend(build_messages(row))
+
+    if args.dry_run:
+        print(f"🧪 dry-run: would submit {len(all_messages)} messages")
+        print(json.dumps(all_messages[0], indent=2))
+        return
+
+    sqs = boto3.client("sqs")
+    sent = submit_batches(
+        sqs=sqs,
+        queue_url=args.queue_url,
+        messages=all_messages,
+        batch_size=args.batch_size,
+    )
+
+    print(f"✅ submitted {sent} solver jobs")
+
 
 if __name__ == "__main__":
     main()

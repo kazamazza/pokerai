@@ -18,7 +18,6 @@ from ml.etl.utils.monker_range_converter import to_monker
 import os, sys, gzip, json, shutil, subprocess
 from pathlib import Path
 from typing import Dict, Any, Tuple, List, Optional
-from ml.config.solver import STAKE_CFG
 import pandas as pd
 
 dotenv.load_dotenv()

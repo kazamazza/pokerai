@@ -5,39 +5,46 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from infra.utils.gzip_file import gzip_file
-from ml.etl.utils.monker_range_converter import to_monker
-from ml.etl.utils.range_lookup import monker_string_to_vec169
-from ml.config.bet_menus import _parse_menu_id
-from dotenv import load_dotenv
-from tools.rangenet.sanity.smoke_run_scenarios import stake_from_str
-from ml.config.solver import STAKE_CFG
-from ml.core.types import Stakes
-
-load_dotenv()
-
-from workers.base import SQSWorker
-from ml.range.solvers.command_text import build_command_text
-
-import os, json, time, gzip, shutil, tempfile, subprocess, random
+import json
+import os
+import time
+import shutil
+import random
+import tempfile
+import subprocess
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional, cast, Literal, Union, List
+from typing import Dict, Any
 
-import numpy as np
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-# === ENV / constants ===
-REGION    = os.getenv("AWS_REGION", "eu-central-1")
-S3_BUCKET = os.getenv("AWS_BUCKET_NAME")
+from infra.utils.gzip_file import gzip_file
+from workers.base import SQSWorker
+
+from ml.range.solvers.command_text import build_command_text
+from ml.etl.utils.monker_range_converter import to_monker
+
+
+# =========================
+# ENV / CONSTANTS
+# =========================
+
+AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
+AWS_BUCKET = os.getenv("AWS_BUCKET_NAME")
 SOLVER_BIN = os.getenv("SOLVER_BIN", "console_solver")
 
-# Post-upload pacing (seconds); jitter added automatically
-POST_UPLOAD_SLEEP = float(os.getenv("POST_UPLOAD_SLEEP", "10"))   # base seconds
+POST_UPLOAD_SLEEP = float(os.getenv("POST_UPLOAD_SLEEP", "8"))
 POST_UPLOAD_JITTER = float(os.getenv("POST_UPLOAD_JITTER", "0.25"))
 
-# -------- S3 client with adaptive retries --------
+if not AWS_BUCKET:
+    raise RuntimeError("AWS_BUCKET_NAME env var is required")
+
+
+# =========================
+# S3 CLIENT
+# =========================
+
 _S3CFG = Config(
     retries={"max_attempts": 10, "mode": "adaptive"},
     connect_timeout=10,
@@ -45,358 +52,173 @@ _S3CFG = Config(
     tcp_keepalive=True,
 )
 
-def _s3_client(region: str):
-    return boto3.client("s3", region_name=region, config=_S3CFG)
+def s3_client():
+    return boto3.client("s3", region_name=AWS_REGION, config=_S3CFG)
 
 
-# -------- context helpers (unchanged logic) --------
-def _ctx_from_menu(menu_id: str) -> str:
-    m = (menu_id or "").lower()
-    if m.startswith("limped_single"): return "LIMPED_SINGLE"
-    if m.startswith("limped_multi"):  return "LIMPED_MULTI"
-    if m.startswith("3bet_hu"):       return "VS_3BET"
-    if m.startswith("4bet_hu"):       return "VS_4BET"
-    return "SRP"
-
-_MIN_NNZ_WARN = {
-    "SRP": 20,
-    "VS_3BET": 12,
-    "VS_4BET": 2,
-    "LIMPED_SINGLE": 8,
-    "LIMPED_MULTI": 8,
-}
-
-def _sparse_decision(ip_nnz: int, oop_nnz: int, ctx: str) -> tuple[bool, str]:
-    if ip_nnz == 0 or oop_nnz == 0:
-        return True, f"empty range (ip={ip_nnz}, oop={oop_nnz})"
-    floor = _MIN_NNZ_WARN.get(ctx, 8)
-    if ip_nnz < floor or oop_nnz < floor:
-        return False, f"ranges sparse for {ctx} (ip={ip_nnz}, oop={oop_nnz} < {floor}); continuing"
-    return False, ""
-
-def _exists_in_s3(s3, bucket: str, key: str) -> bool:
+def s3_exists(s3, key: str) -> bool:
     try:
-        s3.head_object(Bucket=bucket, Key=key)
+        s3.head_object(Bucket=AWS_BUCKET, Key=key)
         return True
     except ClientError as e:
-        code = str(e.response.get("Error", {}).get("Code"))
-        http = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        if code in ("404", "NotFound") or http == 404:
+        code = e.response.get("Error", {}).get("Code")
+        if code in ("404", "NotFound"):
             return False
         raise
 
-def _nnz_stats_from_payload(payload) -> tuple[int, float]:
-    try:
-        if isinstance(payload, str):
-            obj = json.loads(payload) if payload.strip().startswith(("{","[")) else None
-        else:
-            obj = payload
-        if isinstance(obj, list):
-            arr = np.asarray(obj, dtype=float)
-            if arr.ndim == 2 and arr.shape == (13,13):
-                arr = arr.reshape(169)
-            if arr.ndim == 1 and arr.size == 169:
-                arr = np.clip(arr, 0.0, 1.0)
-                return int((arr > 0).sum()), float(arr.sum())
-    except Exception:
-        pass
-    return -1, -1.0
 
-def _nnz_and_sum_from_monker(s: str) -> tuple[int, float]:
-    try:
-        v = monker_string_to_vec169(s)
-        nnz = sum(1 for x in v if x > 1e-9)
-        return nnz, float(sum(v))
-    except Exception:
-        return -1, -1.0
+def upload_verified(s3, local: Path, key: str) -> None:
+    size = local.stat().st_size
+    s3.upload_file(
+        str(local),
+        AWS_BUCKET,
+        key,
+        ExtraArgs={
+            "ContentType": "application/json",
+            "ContentEncoding": "gzip",
+        },
+    )
+    head = s3.head_object(Bucket=AWS_BUCKET, Key=key)
+    if int(head.get("ContentLength", -1)) != size:
+        raise RuntimeError("S3 size mismatch after upload")
 
-# -------- robust upload with verification --------
-TRANSIENT_HTTP = {429, 500, 502, 503, 504}
-TRANSIENT_CODES = {
-    "SlowDown", "Throttling", "ThrottlingException",
-    "RequestTimeout", "RequestTimeoutException",
-    "InternalError", "ServiceUnavailable"
+
+# =========================
+# VALIDATION
+# =========================
+
+REQUIRED_PARAMS = {
+    "pot_bb",
+    "effective_stack_bb",
+    "board",
+    "range_ip",
+    "range_oop",
+    "size_pct",
+    "accuracy",
+    "max_iter",
+    "allin_threshold",
 }
 
-def _upload_file_with_verify(
-    s3, local_path: Path, bucket: str, key: str,
-    *, content_type: Optional[str] = None,
-    content_encoding: Optional[str] = None,
-    max_tries: int = 7
-) -> None:
-    local_path = Path(local_path)
-    if not local_path.exists():
-        raise RuntimeError(f"Local file missing: {local_path}")
-    size = local_path.stat().st_size
+def validate_message(msg: Dict[str, Any]) -> None:
+    if "sha1" not in msg:
+        raise ValueError("missing sha1")
+    if "s3_key" not in msg:
+        raise ValueError("missing s3_key")
+    if "params" not in msg:
+        raise ValueError("missing params")
 
-    extra = {}
-    if content_type:     extra["ContentType"] = content_type
-    if content_encoding: extra["ContentEncoding"] = content_encoding
-
-    backoff = 0.5
-    for attempt in range(1, max_tries + 1):
-        try:
-            s3.upload_file(str(local_path), bucket, key, ExtraArgs=extra if extra else None)
-            head = s3.head_object(Bucket=bucket, Key=key)
-            if int(head.get("ContentLength", -1)) == size or size <= 0:
-                return
-            print(f"[warn] S3 size mismatch (local={size}, remote={head.get('ContentLength')}); retrying…")
-        except ClientError as e:
-            code = str(e.response.get("Error", {}).get("Code"))
-            http = int(e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0))
-            transient = (http in TRANSIENT_HTTP) or (code in TRANSIENT_CODES)
-            if not transient or attempt == max_tries:
-                raise
-        except Exception:
-            if attempt == max_tries:
-                raise
-        time.sleep(backoff + random.random()*0.3)
-        backoff = min(10.0, backoff * 2)
-    raise RuntimeError("S3 upload failed after retries/verify")
+    params = msg["params"]
+    missing = REQUIRED_PARAMS - params.keys()
+    if missing:
+        raise ValueError(f"missing params: {sorted(missing)}")
 
 
-def _build_solver_cmd_text(params: Dict[str, Any], dump_path: Path, job_id: str = "noid") -> tuple[str, Path]:
-    pot_bb  = float(params["pot_bb"])
-    eff_bb  = float(params["effective_stack_bb"])
-    board   = str(params["board"])
+# =========================
+# SOLVER EXECUTION
+# =========================
 
-    range_ip  = to_monker(params["range_ip"])
-    range_oop = to_monker(params["range_oop"])
-
-    # required: int like 25, 33, 50, 66, 75, 100
-    size_pct = int(round(float(params["size_pct"])))
-    size_fr  = max(0.0, min(2.0, size_pct / 100.0))  # keep as fraction for build_command_text
-
-    menu_id = str(params.get("bet_sizing_id", "") or "")
-    group, role = _parse_menu_id(menu_id)  # e.g. ("srp_hu", "Caller_OOP")
-
-    # --- Decide OOP root menu kind (donk vs bet) from (group, role)
-    def _oop_root_menu_kind(group: str, role: str) -> str:
-        """
-        Returns 'donk' if OOP is the caller at flop root, else 'bet' (OOP is aggressor).
-        WHY: solver expects 'donk' for caller-led root, 'bet' for aggressor-led root.
-        """
-        g = (group or "").strip()
-        r = (role or "").strip()
-
-        # Limped pots: OOP (BB) is caller → donk
-        if g.startswith("limped_single"):
-            return "donk"
-
-        # Single-raised pots
-        if g == "srp_hu":
-            if r.endswith("PFR_IP"):
-                # IP is preflop aggressor ⇒ OOP is caller
-                return "donk"
-            if r.endswith("Caller_OOP"):
-                # OOP explicitly labeled caller
-                return "donk"
-            # Fallback: default to donk in SRP if unknown
-            return "donk"
-
-        # 3-bet pots
-        if g == "3bet_hu":
-            if r.endswith("Aggressor_OOP"):
-                return "bet"   # OOP is preflop aggressor
-            if r.endswith("Aggressor_IP"):
-                return "donk"  # IP aggressor ⇒ OOP caller
-            return "donk"      # safe default
-
-        # 4-bet pots
-        if g == "4bet_hu":
-            if r.endswith("Aggressor_OOP"):
-                return "bet"
-            if r.endswith("Aggressor_IP"):
-                return "donk"
-            return "donk"
-
-        # Default conservative choice: assume OOP is caller → donk
-        return "donk"
-
-    oop_menu_kind = _oop_root_menu_kind(group, role)  # 'donk' or 'bet'
-
-    # Raise ladder & all-in from stake config
-    stake = stake_from_str(str(params.get("stake", "NL10")))
-    cfg = STAKE_CFG.get(stake, STAKE_CFG[Stakes.NL10])
-    raise_mult = cfg["raise_mult"]
-    enable_allin = bool(cfg.get("flop_allin", True))
-
-    bet_sizes_untyped = {
-        "flop": {
-            "ip": {"bet": [size_fr], "raise": raise_mult, "allin": enable_allin},
-            "oop": {
-                "bet": [size_fr],
-                "raise": raise_mult,
-                "allin": enable_allin,
-            },
-        },
-        "turn": {"ip": {"bet": []}, "oop": {"bet": []}},
-        "river": {"ip": {"bet": []}, "oop": {"bet": []}},
-    }
-
-    bet_sizes = cast(
-        Dict[
-            Literal["flop", "turn", "river"],
-            Dict[Literal["ip", "oop"], Dict[str, Union[List[float], List[int], bool]]]
-        ],
-        bet_sizes_untyped
+def run_solver(cmd_file: Path) -> None:
+    proc = subprocess.run(
+        [SOLVER_BIN, "-i", str(cmd_file)],
+        capture_output=True,
+        text=True,
     )
-
-    accuracy = float(params.get("accuracy", 0.5))
-    max_iter = int(params.get("max_iter", params.get("max_iterations", 200)))
-    a_th     = float(params.get("allin_threshold", 0.67))
-
-    txt = build_command_text(
-        pot_bb=pot_bb,
-        effective_stack_bb=eff_bb,
-        board=board,
-        range_ip=range_ip,
-        range_oop=range_oop,
-        bet_sizes=bet_sizes,
-        allin_threshold=a_th,
-        thread_num=1,
-        accuracy=accuracy,
-        max_iteration=max_iter,
-        print_interval=20,
-        use_isomorphism=1,
-        dump_path=str(dump_path),
-    )
-
-    dbg_dir = Path("debug_cmds") / job_id
-    dbg_dir.mkdir(parents=True, exist_ok=True)
-    cmd_path = dbg_dir / "commands.txt"
-    cmd_path.write_text(txt, encoding="utf-8")
-
-    def _clip(s): return s if len(s) <= 400 else s[:400] + "..."
-    (dbg_dir / "ranges.txt").write_text(
-        f"size_pct={size_pct}\n\n"
-        "RAW range_ip:\n"
-        f"{str(params['range_ip'])[:400]}\n\n"
-        "RAW range_oop:\n"
-        f"{str(params['range_oop'])[:400]}\n\n"
-        "MONKER range_ip:\n"
-        f"{_clip(range_ip)}\n\n"
-        "MONKER range_oop:\n"
-        f"{_clip(range_oop)}\n",
-        encoding="utf-8"
-    )
-
-    print(f"📝 dumped solver command → {cmd_path}")
-    return txt, cmd_path
-
-def _run_solver(cmd_file: Path) -> None:
-    solver_bin = Path(SOLVER_BIN)
-    cmd_file = Path(cmd_file)
-    cmd = [str(solver_bin), "-i", str(cmd_file)]
-    print(f"▶️ solver cmd: {' '.join(cmd)}")
-    print(f"    cwd: {os.getcwd()}")
-    try:
-        size = cmd_file.stat().st_size
-    except Exception:
-        size = -1
-    print(f"    cmd_file: {cmd_file.resolve()}  ({size} bytes)")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        try:
-            content = cmd_file.read_text()
-        except Exception as e:
-            content = f"<unable to read command file: {e}>"
-        MAX_SHOW = 20000
-        shown = content if len(content) <= MAX_SHOW else (content[:MAX_SHOW] + "\n…<truncated>…\n")
+    if proc.returncode != 0:
         raise RuntimeError(
             "solver failed\n"
-            f"  code: {result.returncode}\n"
-            f"  cmd : {' '.join(cmd)}\n"
-            f"  file: {cmd_file.resolve()} ({size} bytes)\n"
-            "\n--- command file contents ---\n"
-            f"{shown}"
-            "\n--- solver stdout ---\n"
-            f"{result.stdout}"
-            "\n--- solver stderr ---\n"
-            f"{result.stderr}"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
         )
 
-# -------- SQS handler (bulletproof ack only after verified upload) --------
+
+# =========================
+# MESSAGE HANDLER
+# =========================
+
 def handle_message(body: str) -> bool:
-    if not S3_BUCKET:
-        raise RuntimeError("AWS_BUCKET_NAME env var is required")
     msg = json.loads(body)
+    validate_message(msg)
+
     sha1 = msg["sha1"]
     s3_key = msg["s3_key"]
-    params = msg["params"]
+    p = msg["params"]
 
-    s3 = _s3_client(REGION)
+    s3 = s3_client()
 
-    # Fast idempotency: already uploaded?
-    if _exists_in_s3(s3, S3_BUCKET, s3_key):
-        print(f"[skip] already in S3: s3://{S3_BUCKET}/{s3_key}")
+    # --- idempotency ---
+    if s3_exists(s3, s3_key):
+        print(f"[skip] already solved: {s3_key}")
         return True
 
-    work_dir = Path(tempfile.mkdtemp(prefix=f"solve_{sha1[:8]}_"))
+    workdir = Path(tempfile.mkdtemp(prefix=f"pf_{sha1[:8]}_"))
     try:
-        out_json = work_dir / "result.json"
+        out_json = workdir / "result.json"
+        cmd_txt = workdir / "command.txt"
 
-        # Build command + run
-        cmd_text, cmd_txt = _build_solver_cmd_text(params, out_json, job_id=sha1)
-        cmd_txt.write_text(cmd_text)
-        _run_solver(cmd_txt)
+        size_pct = int(p["size_pct"])
+        size_fr = size_pct / 100.0
 
-        # Sanity output
-        if not out_json.exists() or out_json.stat().st_size == 0:
-            raise RuntimeError("solver produced no result.json or file empty")
+        bet_sizes = {
+            "flop": {
+                "ip":  {"bet": [size_fr], "raise": [], "allin": True},
+                "oop": {"bet": [size_fr], "raise": [], "allin": True},
+            },
+            "turn":  {"ip": {"bet": []}, "oop": {"bet": []}},
+            "river": {"ip": {"bet": []}, "oop": {"bet": []}},
+        }
 
-        # GZip and verified upload with retries
-        gz_path = gzip_file(out_json)
-        _upload_file_with_verify(
-            s3, gz_path, S3_BUCKET, s3_key,
-            content_type="application/json",
-            content_encoding="gzip",
+        cmd = build_command_text(
+            pot_bb=float(p["pot_bb"]),
+            effective_stack_bb=float(p["effective_stack_bb"]),
+            board=str(p["board"]),
+            range_ip=to_monker(p["range_ip"]),
+            range_oop=to_monker(p["range_oop"]),
+            bet_sizes=bet_sizes,
+            accuracy=float(p["accuracy"]),
+            max_iteration=int(p["max_iter"]),
+            allin_threshold=float(p["allin_threshold"]),
+            dump_path=str(out_json),
         )
-        print(f"✅ uploaded → s3://{S3_BUCKET}/{s3_key}")
 
-        # Pace before acking / taking another ticket
-        sleep_s = max(0.0, POST_UPLOAD_SLEEP) + random.random() * POST_UPLOAD_JITTER * POST_UPLOAD_SLEEP
-        if sleep_s > 0:
-            print(f"⏳ cooling down {sleep_s:.2f}s to ease S3 throttling…")
-            time.sleep(sleep_s)
+        cmd_txt.write_text(cmd, encoding="utf-8")
 
+        run_solver(cmd_txt)
+
+        if not out_json.exists() or out_json.stat().st_size == 0:
+            raise RuntimeError("solver produced no output")
+
+        gz = gzip_file(out_json)
+        upload_verified(s3, gz, s3_key)
+
+        sleep_s = POST_UPLOAD_SLEEP * (1 + random.random() * POST_UPLOAD_JITTER)
+        time.sleep(sleep_s)
+
+        print(f"✅ solved {sha1} → s3://{AWS_BUCKET}/{s3_key}")
         return True
 
     except Exception as e:
         print(f"❌ job {sha1} failed: {e}")
-        # Don’t ack; let SQS redrive/DLQ handle it
         return False
+
     finally:
-        try:
-            shutil.rmtree(work_dir)
-        except Exception:
-            pass
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+# =========================
+# ENTRYPOINT
+# =========================
 
 def main():
-    import argparse
-    ap = argparse.ArgumentParser(description="RangeNet FLOP worker (SQS, hardened uploads)")
-    ap.add_argument("--queue-url", type=str, default=os.getenv("POST_FLOP_QUEUE_URL"))
-    ap.add_argument("--dlq-url",   type=str, default=os.getenv("POST_FLOP_DLQ_URL"))
-    ap.add_argument("--region",    type=str, default=REGION)
-    ap.add_argument("--batch-size", type=int, default=1)
-    ap.add_argument("--threads",    type=int, default=1)
-    ap.add_argument("--post-upload-sleep", type=float, default=10,
-                    help="Seconds to sleep after a verified upload (base, jitter applied)")
-    args = ap.parse_args()
-
-    # allow runtime override of sleep
-    global POST_UPLOAD_SLEEP
-    POST_UPLOAD_SLEEP = float(args.post_upload_sleep)
-
     worker = SQSWorker(
         handler=handle_message,
-        max_threads=args.threads,
-        batch_size=args.batch_size,
-        region=args.region,
-        queue_url=args.queue_url,
-        dlq_url=args.dlq_url,
+        queue_url=os.getenv("POSTFLOP_QUEUE_URL"),
+        dlq_url=os.getenv("POSTFLOP_DLQ_URL"),
+        region=AWS_REGION,
+        batch_size=1,
+        max_threads=1,
     )
     worker.run()
+
 
 if __name__ == "__main__":
     main()
