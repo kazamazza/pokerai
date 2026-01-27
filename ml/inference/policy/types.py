@@ -12,17 +12,16 @@ Street = Literal[0, 1, 2, 3]  # 0=pre, 1=flop, 2=turn, 3=river
 
 @dataclass
 class StackChangeEvent:
-    """Raw stack delta captured by the orchestrator (no semantics)."""
-    tick: int                         # monotonic per hand (0,1,2,...)
-    when_ms: Optional[int]            # wall clock (optional)
+    tick: int
+    when_ms: Optional[int]
     street: Street
-    player_id: str                    # stable id you already use
-    seat_label: str                   # e.g. "BTN","SB","BB","UTG","HJ","CO"
+    player_id: str
+    seat_label: str
     stack_before_bb: float
     stack_after_bb: float
-    delta_bb: float                   # after - before (typically negative when they put chips in)
-    source: Literal["vision","derived"]
-    conf: Optional[float] = None      # confidence from vision, if available
+    delta_bb: float
+    source: Literal["vision", "derived"]
+    conf: Optional[float] = None
 
 @dataclass
 class PotChangeEvent:

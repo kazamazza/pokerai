@@ -16,118 +16,39 @@ builder:
   parts_s3_prefix_root: ""
   parts_s3_prefix_facing: ""
 
-dataset:
-  parquet: data/datasets/postflop_policy.parquet
-
-  # ---- categorical features
-  # Add role/menu/topology so we don't mix incompatible nodes.
-  cat_features:
-    - hero_pos
-    - ip_pos
-    - oop_pos
-    - ctx
-    - topology           # ✅ ADD (SRP / 3BP / 4BP / LIMP / BVS etc.)
-    - role               # ✅ ADD (AGGRESSOR / CALLER or PFR / DEFENDER)
-    - street
-    - board_cluster_id
-    - bet_sizing_id      # ✅ ADD (menu id / sizing grid id)
-    - stakes_id
-
-  # ---- continuous features
-  cont_features:
-    - pot_bb
-    - stack_bb
-    - size_frac
-    - board_mask_52
-
-  # ---- soft labels (MUST match action vocab + executable menus)
-  # Root actions:
-  #   CHECK, BET_{25,33,50,66,75,125}
-  # Facing actions:
-  #   FOLD, CALL, RAISE_TO_{200,300,450}, ALLIN
-  soft_y_cols:
-    - FOLD
-    - CHECK
-    - CALL
-    - BET_25
-    - BET_33
-    - BET_50
-    - BET_66
-    - BET_75
-    - BET_125
-    - RAISE_TO_200
-    - RAISE_TO_300
-    - RAISE_TO_450
-    - ALLIN
-
-  weight_col: weight
-  strict_canon: true        # ✅ set true for v1 to catch mapping bugs early
-
-  # ---- stratification (critical for stability)
-  stratify_keys:
-    - stakes_id
-    - ctx
-    - topology
-    - role
-    - street
-    - bet_sizing_id
-    - ip_pos
-    - oop_pos
-    - board_cluster_id
-
-  train_frac: 0.80
-
-outputs:
-  s3_key: datasets/rangenet_postflop.parquet
-
-multiway:
-  enable: false
-  max_players: 3
-  default_menu_id: "limped_multi.Any"
-  default_flop_pot_bb: 3.0
-  allow_in_scenarios: true
-
-# Street-aware clustering (matches NL10 stake cfg)
-board_clustering:
-  type: kmeans
-  artifacts:
-    flop:  data/artifacts/board_clusters_kmeans_flop_64.json
-    turn:  data/artifacts/board_clusters_kmeans_turn_128.json
-    river: data/artifacts/board_clusters_kmeans_river_128.json
-  n_clusters:
-    flop: 64
-    turn: 128
-    river: 128
-
 manifest_build:
   include_missing: false
   allow_pair_subs: true
   lookup_max_stack_delta: 200
 
-  sample_pool: 50000
   seed: 42
+  sample_pool: 50000
 
-  # IMPORTANT: street-aware sampling should be handled by the builder.
+  # Streets the builder must generate (looped explicitly)
+  streets: [flop, turn, river]
+
+  # Boards sampled per cluster per street
   boards_per_cluster:
-    flop: 2
-    turn: 2
+    flop:  2
+    turn:  2
     river: 2
 
+  # Deduplication must match dataset column names exactly
   dedup_keys:
     - street
     - ctx
     - topology
     - role
-    - ip_actor
-    - oop_actor
+    - ip_pos
+    - oop_pos
     - effective_stack_bb
     - pot_bb
     - bet_sizing_id
     - board
     - board_cluster_id
-    - stake
+    - stakes_id
 
-  # Role-explicit scenarios (min v1: name + role + ctx + pairs + menus)
+  # Role-explicit scenarios
   scenarios:
     # --- SRP: PFR vs defender ---
     - name: SRP_PFR_IP
@@ -172,7 +93,7 @@ manifest_build:
         - ["CO","SB"]
       bet_menus: ["bvs.Any"]
 
-    # --- 3bet pots: aggressor only (v1) ---
+    # --- 3bet pots ---
     - name: 3BP_AGG_IP
       ctx: VS_3BET
       topology: 3BP
@@ -195,7 +116,7 @@ manifest_build:
         - ["CO","SB"]
       bet_menus: ["3bet_hu.Aggressor_OOP"]
 
-    # --- 4bet pots: aggressor only (v1) ---
+    # --- 4bet pots ---
     - name: 4BP_AGG_IP
       ctx: VS_4BET
       topology: 4BP

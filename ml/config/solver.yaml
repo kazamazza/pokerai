@@ -1,0 +1,127 @@
+# ==========================================================
+# STAKE CONFIG — NL10 (Solver Canonical)
+# Purpose:
+#   - Defines legal bet sizes, raise grids, stacks, and
+#     solver parameters for NL10
+#   - Used by manifest builders & solvers ONLY
+#   - No inference logic, no assumptions
+# ==========================================================
+
+Stakes.NL10:
+
+  # --------------------------------------------------------
+  # Board clustering (street-aware)
+  # --------------------------------------------------------
+  board_clusters:
+    flop:  64
+    turn:  128
+    river: 128
+
+
+  # --------------------------------------------------------
+  # Preflop sizing parameters (absolute bb)
+  # --------------------------------------------------------
+  open_x:
+    UTG: 2.5
+    HJ:  2.5
+    CO:  2.5
+    BTN: 2.5
+    SB:  3.0
+
+  threebet_x:
+    IP:  7.5
+    OOP: 9.0
+
+  fourbet_x: 24.0
+
+
+  # --------------------------------------------------------
+  # Postflop bet menus
+  # Values are fractions of POT at time of action
+  # --------------------------------------------------------
+  bet_menus:
+
+    # --- Single-raised pots ---
+    srp_hu.PFR_IP:
+      flop:  [0.25, 0.50, 0.75]
+      turn:  [0.50, 1.25]
+      river: [0.75, 1.25]
+
+    srp_hu.Caller_OOP:
+      flop:  [0.33]
+      turn:  [0.50]
+      river: [0.75]
+
+    # --- Blind vs steal ---
+    bvs.Any:
+      flop:  [0.25, 0.66]
+      turn:  [0.66, 1.25]
+      river: [0.75, 1.25]
+
+    # --- 3-bet pots ---
+    3bet_hu.Aggressor_IP:
+      flop:  [0.25, 0.66]
+      turn:  [0.66, 1.25]
+      river: [0.75, 1.25]
+
+    3bet_hu.Aggressor_OOP:
+      flop:  [0.25, 0.66]
+      turn:  [0.66, 1.25]
+      river: [0.75, 1.25]
+
+    # --- 4-bet pots ---
+    4bet_hu.Aggressor_IP:
+      flop:  [0.33]
+      turn:  [0.50]
+      river: [0.50]
+
+    4bet_hu.Aggressor_OOP:
+      flop:  [0.33]
+      turn:  [0.50]
+      river: [0.50]
+
+    # --- Limped pots ---
+    limped_single.BB_IP:
+      flop:  [0.33]
+      turn:  [0.50]
+      river: [0.75]
+
+    limped_multi.Any:
+      flop:  [0.33]
+      turn:  [0.50]
+      river: [0.75]
+
+
+  # --------------------------------------------------------
+  # Raise mechanics (postflop)
+  # raise_to = raise_mult * faced_bet
+  # --------------------------------------------------------
+  raise_mult: [2.0, 3.0, 4.5]
+
+
+  # --------------------------------------------------------
+  # All-in gating
+  # Allow all-in actions only when SPR <= threshold
+  # --------------------------------------------------------
+  allin_gate_spr: 2.5
+
+
+  # --------------------------------------------------------
+  # Pot normalization adjustments (safety valve)
+  # --------------------------------------------------------
+  pot_adj:
+    srp:      1.00
+    threebet: 1.00
+    fourbet:  1.00
+
+
+  # --------------------------------------------------------
+  # Effective stack buckets used for solving
+  # --------------------------------------------------------
+  stacks_by_ctx:
+    VS_OPEN:        [25, 60, 100, 150]
+    BLIND_VS_STEAL: [25, 60, 100, 150]
+    VS_3BET:        [25, 60, 100, 150]
+    VS_4BET:        [60, 100, 150]
+    LIMPED_SINGLE:  [25, 60, 100]
+    LIMPED_MULTI:   [25, 60, 100]
