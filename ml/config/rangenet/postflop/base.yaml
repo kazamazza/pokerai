@@ -16,6 +16,50 @@ builder:
   parts_s3_prefix_root: ""
   parts_s3_prefix_facing: ""
 
+dataset_postflop_root:
+  seed: 42
+  x_cols:
+    - solver_version
+    - street
+    - ctx
+    - topology
+    - role
+    - bet_sizing_id
+    - ip_pos
+    - oop_pos
+    - board_cluster_id
+    - pot_bb
+    - effective_stack_bb
+    - size_pct
+  cont_cols: []
+  y_cols: ["CHECK","BET_25","BET_33","BET_50","BET_66","BET_75","BET_125"]
+  weight_col: "weight"
+  valid_col: "valid"
+  min_weight: null
+  stratify_keys: ["street","ctx","board_cluster_id"]
+
+dataset_postflop_facing:
+  seed: 42
+  x_cols:
+    - solver_version
+    - street
+    - ctx
+    - topology
+    - role
+    - bet_sizing_id
+    - ip_pos
+    - oop_pos
+    - board_cluster_id
+    - pot_bb
+    - effective_stack_bb
+    - faced_size_pct
+  cont_cols: []
+  y_cols: ["FOLD","CALL","RAISE_TO_200","RAISE_TO_300","RAISE_TO_450","ALLIN"]
+  weight_col: "weight"
+  valid_col: "valid"
+  min_weight: null
+  stratify_keys: ["street","ctx","board_cluster_id"]
+
 manifest_build:
   include_missing: false
   allow_pair_subs: true
@@ -46,7 +90,7 @@ manifest_build:
     - bet_sizing_id
     - board
     - board_cluster_id
-    - stakes_id
+    - stake
 
   # Role-explicit scenarios
   scenarios:

@@ -1,82 +1,86 @@
+# ml/utils/sidecar.py
+
 from __future__ import annotations
+
+import json
 from pathlib import Path
-import json, time
-from typing import Any, Dict, Optional
+from typing import Sequence, Mapping, Optional, Any, Dict
 
 
-def save_sidecar_json(
-    ckpt_path: str | Path,
-    *,
-    model_name: str,
-    feature_order: list[str],
-    cards: Dict[str, int],
-    id_maps: Dict[str, Dict[Any, int]] | None = None,
-    extra: Dict[str, Any] | None = None,
-) -> Path:
+class ModelSidecarBuilder:
     """
-    Write <checkpoint>.sidecar.json next to the checkpoint.
+    Generic sidecar builder for *all* models (equity, preflop, postflop, etc).
+
+    This class is intentionally boring.
     """
-    ckpt_path = Path(ckpt_path)
-    payload = {
-        "model_name": model_name,
-        "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "feature_order": feature_order,
-        "cards": cards,                # embedding cardinalities per feature
-        "id_maps": id_maps or None,    # optional: raw_value -> id per feature
-    }
-    if extra:
-        payload.update(extra)
-    out = ckpt_path.with_suffix(ckpt_path.suffix + ".sidecar.json")
-    out.write_text(json.dumps(payload, indent=2))
-    return out
 
-DEFAULT_SIDECAR_NAME = "sidecar.json"
+    def __init__(
+        self,
+        *,
+        model_name: str,
+        feature_order: Sequence[str],
+        cont_features: Sequence[str],
+        id_maps: Mapping[str, Mapping[str, int]],
+        action_vocab: Optional[Sequence[str]] = None,
+        cards: Optional[Mapping[str, int]] = None,
+        extras: Optional[Mapping[str, Any]] = None,
+    ):
+        self.model_name = model_name
+        self.feature_order = list(feature_order)
+        self.cont_features = list(cont_features)
+        self.id_maps = {
+            str(k): {str(a): int(b) for a, b in m.items()}
+            for k, m in id_maps.items()
+        }
+        self.action_vocab = list(action_vocab) if action_vocab else None
+        self.cards = {str(k): int(v) for k, v in cards.items()} if cards else None
+        self.extras = dict(extras) if extras else {}
 
-def resolve_sidecar_path(
-    explicit: Optional[str | Path],
-    checkpoint_path: Optional[str | Path] = None,
-    default_name: str = DEFAULT_SIDECAR_NAME,
-) -> Path:
-    """
-    If explicit provided -> Path(explicit).
-    Else if checkpoint provided -> <ckpt_dir>/<default_name>.
-    Else -> raise.
-    """
-    if explicit:
-        p = Path(explicit)
-        if not p.exists():
-            raise FileNotFoundError(f"Sidecar not found at explicit path: {p}")
-        return p
+        self._validate()
 
-    if checkpoint_path:
-        ckpt = Path(checkpoint_path)
-        ckpt_dir = ckpt.parent if ckpt.suffix else ckpt  # allow passing a directory
-        p = ckpt_dir / default_name
-        if not p.exists():
-            raise FileNotFoundError(f"Sidecar not found next to checkpoint: {p}")
-        return p
+    # --------------------------------------------------
+    # Validation (fail fast, once)
+    # --------------------------------------------------
+    def _validate(self) -> None:
+        # board_cluster_id must not be both cat + cont
+        if "board_cluster_id" in self.feature_order and "board_cluster_id" in self.cont_features:
+            raise ValueError("board_cluster_id cannot be both categorical and continuous")
 
-    raise ValueError("resolve_sidecar_path needs either explicit sidecar path or a checkpoint path")
+        if not self.feature_order:
+            raise ValueError("feature_order cannot be empty")
 
-def load_sidecar(path: str | Path) -> Dict[str, Any]:
-    """
-    Load and lightly validate a sidecar JSON produced by training.
-    Expected keys (minimum): feature_order (list[str]), cards (dict[str,int] or similar)
-    Returns the JSON as a dict.
-    """
-    p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"Sidecar missing: {p}")
-    try:
-        data = json.loads(p.read_text())
-    except Exception as e:
-        raise ValueError(f"Failed to parse sidecar JSON at {p}: {e}")
+    # --------------------------------------------------
+    # Build payload
+    # --------------------------------------------------
+    def build(self) -> Dict[str, Any]:
+        sc: Dict[str, Any] = {
+            "model_name": self.model_name,
+            "feature_order": self.feature_order,
+            "cat_feature_order": self.feature_order,  # legacy alias
+            "id_maps": self.id_maps,
+            "cont_features": self.cont_features,
+            "notes": "Categorical features via id_maps; continuous features passed as-is.",
+        }
 
-    # soft validation
-    if "feature_order" not in data or not isinstance(data["feature_order"], list):
-        raise ValueError(f"Sidecar {p} missing 'feature_order' list")
-    if "cards" not in data or not isinstance(data["cards"], dict):
-        # some models might not need 'cards'; keep warning but not fatal if you prefer
-        raise ValueError(f"Sidecar {p} missing 'cards' dict")
+        if self.action_vocab is not None:
+            sc["action_vocab"] = self.action_vocab
 
-    return data
+        if self.cards is not None:
+            sc["cards"] = self.cards
+            sc["card_sizes"] = self.cards  # legacy alias
+
+        if self.extras:
+            sc["extras"] = self.extras
+
+        return sc
+
+    # --------------------------------------------------
+    # Write
+    # --------------------------------------------------
+    def write(self, ckpt_dir: Path | str, filename: str = "sidecar.json") -> Path:
+        ckpt_dir = Path(ckpt_dir)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        path = ckpt_dir / filename
+        path.write_text(json.dumps(self.build(), indent=2))
+        return path
