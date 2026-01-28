@@ -1,25 +1,28 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ml.inference.policy.policy_factory import PolicyInferFactory
-from ml.inference.policy.types import PolicyRequest, PolicyResponse
 
-app = FastAPI()
+from api.routers.health import router as health_router
+from api.routers.policy import router as policy_router
+from api.deps import lifespan, set_runtime
+from ml.infer.runtime.factory import PolicyInferFactory
 
-# Allow Postman or frontend calls
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# Build full dependency tree once at startup
-policy_engine = PolicyInferFactory().create()
+def create_app() -> FastAPI:
+    app = FastAPI(title="Poker Policy API", version="1.0.0", lifespan=lifespan)
 
-@app.post("/policy", response_model=PolicyResponse)
-def infer_policy(req: PolicyRequest):
-    return policy_engine.predict(req)
+    rt = PolicyInferFactory().create()
+    set_runtime(app, rt)
 
-@app.get("/ping")
-def ping():
-    return {"status": "ok"}
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(health_router, prefix="/v1")
+    app.include_router(policy_router, prefix="/v1")
+
+    return app
+
+app = create_app()

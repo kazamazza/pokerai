@@ -16,7 +16,7 @@ sys.path.append(str(ROOT_DIR))
 
 from ml.etl.ev.common import pairs_from_cfg, stakes_id_from_cfg, write_outputs
 from ml.etl.ev.mc import EVMC
-from ml.inference.preflop_legal_action_generator import PreflopLegalActionGenerator
+from ml.infer.preflop_legal_action_generator import PreflopLegalActionGenerator
 from ml.utils.config import load_model_config
 from ml.etl.ev.sampling import sample_random_hand_excluding
 from ml.features.hands import hand169_id_from_hand_code

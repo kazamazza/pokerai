@@ -5,8 +5,8 @@ from typing import List, Dict, Optional
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
-from ml.inference.context_infer import ContextInferer
-from ml.inference.policy.types import PolicyRequest
+from ml.infer.context_infer import ContextInferer
+from ml.infer.policy.types import PolicyRequest
 
 
 def run_context_inference_tests():

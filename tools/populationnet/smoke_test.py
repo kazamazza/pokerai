@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT_DIR))
 
-from ml.inference.population import PopulationNetInference
+from ml.infer.population import PopulationNetInference
 
 ckpt = "checkpoints/popnet/popnet-11-0.9560.ckpt"
 pop = PopulationNetInference(ckpt)

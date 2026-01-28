@@ -11,7 +11,7 @@ import torch
 ROOT_DIR = Path(__file__).resolve().parents[3]
 sys.path.append(str(ROOT_DIR))
 
-from ml.inference.population import PopulationNetInfer
+from ml.infer.population import PopulationNetInfer
 from ml.models.population_net import PopulationNetLit  # noqa: F401 (loaded by Infer)
 
 
