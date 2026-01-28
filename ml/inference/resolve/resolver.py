@@ -4,7 +4,8 @@ from dataclasses import replace
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Literal, cast
 
-from ml.inference.policy.types import PolicyRequest, StackChangeEvent, PotChangeEvent
+from ml.inference.policy.types import PolicyRequest
+from ml.inference.types.observed_request import StackChangeEvent, PotChangeEvent
 from ml.inference.types.resolved_state import ResolvedState, Topology, Ctx, Role, Street, NodeType
 
 

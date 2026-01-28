@@ -1,8 +1,9 @@
 import pytest
 
-from ml.inference.policy.types import PolicyRequest, StackChangeEvent
+from ml.inference.policy.types import PolicyRequest
 from ml.inference.resolve.resolver import ResolvedStateResolver
 from ml.inference.builder_context.factory import BuilderContextFactory
+from ml.inference.types.observed_request import StackChangeEvent
 
 
 def e(tick, street, pid, seat, delta_bb, before=100.0):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
-from ml.inference.policy.types import StackChangeEvent, PotChangeEvent, StreetTransition
+from ml.inference.types.observed_request import StackChangeEvent, PotChangeEvent, StreetTransition
 
 Street = Literal[0, 1, 2, 3]
 NodeType = Literal["ROOT", "FACING"]

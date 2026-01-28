@@ -1,1 +1,0 @@
-HAND_COUNT = 169

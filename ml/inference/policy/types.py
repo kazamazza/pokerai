@@ -10,37 +10,6 @@ _POSITION_ORDER_POST = ["SB", "BB", "UTG", "MP", "CO", "BTN"]
 
 Street = Literal[0, 1, 2, 3]  # 0=pre, 1=flop, 2=turn, 3=river
 
-@dataclass
-class StackChangeEvent:
-    tick: int
-    when_ms: Optional[int]
-    street: Street
-    player_id: str
-    seat_label: str
-    stack_before_bb: float
-    stack_after_bb: float
-    delta_bb: float
-    source: Literal["vision", "derived"]
-    conf: Optional[float] = None
-
-@dataclass
-class PotChangeEvent:
-    """Optional but very handy for inference sanity checks."""
-    tick: int
-    when_ms: Optional[int]
-    street: Street
-    pot_before_bb: float
-    pot_after_bb: float
-    delta_bb: float
-    source: Literal["vision","derived"]
-
-@dataclass
-class StreetTransition:
-    """Marks when we saw the street advance (e.g., new board card)."""
-    to_street: Street                 # 1,2,3 when entering flop/turn/river
-    tick: int
-    when_ms: Optional[int]
-    reason: Literal["card_seen","timer","inferred"] = "card_seen"
 
 @dataclass
 class PolicyRequest:

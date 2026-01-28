@@ -7,8 +7,9 @@
 import pytest
 from typing import List, Optional
 
-from ml.inference.policy.types import PolicyRequest, StackChangeEvent, PotChangeEvent, StreetTransition
+from ml.inference.policy.types import PolicyRequest
 from ml.inference.resolve.resolver import ResolvedStateResolver
+from ml.inference.types.observed_request import StackChangeEvent, PotChangeEvent
 
 
 # -------------------------
