@@ -288,4 +288,3 @@ def is_raise_like(up: str) -> bool:
 
 def is_allin_like(up: str) -> bool:
     return any(a in up for a in ALLIN_ALIASES)
-
