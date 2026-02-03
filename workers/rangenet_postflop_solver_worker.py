@@ -5,12 +5,20 @@ import os
 import random
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
+
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT_DIR))
+
+load_dotenv()
 
 import boto3
 from botocore.config import Config
@@ -21,6 +29,14 @@ from ml.etl.utils.monker_range_converter import to_monker  # keep (vendor tolera
 from infra.utils.gzip_file import gzip_file               # keep (trusted small util)
 
 
+from typing import Dict, List, Literal, Optional, Union, TypedDict
+
+Street = Literal["flop", "turn", "river"]
+Role = Literal["ip", "oop"]
+Kind = Literal["donk", "bet", "raise", "allin"]
+
+BetKindMap = Dict[str, Union[List[float], List[int], bool]]   # keep compatible with build_command_text
+BetSizesType = Dict[Street, Dict[Role, BetKindMap]]
 # =========================================================
 # YAML loader (no legacy config helpers)
 # =========================================================
@@ -101,27 +117,37 @@ def _upload_file_with_verify(
 # =========================================================
 OOP_ROOT_KIND = Literal["donk", "bet"]
 
-# If OOP is the *caller*, root action type should be "donk".
-# If OOP is the *aggressor*, root action type should be "bet".
+# Only applies to NON-LIMP postflop trees.
 _BET_SIZING_ID_TO_OOP_ROOT_KIND: Dict[str, OOP_ROOT_KIND] = {
     # SRP
     "srp_hu.PFR_IP": "donk",         # IP was aggressor -> OOP is caller
-    "srp_hu.Caller_OOP": "donk",     # explicitly caller OOP
-    # BVS (open raise, blind defends -> OOP usually caller)
+    "srp_hu.Caller_OOP": "donk",
+
+    # BVS
     "bvs.Any": "donk",
+
     # 3bet
     "3bet_hu.Aggressor_IP": "donk",
     "3bet_hu.Aggressor_OOP": "bet",
+
     # 4bet
     "4bet_hu.Aggressor_IP": "donk",
     "4bet_hu.Aggressor_OOP": "bet",
-    # Limped
-    "limped_single.BB_IP": "donk",   # OOP leads first (treat as donk)
-    "limped_multi.Any": "donk",
+
+    # NOTE: limps intentionally excluded
 }
+
+def is_limp_bet_sizing_id(bet_sizing_id: str) -> bool:
+    k = (bet_sizing_id or "").strip()
+    return k.startswith("limped_single") or k.startswith("limped_multi")
 
 def _oop_root_kind(bet_sizing_id: str) -> OOP_ROOT_KIND:
     k = (bet_sizing_id or "").strip()
+
+    # If you still want limp treated specially elsewhere, just return a default here.
+    if k.startswith("limped_single") or k.startswith("limped_multi"):
+        return "donk"   # or "bet", but doesn't matter if you override menus for limps
+
     return _BET_SIZING_ID_TO_OOP_ROOT_KIND.get(k, "donk")
 
 
@@ -181,40 +207,48 @@ def _build_solver_command_text_for_job(
     size_fr = max(0.0, min(2.0, float(size_pct) / 100.0))
 
     bet_sizing_id = str(params.get("bet_sizing_id") or "")
-    oop_kind = _oop_root_kind(bet_sizing_id)  # donk vs bet
+    limp = is_limp_bet_sizing_id(bet_sizing_id)
 
-    # ranges -> monker format (solver expects these strings)
+    # ranges -> monker format
     range_ip = to_monker(params["range_ip"])
     range_oop = to_monker(params["range_oop"])
 
-    # allow all-in based on YAML spr gate
     enable_allin = _allow_allin(
         pot_bb=pot_bb,
         effective_stack_bb=eff_bb,
         gate_spr=stake_params.allin_gate_spr,
     )
 
-    # solver bet size schema:
-    # - always define both players for the current street
-    # - root actor is OOP in postflop
     sn = _street_name(street)
 
-    # Both roles can bet this single size; OOP root uses donk/bet depending on scenario
-    bet_sizes: Dict[str, Any] = {
-        "flop":  {"ip": {"bet": [], "raise": stake_params.raise_mult, "allin": enable_allin},
-                  "oop": {"donk": [], "bet": [], "raise": stake_params.raise_mult, "allin": enable_allin}},
-        "turn":  {"ip": {"bet": [], "raise": stake_params.raise_mult, "allin": enable_allin},
-                  "oop": {"donk": [], "bet": [], "raise": stake_params.raise_mult, "allin": enable_allin}},
-        "river": {"ip": {"bet": [], "raise": stake_params.raise_mult, "allin": enable_allin},
-                  "oop": {"donk": [], "bet": [], "raise": stake_params.raise_mult, "allin": enable_allin}},
+    bet_sizes: BetSizesType = {
+        "flop": {
+            "ip": {"bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+            "oop": {"donk": [], "bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+        },
+        "turn": {
+            "ip": {"bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+            "oop": {"donk": [], "bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+        },
+        "river": {
+            "ip": {"bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+            "oop": {"donk": [], "bet": [], "raise": list(stake_params.raise_mult), "allin": enable_allin},
+        },
     }
 
-    # Assign the single allowed size at the current street
+    # IP always gets the bet menu size for the job
     bet_sizes[sn]["ip"]["bet"] = [size_fr]
-    if oop_kind == "donk":
-        bet_sizes[sn]["oop"]["donk"] = [size_fr]
+
+    if limp:
+        # ✅ Limp contract: OOP checks first, so DO NOT provide OOP donk/bet sizes at root.
+        # Leaving oop["donk"] and oop["bet"] empty enforces check-only root for OOP.
+        pass
     else:
-        bet_sizes[sn]["oop"]["bet"] = [size_fr]
+        oop_kind = _oop_root_kind(bet_sizing_id)  # donk vs bet
+        if oop_kind == "donk":
+            bet_sizes[sn]["oop"]["donk"] = [size_fr]
+        else:
+            bet_sizes[sn]["oop"]["bet"] = [size_fr]
 
     accuracy = float(params.get("accuracy", 0.02))
     max_iter = int(params.get("max_iter", 4000))
@@ -226,9 +260,9 @@ def _build_solver_command_text_for_job(
         board=board,
         range_ip=range_ip,
         range_oop=range_oop,
-        bet_sizes=bet_sizes,                  # type: ignore[arg-type]
+        bet_sizes=bet_sizes,
         allin_threshold=allin_threshold,
-        thread_num=int(params.get("threads", 1) or 1),
+        thread_num=1,
         accuracy=accuracy,
         max_iteration=max_iter,
         print_interval=20,
@@ -257,6 +291,17 @@ def _require(params: Dict[str, Any], *keys: str) -> None:
     missing = [k for k in keys if k not in params or params[k] in (None, "")]
     if missing:
         raise ValueError(f"job params missing required keys: {missing}")
+
+def _s3_dir_of_key(s3_key: str) -> str:
+    # solver/outputs/.../size=33p/output_result.json.gz -> solver/outputs/.../size=33p
+    return str(s3_key).rsplit("/", 1)[0]
+
+def _upload_json(s3, bucket: str, key: str, obj: dict) -> None:
+    body = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json")
+
+def _upload_text(s3, bucket: str, key: str, text: str) -> None:
+    s3.put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"), ContentType="text/plain")
 
 def handle_job(
     *,
@@ -307,6 +352,32 @@ def handle_job(
 
         print(f"✅ uploaded: s3://{bucket}/{s3_key}")
 
+        solve_dir = _s3_dir_of_key(s3_key)
+
+        # 1) job.json (what was requested)
+        _upload_json(s3, bucket, f"{solve_dir}/job.json", {
+            "sha1": sha1,
+            "s3_key": s3_key,
+            "params": params,
+        })
+
+        # 2) commands.txt (what we executed)
+        _upload_text(s3, bucket, f"{solve_dir}/commands.txt", cmd_text)
+
+        # 3) resolved stake slice (what config we believe was used)
+        # include only the stuff needed to verify LIMP is correct
+        _upload_json(s3, bucket, f"{solve_dir}/stake_params.json", {
+            "stake": getattr(stake_params, "stake_key", None),
+            "raise_mult": getattr(stake_params, "raise_mult", None),
+            "allin_gate_spr": getattr(stake_params, "allin_gate_spr", None),
+            "bet_menus": getattr(stake_params, "bet_menus", None),
+            "solver_profile": {
+                "accuracy": params.get("accuracy"),
+                "max_iter": params.get("max_iter"),
+                "allin_threshold": params.get("allin_threshold"),
+            },
+        })
+
         # cooldown to reduce throttling
         sleep_s = max(0.0, float(post_upload_sleep_s))
         if sleep_s > 0:
@@ -347,6 +418,19 @@ def main():
     ap.add_argument("--post-upload-sleep", type=float, default=float(os.getenv("POST_UPLOAD_SLEEP", "10")))
     ap.add_argument("--post-upload-jitter", type=float, default=float(os.getenv("POST_UPLOAD_JITTER", "0.25")))
 
+    # ✅ NEW: stop conditions (default exits after a few empty polls)
+    ap.add_argument(
+        "--max-empty-polls",
+        type=int,
+        default=int(os.getenv("MAX_EMPTY_POLLS", "3")),
+        help="Exit after this many consecutive empty polls (0 = never exit). Default: 3",
+    )
+    ap.add_argument(
+        "--once",
+        action="store_true",
+        help="Do a single receive_message call and exit (useful for sanity runs)",
+    )
+
     args = ap.parse_args()
 
     if not args.bucket:
@@ -358,12 +442,16 @@ def main():
     s3 = _s3_client(args.region)
     sqs = boto3.client("sqs", region_name=args.region)
 
-    print("✅ worker up",
-          f"queue={args.queue_url}",
-          f"bucket={args.bucket}",
-          f"stake={args.stake_key}",
-          f"threads={args.threads}",
-          sep="\n  ")
+    print(
+        "✅ worker up",
+        f"queue={args.queue_url}",
+        f"bucket={args.bucket}",
+        f"stake={args.stake_key}",
+        f"threads={args.threads}",
+        f"max_empty_polls={args.max_empty_polls}",
+        f"once={args.once}",
+        sep="\n  ",
+    )
 
     def _process_one(m) -> Tuple[bool, str]:
         body = m["Body"]
@@ -378,6 +466,9 @@ def main():
         )
         return ok, m["ReceiptHandle"]
 
+    # ✅ NEW
+    empty_polls = 0
+
     while True:
         resp = sqs.receive_message(
             QueueUrl=args.queue_url,
@@ -386,8 +477,21 @@ def main():
             VisibilityTimeout=args.visibility_timeout,
         )
         msgs = resp.get("Messages") or []
+
         if not msgs:
+            empty_polls += 1
+
+            if args.once:
+                print("ℹ️ queue empty (once=True) -> exit")
+                return
+
+            if args.max_empty_polls and empty_polls >= args.max_empty_polls:
+                print(f"ℹ️ queue empty for {empty_polls} polls -> exit")
+                return
+
             continue
+
+        empty_polls = 0
 
         if args.threads <= 1 or len(msgs) == 1:
             for m in msgs:

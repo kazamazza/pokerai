@@ -5,8 +5,7 @@ import io
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Literal
-
+from typing import Any, Dict, List, Optional, Tuple, Literal, Iterator
 
 ActionMix = Dict[str, float]
 
@@ -80,25 +79,22 @@ class TexasSolverExtractor:
     def __init__(self) -> None:
         pass
 
-    # ============================================================
-    # Public API
-    # ============================================================
     def extract(
-        self,
-        path: str,
-        *,
-        ctx: str,
-        ip_pos: str,
-        oop_pos: str,
-        board: str,
-        pot_bb: float,
-        stack_bb: float,
-        bet_sizing_id: str,
-        bet_sizes: Optional[List[float]] = None,
-        raise_mults: Optional[List[float]] = None,
-        size_pct: Optional[int] = None,               # requested concrete size (33/50/66/etc)
-        root_actor: str = "oop",                      # "ip" or "oop" (kept for meta)
-        root_bet_kind: RootBetKind = "donk",          # influences label normalization
+            self,
+            path: str,
+            *,
+            ctx: str,
+            ip_pos: str,
+            oop_pos: str,
+            board: str,
+            pot_bb: float,
+            stack_bb: float,
+            bet_sizing_id: str,
+            bet_sizes: Optional[List[float]] = None,
+            raise_mults: Optional[List[float]] = None,
+            size_pct: Optional[int] = None,
+            root_actor: str = "oop",
+            root_bet_kind: RootBetKind = "donk",
     ) -> SolverExtraction:
         ex = SolverExtraction(
             ctx=str(ctx),
@@ -114,53 +110,111 @@ class TexasSolverExtractor:
         ex.meta["root_bet_kind"] = root_bet_kind
         ex.meta["requested_size_pct"] = int(size_pct) if size_pct is not None else None
         ex.meta["raise_mults_in"] = list(raise_mults) if raise_mults is not None else None
+        ex.meta["bet_sizes_in"] = list(bet_sizes) if bet_sizes is not None else None
 
         try:
             payload = self._open_json_any(path)
             if not isinstance(payload, dict) or not payload:
                 return self._fail(ex, "malformed_or_empty_json")
 
-            # Some dumps wrap under "root"
-            root = payload.get("root", payload)
+            # TexasSolver often returns the root node directly; sometimes wraps under "root".
+            root = payload.get("root")
+            if root is None:
+                root = payload
             if not isinstance(root, dict) or not root:
                 return self._fail(ex, "malformed_root")
 
+            # ------------------------------------------------------------
             # 1) Root mix
+            # ------------------------------------------------------------
             root_mix, root_meta = self._read_node_action_mix(root)
             ex.meta["root_meta"] = root_meta
 
-            # Reduce root mix to CHECK + one bet-like label tied to requested size (if provided)
             ex.root_mix = self._canonicalize_root_mix(
                 root_mix,
                 size_pct=size_pct,
                 root_bet_kind=root_bet_kind,
             )
 
-            # 2) Facing
-            bet_node, via_path = self._find_first_bet_node(root)
+            # Useful debug
+            ex.meta["root_children_keys"] = self._children_keys(root)[:40]
+
+            # ------------------------------------------------------------
+            # 1.5) Root-only short-circuit (CRITICAL FIX)
+            # If solver dump exposes no bet actions/edges at root, we cannot have a facing node.
+            # This must be treated as a valid root-only solve (CHECK=100% etc).
+            # ------------------------------------------------------------
+            root_has_bet = self._node_has_bet_menu(root)
+            ex.meta["root_has_bet_menu"] = bool(root_has_bet)
+
+            if not root_has_bet:
+                # Root-only solve. Facing is intentionally absent.
+                ex.meta["root_only"] = True
+                ex.meta["facing_path"] = None
+                ex.facing_mix = None
+                ex.facing_bet_bb = None
+
+                # Still require root to have mass.
+                if self._sum(ex.root_mix) > 1e-12:
+                    ex.root_mix = self._renorm_map(ex.root_mix)
+                    ex.ok = True
+                    return ex
+
+                return self._fail(ex, "root_only_zero_mass")
+
+            # ------------------------------------------------------------
+            # 2) Find node whose strategy is "facing" response
+            # ------------------------------------------------------------
+            is_limp = (str(ctx) == "LIMPED_SINGLE") or str(bet_sizing_id).startswith("limped_single")
+
+            if is_limp:
+                bet_node, via_path = self._find_first_ip_bet_after_oop_check(
+                    root,
+                    size_pct=size_pct,
+                    root_bet_kind=root_bet_kind,
+                )
+                ex.meta["facing_search_mode"] = "limp_ip_bet_after_oop_check"
+            else:
+                bet_node, via_path = self._find_first_bet_node(root)
+                ex.meta["facing_search_mode"] = "default_first_bet_node"
+
             ex.meta["facing_path"] = via_path
 
             if bet_node is None:
-                # It's possible solver tree has no bet node (rare). Root-only still ok if has mass.
-                if self._sum(ex.root_mix) > 1e-12:
-                    ex.ok = True
-                    return ex
-                return self._fail(ex, "no_bet_node")
+                # If we got here, root_has_bet_menu=True, so a facing node *should* exist.
+                # But sometimes the pathfinder misses it; treat this as extractor failure (not root-only).
+                return self._fail(ex, "no_bet_node_found")
 
-            # resolve facing bet size in BB
+            # Optional debug: what actions appear at the facing node
+            try:
+                tmp_mix, tmp_meta = self._read_node_action_mix(bet_node)
+                ex.meta["facing_node_action_keys"] = list(tmp_mix.keys())[:40] if isinstance(tmp_mix, dict) else []
+                ex.meta["facing_node_meta"] = tmp_meta
+            except Exception as _e:
+                ex.meta["facing_node_probe_err"] = f"{type(_e).__name__}:{_e}"
+
+            # ------------------------------------------------------------
+            # 3) Resolve facing bet size in BB
+            # ------------------------------------------------------------
             ex.facing_bet_bb, fb_meta = self._resolve_facing_bet_bb(
                 pot_bb=ex.pot_bb,
                 size_pct=size_pct,
                 via_path=via_path,
             )
             ex.meta["facing_bet_meta"] = fb_meta
+
             if ex.facing_bet_bb is None or ex.facing_bet_bb <= 0:
                 return self._fail(ex, "facing_size_unresolved")
 
+            # ------------------------------------------------------------
+            # 4) Facing mix + canonicalize
+            # ------------------------------------------------------------
             facing_mix, facing_meta = self._read_node_action_mix(bet_node)
             ex.meta["facing_meta"] = facing_meta
 
-            # Filter facing to FOLD/CALL/RAISE-like/ALLIN, keeping labels solver-native
+            raw_mass = self._sum(facing_mix) if isinstance(facing_mix, dict) else 0.0
+            ex.meta["facing_raw_mass"] = float(raw_mass)
+
             ex.facing_mix = self._canonicalize_facing_mix(
                 facing_mix,
                 pot_bb=ex.pot_bb,
@@ -169,7 +223,14 @@ class TexasSolverExtractor:
                 raise_mults=raise_mults,
             )
 
-            # 3) Validate minimal contract
+            if (self._sum(ex.facing_mix) <= 1e-12) and (raw_mass > 1e-12):
+                ex.meta["facing_raw_mix"] = facing_mix
+                ex.meta["facing_raw_meta"] = facing_meta
+                return self._fail(ex, "facing_canonicalized_empty_but_raw_nonzero")
+
+            # ------------------------------------------------------------
+            # 5) Renorm + minimal contract
+            # ------------------------------------------------------------
             if self._sum(ex.root_mix) > 1e-12:
                 ex.root_mix = self._renorm_map(ex.root_mix)
             if self._sum(ex.facing_mix) > 1e-12:
@@ -183,6 +244,25 @@ class TexasSolverExtractor:
 
         except Exception as e:
             return self._fail(ex, f"exception:{type(e).__name__}:{e}")
+
+    def _node_has_bet_menu(self, node: dict) -> bool:
+        # actions list (solver often repeats this)
+        acts = node.get("actions")
+        if isinstance(acts, list):
+            for a in acts:
+                s = str(a).upper()
+                if "BET" in s or s.startswith("B"):
+                    return True
+
+        # children edges (your dumps use 'childrens' dict)
+        ch = node.get("childrens")
+        if isinstance(ch, dict):
+            for a in ch.keys():
+                s = str(a).upper()
+                if "BET" in s or s.startswith("B"):
+                    return True
+
+        return False
 
     # ============================================================
     # Root canonicalization (no hard vocab)
@@ -346,6 +426,7 @@ class TexasSolverExtractor:
             pass
 
         return out
+
 
     def _normalize_raise_mults(self, raise_mults: Optional[List[float]]) -> List[float]:
         """
@@ -702,3 +783,219 @@ class TexasSolverExtractor:
         ex.ok = False
         ex.reason = reason
         return ex
+
+    def _iter_children(self, node: dict):
+        """
+        Yield (action_label, child_node) across TexasSolver dump shapes.
+
+        Supports:
+          - node["children"] as dict[action->node]
+          - node["childrens"] as list aligned with node["actions"]
+          - node["childrens"] as dict keyed by:
+              * action label ("CHECK")
+              * index ("0"/0)
+              * single-entry dict (only child)
+          - fallback list-of-branches
+        """
+        if not isinstance(node, dict):
+            return
+
+        # 1) Classic dict children
+        ch = node.get("children")
+        if isinstance(ch, dict):
+            for a, sub in ch.items():
+                if isinstance(sub, dict):
+                    yield str(a), sub
+            return
+
+        actions = node.get("actions")
+        childrens = node.get("childrens")
+
+        # 2) TexasSolver parallel lists: actions[i] corresponds to childrens[i]
+        if isinstance(actions, list) and isinstance(childrens, list) and len(actions) == len(childrens):
+            for a, sub in zip(actions, childrens):
+                if isinstance(sub, dict):
+                    yield str(a), sub
+            return
+
+        # 3) TexasSolver childrens as dict
+        if isinstance(actions, list) and isinstance(childrens, dict) and actions:
+            # (a) keyed by action label
+            for a in actions:
+                if a in childrens and isinstance(childrens[a], dict):
+                    yield str(a), childrens[a]
+            # if we found any via labels, we're done
+            # (important: don't fall through and duplicate)
+            found = any(a in childrens for a in actions)
+            if found:
+                return
+
+            # (b) keyed by index: 0, "0", 1, "1", ...
+            for i, a in enumerate(actions):
+                if i in childrens and isinstance(childrens[i], dict):
+                    yield str(a), childrens[i]
+                elif str(i) in childrens and isinstance(childrens[str(i)], dict):
+                    yield str(a), childrens[str(i)]
+            # if we found any via index, we're done
+            found_i = any((i in childrens or str(i) in childrens) for i in range(len(actions)))
+            if found_i:
+                return
+
+            # (c) single child dict + single action: assume it matches
+            if len(actions) == 1 and len(childrens) == 1:
+                only_child = next(iter(childrens.values()))
+                if isinstance(only_child, dict):
+                    yield str(actions[0]), only_child
+                return
+
+        # 4) fallback list-of-branches style
+        for k in ("child", "branches", "next"):
+            ch2 = node.get(k)
+            if isinstance(ch2, list):
+                for it in ch2:
+                    if not isinstance(it, dict):
+                        continue
+                    a = it.get("action") or it.get("label") or it.get("move")
+                    sub = it.get("node") or it.get("child") or it.get("next")
+                    if a is not None and isinstance(sub, dict):
+                        yield str(a), sub
+                return
+
+    def _children_keys(self, node: dict) -> List[str]:
+        return [a for a, _ in self._iter_children(node)]
+
+    def _find_child_by_action_label(self, node: dict, *, want: str) -> Tuple[Optional[dict], List[str]]:
+        """
+        Exact match first; then substring fallback.
+        """
+        w = str(want).strip().upper()
+
+        for a, child in self._iter_children(node):
+            if str(a).strip().upper() == w:
+                return child, [str(a)]
+
+        # fallback: substring (useful if solver labels are e.g. "CHECK " / "Check")
+        for a, child in self._iter_children(node):
+            au = str(a).strip().upper()
+            if w in au:
+                return child, [str(a)]
+
+        return None, []
+
+    def _parse_bet_size_frac_from_label(self, label: str) -> Optional[float]:
+        """
+        Extract a bet sizing fraction from label.
+        Handles:
+          "BET 33%", "BET 0.33", "BET(0.33)", "BET_33", "B33"
+        Returns fraction in (0..2] if found.
+        """
+        s = str(label).strip().upper()
+        if ("BET" not in s) and (not s.startswith("B")):
+            return None
+
+        # percent
+        m = re.search(r"(\d+(?:\.\d+)?)\s*%", s)
+        if m:
+            pct = float(m.group(1))
+            return pct / 100.0
+
+        # decimal fraction
+        m = re.search(r"(\d+\.\d+)", s)
+        if m:
+            fr = float(m.group(1))
+            if 0.0 < fr <= 2.0:
+                return fr
+
+        # integer token
+        m = re.search(r"\b(\d{1,3})\b", s)
+        if m:
+            pct = float(m.group(1))
+            if 1 <= pct <= 200:
+                return pct / 100.0
+
+        return None
+
+    def _pick_bet_child_for_size(self, node: dict, *, size_pct: Optional[int]) -> Tuple[Optional[str], Optional[dict]]:
+        """
+        From a decision node, pick the bet child closest to requested size_pct.
+        If size_pct is None -> first bet-like child.
+        """
+        target = (float(size_pct) / 100.0) if size_pct is not None else None
+
+        best: Optional[Tuple[float, str, dict]] = None  # (abs_diff, action, child)
+
+        for a, child in self._iter_children(node):
+            fr = self._parse_bet_size_frac_from_label(a)
+            if fr is None:
+                continue
+
+            if target is None:
+                return str(a), child
+
+            d = abs(fr - target)
+            if best is None or d < best[0]:
+                best = (d, str(a), child)
+
+        if best is None:
+            return None, None
+        return best[1], best[2]
+
+    def _find_first_ip_bet_after_oop_check(
+            self,
+            root: dict,
+            *,
+            size_pct: Optional[int],
+            root_bet_kind: RootBetKind,
+    ):
+        """
+        TexasSolver limped pots use SAME NODE with player switching.
+        There is no structural child after CHECK.
+        """
+
+        # Root is OOP decision
+        # After CHECK, IP acts on the SAME node
+        # After BET, OOP responds on SAME node
+
+        # Validate this is an OOP node
+        if root.get("player") is None:
+            return None, []
+
+        # We expect IP actions to exist on the same node
+        actions = root.get("actions", [])
+        if not isinstance(actions, list):
+            return None, []
+
+        # Look for a BET action directly
+        bet_action = None
+        for a in actions:
+            if "BET" in str(a).upper():
+                if size_pct is None or str(size_pct) in str(a):
+                    bet_action = a
+                    break
+
+        if bet_action is None:
+            return None, []
+
+        # The facing node is STILL the same node
+        return root, ["CHECK", str(bet_action)]
+
+    def _dbg_node(self, node_id: str, node: dict, *, label: str) -> None:
+        print(f"\n--- {label} ---")
+        print("node_id:", node_id)
+        print("actor:", node.get("actor") or node.get("player") or node.get("to_act"))
+        acts = node.get("actions") or node.get("children") or node.get("action_list")
+        if isinstance(acts, dict):
+            print("actions(dict keys):", list(acts.keys())[:30])
+        elif isinstance(acts, list):
+            print("actions(list):", acts[:30])
+        else:
+            print("actions(raw):", str(acts)[:200])
+
+        strat = node.get("strategy") or node.get("probs") or node.get("freqs")
+        if isinstance(strat, list):
+            print("strategy(list) len:", len(strat), "sum:", sum(float(x) for x in strat if x is not None))
+        elif isinstance(strat, dict):
+            s = sum(float(v) for v in strat.values() if v is not None)
+            print("strategy(dict) keys:", list(strat.keys())[:30], "sum:", s)
+        else:
+            print("strategy(raw):", type(strat).__name__)

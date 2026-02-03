@@ -46,8 +46,10 @@ def build_command_text(
                 for kind in ("donk", "bet", "raise"):
                     sizes = kinds.get(kind) or []
                     if isinstance(sizes, list) and len(sizes) > 0:
-                        # Convert fractional bets (0.33) → percent (33)
-                        size_csv = ",".join(f"{s * 100:.0f}" for s in sizes)
+                        if kind in ("bet", "donk"):
+                            size_csv = ",".join(f"{s * 100:.0f}" for s in sizes)  # fractions -> %
+                        else:
+                            size_csv = ",".join(_fmt_num(float(s)) for s in sizes)  # multipliers stay multipliers
                         lines.append(f"set_bet_sizes {role},{street},{kind},{size_csv}")
                 # all-in toggle
                 if kinds.get("allin"):
